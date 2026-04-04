@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SnoozeGuard | Drowsiness Alert</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;700;800&amp;family=Inter:wght@400;500;600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "background": "#0b1326",
+                        "on-tertiary-container": "#eb4141",
+                        "surface-bright": "#31394d",
+                        "on-error": "#690005",
+                        "on-surface-variant": "#c6c6cd",
+                        "on-surface": "#dae2fd",
+                        "on-primary-fixed": "#001e2c",
+                        "on-primary": "#00354a",
+                        "surface-container-low": "#131b2e",
+                        "inverse-on-surface": "#283044",
+                        "on-secondary-container": "#5b3800",
+                        "on-tertiary-fixed-variant": "#930013",
+                        "error": "#ffb4ab",
+                        "inverse-primary": "#00668a",
+                        "tertiary-fixed": "#ffdad7",
+                        "surface-dim": "#0b1326",
+                        "primary-container": "#001a27",
+                        "on-secondary": "#472a00",
+                        "inverse-surface": "#dae2fd",
+                        "on-tertiary-fixed": "#410004",
+                        "on-background": "#dae2fd",
+                        "primary-fixed-dim": "#7bd0ff",
+                        "surface": "#0b1326",
+                        "secondary": "#ffb95f",
+                        "primary": "#7bd0ff",
+                        "surface-container-lowest": "#060e20",
+                        "tertiary": "#ffb3ad",
+                        "on-primary-fixed-variant": "#004c69",
+                        "surface-variant": "#2d3449",
+                        "on-error-container": "#ffdad6",
+                        "surface-container": "#171f33",
+                        "on-secondary-fixed-variant": "#653e00",
+                        "secondary-fixed-dim": "#ffb95f",
+                        "tertiary-fixed-dim": "#ffb3ad",
+                        "surface-container-highest": "#2d3449",
+                        "surface-container-high": "#222a3d",
+                        "on-tertiary": "#68000a",
+                        "outline-variant": "#45464d",
+                        "outline": "#909097",
+                        "secondary-fixed": "#ffddb8",
+                        "primary-fixed": "#c4e7ff",
+                        "on-secondary-fixed": "#2a1700",
+                        "error-container": "#93000a",
+                        "secondary-container": "#ee9800",
+                        "surface-tint": "#7bd0ff",
+                        "on-primary-container": "#008abb",
+                        "tertiary-container": "#390003"
+                    },
+                    fontFamily: {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 48;
+        }
+        .pulse-caution {
+            animation: pulse-caution 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse-caution {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.8; transform: scale(1.05); }
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background font-body min-h-screen overflow-hidden">
+<!-- Top Navigation Anchor (Suppressed in Shell Logic for Focus, but here for context if needed by JSON) -->
+<!-- The prompt requires a full-screen alert overlay which suppresses global nav shells -->
+<main class="relative min-h-screen flex flex-col justify-center items-center p-6 md:p-12">
+<!-- Background Atmospheric Layer -->
+<div class="absolute inset-0 z-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-tertiary-container/40 via-background to-background"></div>
+<!-- Blurred Map Context (Decorative background for alert depth) -->
+<div class="absolute inset-0 z-0 opacity-20 filter blur-xl">
+<img class="w-full h-full object-cover" data-alt="blurred night time city map with glowing street lights and dark navy roads" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD1CshC8KcD7_jHYCrapMo0D_SpT5nfmxiPzJkEPzAavAhTppnAdS0MRezIW59WJAxDzUcVf3JlUbvgtbOiF7yyrJTSn8wm3TKQ0Xv7HfzFWOu3npQsXy-rdYItzB8Rwx3428WBFh5998Ubf7pAQnE4Umjhxz0qGt8jVHMiMpaK__k_8ZkO0czwxBinh-QKyOzfuZbH_FctE2_EvxsmaFsKk0OYbBDvDtOUBTNilvyVVF8X9BLl338X24LMvBkphYfesMDaRb_7u4c"/>
+</div>
+<!-- Alert Content Canvas -->
+<div class="relative z-10 w-full max-w-4xl flex flex-col items-center text-center">
+<!-- Vigilant Iconography -->
+<div class="mb-8 md:mb-12">
+<div class="inline-flex items-center justify-center w-24 h-24 md:w-32 md:h-32 rounded-full bg-tertiary-container border-4 border-tertiary pulse-caution shadow-[0_0_60px_rgba(255,179,173,0.3)]">
+<span class="material-symbols-outlined text-tertiary text-6xl md:text-7xl" data-icon="warning" style="font-variation-settings: 'FILL' 1;">warning</span>
+</div>
+</div>
+<!-- Massive Urgency Headline -->
+<div class="space-y-4 md:space-y-6">
+<h1 class="font-headline font-black text-5xl md:text-7xl lg:text-8xl text-tertiary tracking-tighter leading-none">
+                    DROWSINESS DETECTED!
+                </h1>
+<p class="font-headline font-bold text-2xl md:text-4xl text-on-surface uppercase tracking-widest bg-surface-container-high/60 backdrop-blur-md px-8 py-3 rounded-2xl inline-block">
+                    PULL OVER IMMEDIATELY
+                </p>
+</div>
+<!-- Contextual Information (High Contrast) -->
+<div class="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-2xl">
+<div class="bg-surface-container-low/80 backdrop-blur-xl p-6 rounded-3xl border border-outline-variant/15 flex flex-col items-center">
+<span class="text-on-surface-variant font-label uppercase tracking-widest text-xs mb-2">Confidence Level</span>
+<span class="font-headline text-3xl font-extrabold text-secondary">94% High Risk</span>
+</div>
+<div class="bg-surface-container-low/80 backdrop-blur-xl p-6 rounded-3xl border border-outline-variant/15 flex flex-col items-center">
+<span class="text-on-surface-variant font-label uppercase tracking-widest text-xs mb-2">Fatigue Metric</span>
+<span class="font-headline text-3xl font-extrabold text-tertiary">Level 8 — Critical</span>
+</div>
+</div>
+<!-- Primary Actions (The Pulse) -->
+<div class="mt-16 md:mt-24 flex flex-col md:flex-row gap-6 w-full max-w-3xl">
+<!-- Secondary Action: Acknowledge -->
+<button class="flex-1 group bg-surface-bright hover:bg-surface-container-highest active:scale-95 transition-all duration-200 py-6 px-8 rounded-3xl flex items-center justify-center gap-4">
+<span class="material-symbols-outlined text-on-surface text-3xl" data-icon="check_circle">check_circle</span>
+<div class="text-left">
+<span class="block text-xs uppercase tracking-widest text-on-surface-variant font-label">Dismiss Alert</span>
+<span class="block text-xl font-headline font-bold text-on-surface">I AM ALERT</span>
+</div>
+</button>
+<!-- Primary Action: Navigate to Safety -->
+<button class="flex-[1.5] group bg-secondary-container hover:bg-secondary active:scale-95 transition-all duration-200 py-6 px-10 rounded-3xl flex items-center justify-center gap-4 shadow-[0_20px_40px_-10px_rgba(238,152,0,0.4)]">
+<span class="material-symbols-outlined text-on-secondary-container text-4xl" data-icon="local_parking" style="font-variation-settings: 'FILL' 1;">local_parking</span>
+<div class="text-left">
+<span class="block text-xs uppercase tracking-widest text-on-secondary-container/80 font-label">Safety Route</span>
+<span class="block text-2xl font-headline font-extrabold text-on-secondary-container">NEAREST REST STOP</span>
+</div>
+</button>
+</div>
+</div>
+<!-- System Status Bar (Bottom Sheet Style) -->
+<div class="absolute bottom-10 left-1/2 -translate-x-1/2 w-full px-6 flex justify-center pointer-events-none">
+<div class="bg-surface-container-highest/40 backdrop-blur-2xl px-6 py-3 rounded-full flex items-center gap-6 border border-outline-variant/10">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-error animate-pulse"></div>
+<span class="text-xs font-label uppercase tracking-widest text-on-surface-variant">Audio Alarm Active</span>
+</div>
+<div class="w-px h-4 bg-outline-variant/20"></div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-xs text-on-surface-variant" data-icon="haptic_feedback">feedback</span>
+<span class="text-xs font-label uppercase tracking-widest text-on-surface-variant">Vibration / IoT buzzer</span>
+</div>
+<div class="w-px h-4 bg-outline-variant/20"></div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-xs text-on-surface-variant" data-icon="flashlight_on">flashlight_on</span>
+<span class="text-xs font-label uppercase tracking-widest text-on-surface-variant">Flashlight On</span>
+</div>
+</div>
+</div>
+</main>
+<!-- Overlay "Red/Amber Flash" Peripheral Indicators -->
+<div class="fixed inset-y-0 left-0 w-2 bg-gradient-to-r from-tertiary to-transparent opacity-40 z-50"></div>
+<div class="fixed inset-y-0 right-0 w-2 bg-gradient-to-l from-tertiary to-transparent opacity-40 z-50"></div>
+<div class="fixed inset-x-0 top-0 h-2 bg-gradient-to-b from-tertiary to-transparent opacity-40 z-50"></div>
+<div class="fixed inset-x-0 bottom-0 h-2 bg-gradient-to-t from-tertiary to-transparent opacity-40 z-50"></div>
+</body></html>
