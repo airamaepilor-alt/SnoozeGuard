@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
@@ -37,21 +38,38 @@ type DashboardRpcPayload = {
   samples_7d_trail?: number;
   total_drive_seconds?: number;
   focus_score?: number | null;
-  peak_hour_utc?: number | null;
+  peak_hour?: number | null;
   peak_hour_sample_count?: number | null;
-  safest_hour_utc?: number | null;
+  safest_hour?: number | null;
   safest_hour_avg_drowsiness?: number | null;
-  caution_hour_utc?: number | null;
+  caution_hour?: number | null;
   caution_hour_avg_drowsiness?: number | null;
-  histogram_utc_hours?: unknown;
+  histogram_hours?: unknown;
+  /** Minutes east of UTC used for hour buckets (matches `-new Date().getTimezoneOffset()`). */
+  tz_offset_minutes_applied?: number | null;
 };
+
+function dashboardFirstName(u: User | null): string {
+  if (!u) return "Driver";
+  const fn = u.user_metadata?.full_name;
+  if (typeof fn === "string" && fn.trim()) return fn.trim().split(/\s+/)[0] ?? "Driver";
+  const local = u.email?.split("@")[0];
+  return local ? local.charAt(0).toUpperCase() + local.slice(1) : "Driver";
+}
+
+function timeGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</p>
-      <p className="mt-1 text-2xl font-bold text-white">{value}</p>
-      {hint ? <p className="mt-1 text-xs text-zinc-500">{hint}</p> : null}
+    <div className="rounded-xl border border-outline-variant/15 bg-surface-container-low/80 p-3 sm:p-4">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">{label}</p>
+      <p className="mt-1 font-headline text-lg font-bold text-on-surface sm:text-xl">{value}</p>
+      {hint ? <p className="mt-1 text-[10px] text-on-surface-variant/80">{hint}</p> : null}
     </div>
   );
 }
@@ -129,7 +147,7 @@ function metricsFromClientTelemetry(telemetry: TelemetryLite[]) {
 }
 
 function metricsFromRpc(rpc: DashboardRpcPayload) {
-  const hours = parseHistogramUtc(rpc.histogram_utc_hours);
+  const hours = parseHistogramUtc(rpc.histogram_hours);
   let peakHour = 0;
   let peakC = 0;
   hours.forEach((c, i) => {
@@ -161,7 +179,7 @@ function MiniHistogram({ counts }: { counts: number[] }) {
   const h = 80;
   const barW = w / 24;
   return (
-    <svg width="100%" viewBox={`0 0 ${w} ${h}`} className="text-sky-500" aria-label="Samples by hour">
+    <svg width="100%" viewBox={`0 0 ${w} ${h}`} className="text-primary" aria-label="Samples by hour">
       {counts.map((c, i) => {
         const bh = (c / max) * (h - 8);
         return (
@@ -188,9 +206,9 @@ function formatDriveDuration(totalSec: number) {
   return `${m} min`;
 }
 
-function utcHourLabel(h: number | null | undefined) {
+function localHourLabel(h: number | null | undefined) {
   if (h == null || Number.isNaN(h)) return "—";
-  return `${h}:00 UTC`;
+  return `${h}:00 (device local)`;
 }
 
 export function DashboardPage() {
@@ -211,7 +229,11 @@ export function DashboardPage() {
     (async () => {
       if (online) await flushOutbox(supabase, user.id);
 
-      const { data: rpcRaw, error: rpcErr } = await supabase.rpc("user_dashboard_metrics", { p_session_limit: 40 });
+      const tzOffset = -new Date().getTimezoneOffset();
+      const { data: rpcRaw, error: rpcErr } = await supabase.rpc("user_dashboard_metrics", {
+        p_session_limit: 40,
+        p_tz_offset_minutes: tzOffset,
+      });
       const rpcParsed = rpcRaw as DashboardRpcPayload | null;
       const rpcOk = !rpcErr && rpcParsed?.ok === true;
       if (!cancelled) {
@@ -280,163 +302,216 @@ export function DashboardPage() {
   }, [rpcMetrics, telemetry]);
 
   const sessionCountTotal = rpcMetrics?.session_count_total ?? clientSessionCount;
-  const hasChart = rpcMetrics ? parseHistogramUtc(rpcMetrics.histogram_utc_hours).some((n) => n > 0) : telemetry.length > 0;
+  const hasChart = rpcMetrics
+    ? parseHistogramUtc(rpcMetrics.histogram_hours).some((n) => n > 0)
+    : telemetry.length > 0;
+
+  const firstName = useMemo(() => dashboardFirstName(user), [user]);
+  const focusDisplay = metrics.safeScore != null ? `${metrics.safeScore}` : "—";
+  const readyLabel =
+    metrics.safeScore != null && metrics.safeScore >= 70 ? "Ready" : metrics.safeScore != null ? "Monitor" : "…";
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        <p className="text-zinc-400">
+    <div className="mx-auto max-w-lg space-y-10 lg:max-w-5xl">
+      <div className="flex flex-col items-center text-center lg:max-w-lg lg:items-start lg:text-left">
+        <div className="relative mb-6">
+          <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-primary/25 bg-primary-container sg-status-pulse">
+            <span className="material-symbols-outlined text-4xl text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>
+              shield_with_heart
+            </span>
+          </div>
+          <div className="absolute -bottom-2 -right-2 rounded-full bg-primary px-3 py-1 font-headline text-[10px] font-bold uppercase tracking-widest text-primary-container">
+            {readyLabel}
+          </div>
+        </div>
+        <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-on-surface-variant">Vigilance system active</p>
+        <h1 className="font-headline text-3xl font-extrabold leading-tight text-on-surface">
+          {timeGreeting()}, <span className="text-primary">{firstName}</span>
+        </h1>
+        <p className="mt-3 text-sm text-on-surface-variant">
           {rpcMetrics ? (
             <>
-              Overview metrics are computed on <strong className="text-zinc-300">Supabase</strong> via{" "}
-              <code className="text-zinc-500">user_dashboard_metrics</code> (latest 40 sessions). Histogram hours are{" "}
-              <strong className="text-zinc-300">UTC</strong>—compare to your local timezone.
+              Metrics from <strong className="text-on-surface">Supabase</strong>{" "}
+              <code className="text-primary/80">user_dashboard_metrics</code> (40 sessions, local hour buckets).
             </>
           ) : (
             <>
-              RPC unavailable or migration not applied—using <strong className="text-zinc-300">browser-side</strong> aggregates. Apply{" "}
-              <code className="text-zinc-500">20260404120000_user_dashboard_metrics.sql</code> for server-side analytics at scale.
+              <strong className="text-on-surface">Browser-side</strong> aggregates — apply dashboard RPC migrations for server analytics.
             </>
           )}
         </p>
-        <p className="mt-2 text-xs text-zinc-500">
-          Browser: <span className={online ? "text-emerald-400" : "text-amber-400"}>{online ? "online" : "offline"}</span>
-          {rpcFailed && !rpcMetrics ? <span className="text-amber-300"> · server metrics fallback active</span> : null}
-          {pendingLocal > 0 ? (
-            <span className="text-amber-300"> · {pendingLocal} telemetry sample(s) waiting in IndexedDB</span>
-          ) : null}
+        <p className="mt-2 text-xs text-on-surface-variant/90">
+          <span className={online ? "text-emerald-400" : "text-secondary"}>{online ? "Online" : "Offline"}</span>
+          {rpcFailed && !rpcMetrics ? <span className="text-secondary"> · RPC fallback</span> : null}
+          {pendingLocal > 0 ? <span className="text-secondary"> · {pendingLocal} queued in IndexedDB</span> : null}
         </p>
       </div>
+
       <Link
         to="/drive"
-        className="inline-flex w-full max-w-md items-center justify-center rounded-xl bg-sky-600 py-4 text-lg font-semibold text-white hover:bg-sky-500"
+        className="group flex h-20 w-full max-w-md items-center justify-center gap-4 rounded-xl bg-gradient-to-r from-primary to-on-primary-container shadow-lg shadow-primary/10 transition-all duration-200 active:scale-[0.98] lg:max-w-lg"
       >
-        Start driving
+        <span className="material-symbols-outlined text-3xl text-on-primary transition-transform group-hover:scale-110" style={{ fontVariationSettings: "'FILL' 1" }}>
+          play_circle
+        </span>
+        <span className="font-headline text-xl font-extrabold tracking-tight text-on-primary">Start driving</span>
       </Link>
 
+      <div className="grid grid-cols-2 gap-4 lg:max-w-3xl">
+        <div className="sg-glass-panel relative col-span-2 overflow-hidden rounded-2xl border border-primary/10 p-6">
+          <div className="mb-4 flex justify-between gap-4">
+            <div>
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Focus score (heuristic)</p>
+              <h2 className="font-headline text-5xl font-black text-primary">
+                {focusDisplay}
+                {metrics.safeScore != null ? <span className="text-xl text-on-primary-container">%</span> : null}
+              </h2>
+            </div>
+            <div className="rounded-lg bg-primary/10 p-2">
+              <span className="material-symbols-outlined text-primary">analytics</span>
+            </div>
+          </div>
+          <div className="h-1 w-full overflow-hidden rounded-full bg-surface-container">
+            <div
+              className="h-full bg-primary transition-all duration-500"
+              style={{ width: `${metrics.safeScore != null ? Math.min(100, Math.max(4, metrics.safeScore)) : 8}%` }}
+            />
+          </div>
+          <p className="mt-4 text-xs text-on-surface/60">
+            Based on average drowsiness in your telemetry window. Higher is more alert — tune thresholds in Admin if needed.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-outline-variant/15 bg-surface-container-low p-5">
+          <span className="material-symbols-outlined mb-3 text-secondary" style={{ fontVariationSettings: "'FILL' 1" }}>
+            verified_user
+          </span>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Samples (7d trail)</p>
+          <p className="font-headline text-2xl font-bold text-on-surface">{metrics.samplesWeek}</p>
+          <p className="mt-2 text-[10px] font-bold text-secondary">Telemetry in trailing week</p>
+        </div>
+
+        <div className="rounded-2xl border border-outline-variant/15 bg-surface-container-low p-5">
+          <span className="material-symbols-outlined mb-3 text-tertiary" style={{ fontVariationSettings: "'FILL' 1" }}>
+            warning
+          </span>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Alerts (7 days)</p>
+          <p className="font-headline text-2xl font-bold text-on-surface">{alerts7dCount === null ? "—" : String(alerts7dCount)}</p>
+          <p className="mt-2 text-[10px] font-bold text-tertiary">From alert_events</p>
+        </div>
+
+        <div className="col-span-2 rounded-2xl border border-outline-variant/15 bg-surface-container-high p-5">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Overview (BRD §12)</p>
+          {loading ? (
+            <p className="text-on-surface-variant">Loading…</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <StatCard
+                label="Total sessions"
+                value={sessionCountTotal != null ? String(sessionCountTotal) : "—"}
+                hint="All time"
+              />
+              <StatCard
+                label="Avg drowsiness"
+                value={metrics.avgDrowsy}
+                hint={rpcMetrics ? "Server window" : "Browser window"}
+              />
+              <StatCard label="Yawn Δ sum" value={String(metrics.yawns)} />
+              <StatCard label="Head Δ sum" value={String(metrics.head)} />
+              <StatCard
+                label="L6+ samples"
+                value={`${metrics.l6 + metrics.l7 + metrics.l8}`}
+                hint={`L7+: ${metrics.l7 + metrics.l8} · L8+: ${metrics.l8}`}
+              />
+              <StatCard
+                label="Peak hour"
+                value={metrics.peakC > 0 ? `${metrics.peakHour}:00` : "—"}
+                hint={metrics.peakC > 0 ? `${metrics.peakC} samples` : undefined}
+              />
+            </div>
+          )}
+          <p className="mt-3 text-[10px] text-on-surface-variant">
+            Time-of-day trends: see{" "}
+            <Link to="/history" className="font-bold text-primary hover:underline">
+              History
+            </Link>
+            .
+          </p>
+        </div>
+      </div>
+
       {rpcMetrics && (rpcMetrics.sample_count ?? 0) > 0 ? (
-        <section className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 p-5 md:col-span-1">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400/90">Safe hours insight</p>
-            <p className="mt-2 text-sm leading-relaxed text-zinc-300">
-              Your <strong className="text-zinc-100">lowest average drowsiness</strong> in this window clustered around{" "}
-              <strong className="text-emerald-300">{utcHourLabel(rpcMetrics.safest_hour_utc)}</strong>
+        <section className="grid gap-4 lg:max-w-3xl lg:grid-cols-3">
+          <div className="rounded-2xl border border-emerald-500/25 bg-emerald-950/25 p-5 lg:col-span-1">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-300/90">Safe hours insight</p>
+            <p className="mt-2 text-sm leading-relaxed text-on-surface/90">
+              Lowest avg drowsiness around <strong className="text-emerald-300">{localHourLabel(rpcMetrics.safest_hour)}</strong>
               {rpcMetrics.safest_hour_avg_drowsiness != null ? (
                 <>
                   {" "}
-                  (avg level <span className="font-mono text-zinc-200">{Number(rpcMetrics.safest_hour_avg_drowsiness).toFixed(2)}</span>).
+                  (avg <span className="font-mono">{Number(rpcMetrics.safest_hour_avg_drowsiness).toFixed(2)}</span>).
                 </>
-              ) : null}{" "}
-              If that aligns with your local schedule, similar departure times may feel easier to sustain—still validate with your own sleep data.
+              ) : null}
             </p>
           </div>
-          <div className="rounded-2xl border border-amber-900/50 bg-amber-950/15 p-5 md:col-span-1">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400/90">Higher-load window</p>
-            <p className="mt-2 text-sm leading-relaxed text-zinc-300">
-              The <strong className="text-zinc-100">highest average drowsiness</strong> (where we had enough samples) was around{" "}
-              <strong className="text-amber-300">{utcHourLabel(rpcMetrics.caution_hour_utc)}</strong>
+          <div className="rounded-2xl border border-secondary/30 bg-secondary/5 p-5 lg:col-span-1">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-secondary">Higher-load window</p>
+            <p className="mt-2 text-sm leading-relaxed text-on-surface/90">
+              Highest avg around <strong className="text-secondary">{localHourLabel(rpcMetrics.caution_hour)}</strong>
               {rpcMetrics.caution_hour_avg_drowsiness != null ? (
                 <>
                   {" "}
-                  (avg <span className="font-mono text-zinc-200">{Number(rpcMetrics.caution_hour_avg_drowsiness).toFixed(2)}</span>).
+                  (avg <span className="font-mono">{Number(rpcMetrics.caution_hour_avg_drowsiness).toFixed(2)}</span>).
                 </>
-              ) : null}{" "}
-              Consider planning breaks or handoffs near that part of the day (UTC).
+              ) : null}
             </p>
           </div>
-          <div className="rounded-2xl border border-sky-900/40 bg-[#0b1326]/80 p-5 md:col-span-1">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-sky-400/90">Drive time in window</p>
-            <p className="mt-2 text-3xl font-bold text-white">{formatDriveDuration(Number(rpcMetrics.total_drive_seconds) || 0)}</p>
-            <p className="mt-2 text-xs text-zinc-500">
-              Sum of <code className="text-zinc-600">ended_at - started_at</code> for ended sessions in your latest {rpcMetrics.window_session_count ?? 40}{" "}
-              sessions (server-side).
+          <div className="rounded-2xl border border-primary/20 bg-surface-container/80 p-5 lg:col-span-1">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Drive time (window)</p>
+            <p className="mt-2 font-headline text-3xl font-bold text-on-surface">
+              {formatDriveDuration(Number(rpcMetrics.total_drive_seconds) || 0)}
             </p>
-            <p className="mt-3 text-xs text-zinc-500">
-              Focus score (heuristic):{" "}
-              <span className="font-mono text-sky-200">{metrics.safeScore != null ? metrics.safeScore : "—"}</span>
-              /100 — same formula as before, now computed in SQL when RPC is used.
+            <p className="mt-2 text-xs text-on-surface-variant">
+              Ended sessions in latest {rpcMetrics.window_session_count ?? 40} (server).
             </p>
           </div>
         </section>
       ) : null}
 
-      <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">Overview (BRD §12)</h2>
-        {loading ? (
-          <p className="text-zinc-400">Loading…</p>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <StatCard
-              label="Total driving sessions"
-              value={sessionCountTotal != null ? String(sessionCountTotal) : "—"}
-              hint={rpcMetrics ? "All sessions for your account" : "Counted in browser via Supabase"}
-            />
-            <StatCard
-              label="Avg drowsiness (window)"
-              value={metrics.avgDrowsy}
-              hint={rpcMetrics ? "Server: samples in latest 40 sessions" : "Client: local browser aggregation"}
-            />
-            <StatCard
-              label="Samples (7-day trail)"
-              value={String(metrics.samplesWeek)}
-              hint={rpcMetrics ? "Server: from newest sample timestamp" : "Client: trailing window from newest sample"}
-            />
-            <StatCard
-              label={rpcMetrics ? "Peak sample hour (UTC)" : "Peak sample hour (local)"}
-              value={metrics.peakC > 0 ? `${metrics.peakHour}:00` : "—"}
-              hint={metrics.peakC > 0 ? `${metrics.peakC} samples` : "Not enough data"}
-            />
-            <StatCard
-              label="Focus score (heuristic)"
-              value={metrics.safeScore != null ? String(metrics.safeScore) : "—"}
-              hint="100 − 9×avg level (0–100)"
-            />
-            <StatCard label="Yawn Δ sum" value={String(metrics.yawns)} />
-            <StatCard label="Head movement Δ sum" value={String(metrics.head)} />
-            <StatCard
-              label="High drowsiness samples"
-              value={`L6+: ${metrics.l6 + metrics.l7 + metrics.l8}`}
-              hint={`L7+: ${metrics.l7 + metrics.l8} · L8+: ${metrics.l8}`}
-            />
-            <StatCard
-              label="Alerts fired (7 days)"
-              value={alerts7dCount === null ? "—" : String(alerts7dCount)}
-              hint="Rows in alert_events (requires migration 20260404130000)"
-            />
-          </div>
-        )}
-      </section>
-
       {!loading && hasChart ? (
-        <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
-            {rpcMetrics ? "Time-of-day sample density (UTC)" : "Time-of-day sample density (local)"}
+        <section className="rounded-2xl border border-outline-variant/15 bg-surface-container-low/60 p-4 lg:max-w-3xl">
+          <h2 className="mb-2 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+            {rpcMetrics ? "Time-of-day sample density" : "Time-of-day sample density (local)"}
           </h2>
-          <p className="mb-3 text-xs text-zinc-500">
+          <p className="mb-3 text-xs text-on-surface-variant">
             {rpcMetrics
-              ? "Bucketed by the hour of `recorded_at` in UTC on the server."
-              : "Bucketed by your browser's local hour."}
+              ? "Server buckets use your browser timezone offset."
+              : "Bucketed by your browser local hour."}
           </p>
           <MiniHistogram counts={metrics.hours} />
         </section>
       ) : null}
 
-      <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">Recent sessions</h2>
+      <section className="lg:max-w-3xl">
+        <h2 className="mb-3 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Recent sessions</h2>
         {loading ? (
-          <p className="text-zinc-400">Loading…</p>
+          <p className="text-on-surface-variant">Loading…</p>
         ) : sessions.length === 0 ? (
-          <p className="text-zinc-400">No sessions yet. Start one from Drive.</p>
+          <p className="text-on-surface-variant">No sessions yet. Start one from Drive.</p>
         ) : (
           <ul className="space-y-2">
             {sessions.map((s) => (
-              <li key={s.id} className="rounded-xl border border-zinc-800 bg-zinc-900/40 px-4 py-3">
+              <li
+                key={s.id}
+                className="rounded-xl border border-outline-variant/15 bg-surface-container-low/90 px-4 py-3 shadow-sm shadow-black/20"
+              >
                 <div className="flex justify-between gap-2 text-sm">
-                  <span className="text-zinc-200">{new Date(s.started_at).toLocaleString()}</span>
-                  <span className="text-zinc-500">{s.device_type}</span>
+                  <span className="text-on-surface">{new Date(s.started_at).toLocaleString()}</span>
+                  <span className="text-on-surface-variant">{s.device_type}</span>
                 </div>
-                <div className="text-xs text-zinc-500">{s.ended_at ? `Ended ${new Date(s.ended_at).toLocaleString()}` : "Active"}</div>
+                <div className="text-xs text-on-surface-variant">
+                  {s.ended_at ? `Ended ${new Date(s.ended_at).toLocaleString()}` : "Active"}
+                </div>
               </li>
             ))}
           </ul>

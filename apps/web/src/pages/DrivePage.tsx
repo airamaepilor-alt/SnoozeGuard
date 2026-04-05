@@ -387,7 +387,7 @@ export function DrivePage() {
     sessionBrakeFlags === 0 && !brakePending ? "None this session" : `${sessionBrakeFlags} logged · ${brakePending ? "pending" : "ready"}`;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-body text-on-surface">
       <DrowsinessAlertOverlay
         open={alertOpen}
         level={alertLevel}
@@ -397,44 +397,41 @@ export function DrivePage() {
         flash={alertActions.some((a) => a === "flashlight" || a === "iot_led")}
       />
       <div>
-        <h1 className="text-2xl font-bold text-white">Active monitoring</h1>
-        <p className="text-zinc-400">
-          Offline-first: sessions and telemetry are stored in <strong className="text-zinc-300">IndexedDB</strong> (Dexie), then synced to
-          Supabase when online. Drowsiness level uses the shared <span className="text-zinc-300">computeDrowsinessLevelFromSignals</span>{" "}
-          helper with your admin thresholds (FR-5). Enable the camera and <strong className="text-zinc-300">Browser ML</strong> for MediaPipe
-          Face Landmarker (jaw open → yawn proxy, head pose → movement proxy, FR-2/FR-3).
+        <h1 className="font-headline text-2xl font-extrabold text-on-surface">Active monitoring</h1>
+        <p className="mt-2 text-sm text-on-surface-variant">
+          Offline-first: <strong className="text-on-surface">IndexedDB</strong> (Dexie) → Supabase when online. Scoring uses{" "}
+          <span className="text-primary">computeDrowsinessLevelFromSignals</span> + admin thresholds.{" "}
+          <strong className="text-on-surface">Browser ML</strong> = MediaPipe Face Landmarker (FR-2/FR-3).
         </p>
-        <p className="mt-2 text-xs text-zinc-500">
+        <p className="mt-2 text-xs text-on-surface-variant">
           Network:{" "}
-          <span className={online ? "text-emerald-400" : "text-amber-400"}>{online ? "online" : "offline"}</span>
+          <span className={online ? "text-emerald-400" : "text-secondary"}>{online ? "online" : "offline"}</span>
           {" · "}
-          Alert trigger: <span className="text-zinc-300">{adminCfg.drowsiness_trigger_level}</span>
+          Alert trigger: <span className="text-primary">{adminCfg.drowsiness_trigger_level}</span>
         </p>
       </div>
 
       {activeLocal ? (
-        <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
+        <section className="rounded-2xl border border-outline-variant/20 bg-surface-container-low/90 p-5 shadow-sg-primary">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Current status</p>
-              <h2 className="text-2xl font-extrabold text-sky-300">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Current status</p>
+              <h2 className="font-headline text-2xl font-extrabold text-primary">
                 {status.label}{" "}
-                <span className="text-base font-bold text-zinc-500">
-                  · Level {previewLevel}
-                </span>
+                <span className="text-base font-bold text-on-surface-variant">· Level {previewLevel}</span>
               </h2>
             </div>
             <div className="text-right">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Session time</p>
-              <p className="text-xl font-bold text-zinc-100">{sessionStartedAt != null ? formatElapsed(elapsedMs) : "—"}</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Session time</p>
+              <p className="font-headline text-xl font-bold text-on-surface">{sessionStartedAt != null ? formatElapsed(elapsedMs) : "—"}</p>
             </div>
           </div>
-          <div className="mt-4 h-3 w-full overflow-hidden rounded-full bg-zinc-800">
+          <div className="mt-4 h-3 w-full overflow-hidden rounded-full bg-surface-container">
             <div
               className={
                 status.band === "high"
-                  ? "h-full rounded-full bg-gradient-to-r from-amber-500 to-red-500 shadow-[0_0_12px_rgba(248,113,113,0.35)] transition-all duration-300"
-                  : "h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-400 shadow-[0_0_12px_rgba(56,189,248,0.35)] transition-all duration-300"
+                  ? "h-full rounded-full bg-gradient-to-r from-secondary to-tertiary shadow-[0_0_12px_rgba(255,185,95,0.35)] transition-all duration-300"
+                  : "h-full rounded-full bg-gradient-to-r from-primary to-on-primary-container shadow-[0_0_12px_rgba(123,208,255,0.35)] transition-all duration-300"
               }
               style={{ width: `${gaugePct}%` }}
             />
@@ -443,26 +440,26 @@ export function DrivePage() {
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+        <div className="flex items-center justify-between rounded-2xl border border-outline-variant/15 bg-surface-container-low/90 p-4">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Yawning</p>
-            <p className="font-bold text-zinc-100">{yawnLabel}</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Yawning</p>
+            <p className="font-headline font-bold text-on-surface">{yawnLabel}</p>
           </div>
-          <span className="h-2.5 w-2.5 rounded-full bg-sky-400 shadow-[0_0_8px_#38bdf8]" aria-hidden />
+          <span className="h-2.5 w-2.5 rounded-full bg-primary shadow-[0_0_8px_rgba(123,208,255,0.6)]" aria-hidden />
         </div>
-        <div className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+        <div className="flex items-center justify-between rounded-2xl border border-outline-variant/15 bg-surface-container-low/90 p-4">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Head movement</p>
-            <p className="font-bold text-zinc-100">{headLabel}</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Head movement</p>
+            <p className="font-headline font-bold text-on-surface">{headLabel}</p>
           </div>
-          <span className="h-2.5 w-2.5 rounded-full bg-sky-400 shadow-[0_0_8px_#38bdf8]" aria-hidden />
+          <span className="h-2.5 w-2.5 rounded-full bg-primary shadow-[0_0_8px_rgba(123,208,255,0.6)]" aria-hidden />
         </div>
-        <div className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 sm:col-span-2">
+        <div className="flex items-center justify-between rounded-2xl border border-outline-variant/15 bg-surface-container-low/90 p-4 sm:col-span-2">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Sudden braking</p>
-            <p className="font-bold text-zinc-100">{brakeLabel}</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Sudden braking</p>
+            <p className="font-headline font-bold text-on-surface">{brakeLabel}</p>
           </div>
-          <span className="h-2.5 w-2.5 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24]" aria-hidden />
+          <span className="h-2.5 w-2.5 rounded-full bg-secondary shadow-[0_0_8px_rgba(255,185,95,0.5)]" aria-hidden />
         </div>
       </div>
 
@@ -472,7 +469,7 @@ export function DrivePage() {
             type="button"
             disabled={busy}
             onClick={() => setSessionYawns((n) => n + 1)}
-            className="rounded-xl border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-700 disabled:opacity-40"
+            className="rounded-xl border border-outline-variant/40 bg-surface-container-high px-3 py-2 text-sm text-on-surface hover:bg-surface-bright disabled:opacity-40"
           >
             + Yawn (demo)
           </button>
@@ -480,7 +477,7 @@ export function DrivePage() {
             type="button"
             disabled={busy}
             onClick={() => setSessionHeads((n) => n + 1)}
-            className="rounded-xl border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-700 disabled:opacity-40"
+            className="rounded-xl border border-outline-variant/40 bg-surface-container-high px-3 py-2 text-sm text-on-surface hover:bg-surface-bright disabled:opacity-40"
           >
             + Head movement
           </button>
@@ -488,7 +485,7 @@ export function DrivePage() {
             type="button"
             disabled={busy}
             onClick={() => setBrakePending(true)}
-            className="rounded-xl border border-amber-700/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-100 hover:bg-amber-950/60 disabled:opacity-40"
+            className="rounded-xl border border-secondary/40 bg-secondary/10 px-3 py-2 text-sm text-secondary hover:bg-secondary/20 disabled:opacity-40"
           >
             Flag sudden brake (next sample)
           </button>
@@ -496,17 +493,17 @@ export function DrivePage() {
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-4 py-2">
-            <span className="text-sm font-medium text-zinc-300">Camera preview</span>
+        <div className="overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container-low">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-outline-variant/20 px-4 py-2">
+            <span className="text-sm font-medium text-on-surface">Camera preview</span>
             <div className="flex flex-wrap items-center gap-3">
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-400">
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-on-surface-variant">
                 <input
                   type="checkbox"
                   checked={browserMlOn}
                   disabled={!cameraOn}
                   onChange={(e) => setBrowserMlOn(e.target.checked)}
-                  className="rounded border-zinc-600"
+                  className="rounded border-outline-variant"
                 />
                 Browser ML
               </label>
@@ -514,7 +511,7 @@ export function DrivePage() {
                 <button
                   type="button"
                   onClick={() => void startCamera()}
-                  className="rounded-lg bg-zinc-800 px-3 py-1 text-xs text-white hover:bg-zinc-700"
+                  className="rounded-lg bg-surface-container-high px-3 py-1 text-xs text-on-surface hover:bg-surface-bright"
                 >
                   Enable camera
                 </button>
@@ -522,7 +519,7 @@ export function DrivePage() {
                 <button
                   type="button"
                   onClick={() => stopCamera()}
-                  className="rounded-lg bg-zinc-800 px-3 py-1 text-xs text-white hover:bg-zinc-700"
+                  className="rounded-lg bg-surface-container-high px-3 py-1 text-xs text-on-surface hover:bg-surface-bright"
                 >
                   Stop
                 </button>
@@ -532,45 +529,45 @@ export function DrivePage() {
           <div className="relative aspect-video bg-black">
             <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
             {!cameraOn ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-sm text-zinc-500">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-sm text-on-surface-variant">
                 <span>Optional live preview (getUserMedia).</span>
-                <span className="text-xs text-zinc-600">Turn on the camera, then enable Browser ML for MediaPipe (loads WASM + model from CDN).</span>
+                <span className="text-xs text-on-surface-variant/70">Enable Browser ML for MediaPipe (WASM + model from CDN).</span>
               </div>
             ) : (
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <div className="rounded-full border-2 border-sky-500/40 p-16">
-                  <div className="h-1 w-1 animate-ping rounded-full bg-sky-400" />
+                <div className="sg-vision-pulse rounded-full border-2 border-primary/40 p-16">
+                  <div className="h-1 w-1 animate-ping rounded-full bg-primary" />
                 </div>
-                <p className="mt-3 rounded-full border border-sky-500/20 bg-black/50 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-sky-300">
+                <p className="mt-3 rounded-full border border-primary/25 bg-black/55 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-primary">
                   {browserMlOn ? "Front camera · Face Landmarker" : "Front camera · preview"}
                 </p>
               </div>
             )}
           </div>
-          {cameraError ? <p className="px-4 py-2 text-xs text-amber-400">{cameraError}</p> : null}
-          {mlError ? <p className="px-4 py-2 text-xs text-red-400">ML: {mlError}</p> : null}
+          {cameraError ? <p className="px-4 py-2 text-xs text-secondary">{cameraError}</p> : null}
+          {mlError ? <p className="px-4 py-2 text-xs text-tertiary">ML: {mlError}</p> : null}
         </div>
 
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
-          <p className="mb-2 text-sm text-zinc-400">
-            Local session: <span className="font-mono text-zinc-200">{localSessionId ?? "—"}</span>
+        <div className="rounded-2xl border border-outline-variant/20 bg-surface-container-low/90 p-6">
+          <p className="mb-2 text-sm text-on-surface-variant">
+            Local session: <span className="font-mono text-on-surface">{localSessionId ?? "—"}</span>
           </p>
-          <p className="mb-4 text-sm text-zinc-400">
-            Remote (Supabase): <span className="font-mono text-zinc-200">{remoteSessionId ?? "not synced yet"}</span>
+          <p className="mb-4 text-sm text-on-surface-variant">
+            Remote (Supabase): <span className="font-mono text-on-surface">{remoteSessionId ?? "not synced yet"}</span>
           </p>
           {activeLocal ? (
             <>
-              <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm text-zinc-400">
+              <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm text-on-surface-variant">
                 <input
                   type="checkbox"
                   checked={useManualOverride}
                   onChange={(e) => setUseManualOverride(e.target.checked)}
-                  className="rounded border-zinc-600"
+                  className="rounded border-outline-variant"
                 />
                 Manual level override (debug alerts)
               </label>
               {useManualOverride ? (
-                <label className="mb-4 block text-sm text-zinc-400">
+                <label className="mb-4 block text-sm text-on-surface-variant">
                   Override level
                   <input
                     type="range"
@@ -579,26 +576,26 @@ export function DrivePage() {
                     step={1}
                     value={manualLevel}
                     onChange={(e) => setManualLevel(Number(e.target.value))}
-                    className="mt-2 w-full accent-sky-500"
+                    className="mt-2 w-full accent-primary"
                   />
-                  <span className="mt-1 block font-mono text-zinc-200">{manualLevel}</span>
+                  <span className="mt-1 block font-mono text-on-surface">{manualLevel}</span>
                 </label>
               ) : (
-                <p className="mb-4 text-xs text-zinc-500">
-                  Computed preview: <span className="font-mono text-zinc-200">{previewLevel}</span> — add signals above, then log.
+                <p className="mb-4 text-xs text-on-surface-variant">
+                  Computed preview: <span className="font-mono text-primary">{previewLevel}</span> — add signals, then log.
                 </p>
               )}
             </>
           ) : null}
           {lastTelemetryLevel !== null ? (
-            <p className="mb-4 text-xs text-zinc-500">Last logged level: {lastTelemetryLevel}</p>
+            <p className="mb-4 text-xs text-on-surface-variant">Last logged level: {lastTelemetryLevel}</p>
           ) : null}
           <div className="flex flex-wrap gap-3">
             <button
               type="button"
               disabled={busy || activeLocal}
               onClick={() => void start()}
-              className="rounded-xl bg-emerald-600 px-4 py-2 font-medium text-white disabled:opacity-40"
+              className="rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-800 px-4 py-2 font-headline font-semibold text-white shadow-lg shadow-emerald-900/30 disabled:opacity-40"
             >
               Start session
             </button>
@@ -606,7 +603,7 @@ export function DrivePage() {
               type="button"
               disabled={busy || !activeLocal}
               onClick={() => void pushSample()}
-              className="rounded-xl bg-zinc-700 px-4 py-2 font-medium text-white disabled:opacity-40"
+              className="rounded-xl bg-surface-container-high px-4 py-2 font-medium text-on-surface hover:bg-surface-bright disabled:opacity-40"
             >
               Log telemetry sample
             </button>
@@ -614,12 +611,12 @@ export function DrivePage() {
               type="button"
               disabled={busy || !activeLocal}
               onClick={() => void stop()}
-              className="rounded-xl bg-red-900/80 px-4 py-2 font-medium text-white disabled:opacity-40"
+              className="rounded-xl border border-tertiary/40 bg-tertiary/15 px-4 py-2 font-medium text-tertiary hover:bg-tertiary/25 disabled:opacity-40"
             >
               End session
             </button>
           </div>
-          {note ? <p className="mt-4 text-sm text-amber-300">{note}</p> : null}
+          {note ? <p className="mt-4 text-sm text-secondary">{note}</p> : null}
         </div>
       </div>
     </div>

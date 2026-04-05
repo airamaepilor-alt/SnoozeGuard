@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -12,7 +12,16 @@ import * as Haptics from "expo-haptics";
 import { Accelerometer, Gyroscope } from "expo-sensors";
 import * as Crypto from "expo-crypto";
 import NetInfo from "@react-native-community/netinfo";
-import { Camera, useCameraDevice, useCameraPermission } from "react-native-vision-camera";
+import {
+  useCameraDevice,
+  useCameraPermission,
+  type Camera as VisionCameraRef,
+} from "react-native-vision-camera";
+import {
+  Camera,
+  type Face,
+  type FrameFaceDetectionOptions,
+} from "react-native-vision-camera-face-detector";
 import {
   alertConfigForDrowsinessLevel,
   computeDrowsinessLevelFromSignals,
@@ -23,7 +32,9 @@ import { useSession } from "../context/SessionContext";
 import { getDatabase } from "../db/database";
 import { supabase } from "../lib/supabase";
 import { HeuristicDrowsinessEstimator } from "../ml/heuristicEstimator";
+import { createYawnEdgeDetector, mouthOpenRatio } from "../ml/yawnFromFace";
 import { flushEndedSessions, flushPendingTelemetry, isOnline } from "../sync/flush";
+import { theme } from "../theme";
 
 type AdminRuntime = {
   trigger: number;
@@ -33,22 +44,23 @@ type AdminRuntime = {
 };
 
 async function playMobileAlertActions(actions: string[]) {
-  for (const a of actions) {
-    if (a === "sound" || a === "voice" || a === "alarm") {
+  for (const action of actions) {
+    if (action === "sound" || action === "voice" || action === "alarm") {
       try {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       } catch {
         /* ignore */
       }
     }
-    if (a === "vibration") {
+    if (action === "vibration") {
       Vibration.vibrate(500);
     }
   }
 }
 
 export function DriveScreen() {
-  const { user } = useSession();
+  const session = useSession();
+  const user = session.user;
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice("front");
 
@@ -73,6 +85,30 @@ export function DriveScreen() {
   const yawnAccRef = useRef(0);
   const headAccRef = useRef(0);
   const lastAlertRef = useRef<{ level: number; at: number } | null>(null);
+  const cameraRef = useRef<VisionCameraRef>(null);
+  const sessionActiveRef = useRef(false);
+  const visionYawnDeltaRef = useRef(0);
+  const yawnDetectorRef = useRef(
+    createYawnEdgeDetector(() => {
+      visionYawnDeltaRef.current += 1;
+    }),
+  );
+
+  const faceOpts = useMemo<FrameFaceDetectionOptions>(
+    () => ({
+      landmarkMode: "all",
+      performanceMode: "fast",
+      cameraFacing: "front",
+    }),
+    [],
+  );
+
+  const onFaces = useCallback((faces: Face[]) => {
+    if (!sessionActiveRef.current) return;
+    const face = faces[0];
+    const ratio = face ? mouthOpenRatio(face) : null;
+    yawnDetectorRef.current.pushRatio(ratio, Date.now());
+  }, []);
 
   const loadAdminConfig = useCallback(async () => {
     const { data } = await supabase.from("admin_config").select("*").eq("id", 1).maybeSingle();
@@ -126,9 +162,14 @@ export function DriveScreen() {
         startedAt,
       );
       setLocalSessionId(id);
+      sessionActiveRef.current = true;
+      yawnDetectorRef.current = createYawnEdgeDetector(() => {
+        visionYawnDeltaRef.current += 1;
+      });
       lastAlertRef.current = null;
       yawnAccRef.current = 0;
       headAccRef.current = 0;
+      visionYawnDeltaRef.current = 0;
       if (await isOnline()) {
         await flushPendingTelemetry(supabase, user.id);
       }
@@ -144,6 +185,7 @@ export function DriveScreen() {
     if (!localSessionId) return;
     setBusy(true);
     stopTick();
+    sessionActiveRef.current = false;
     try {
       const ended = new Date().toISOString();
       getDatabase().runSync("UPDATE driving_sessions_local SET ended_at = ? WHERE id = ?", ended, localSessionId);
@@ -177,7 +219,10 @@ export function DriveScreen() {
 
     tickRef.current = setInterval(() => {
       const sample = estimatorRef.current.tick(1000);
-      yawnAccRef.current += sample.yawnCountDelta;
+      const vYawn = visionYawnDeltaRef.current;
+      visionYawnDeltaRef.current = 0;
+      const yawnDelta = sample.yawnCountDelta + vYawn;
+      yawnAccRef.current += yawnDelta;
       headAccRef.current += sample.headEventCountDelta;
       const ar = adminRef.current;
       const level = computeDrowsinessLevelFromSignals({
@@ -198,10 +243,10 @@ export function DriveScreen() {
         localSessionId,
         recordedAt,
         level,
-        sample.yawnCountDelta,
+        yawnDelta,
         sample.headEventCountDelta,
         sample.suddenBrake ? 1 : 0,
-        "mobile_heuristic",
+        vYawn > 0 ? "mobile_mlkit_face" : "mobile_heuristic",
       );
       void flushPendingTelemetry(supabase, user.id);
 
@@ -215,7 +260,9 @@ export function DriveScreen() {
         const throttleMs = 35_000;
         if (!prev || now - prev.at > throttleMs || level > prev.level) {
           lastAlertRef.current = { level, at: now };
-          const flash = actions.some((a) => a === "flashlight" || a === "iot_led");
+          const flash = actions.some(
+            (act: string) => act === "flashlight" || act === "iot_led",
+          );
           setAlertFlash(flash);
           setAlertLevel(level);
           setAlertTitle(label);
@@ -235,6 +282,7 @@ export function DriveScreen() {
     }, 1000);
 
     return () => {
+      sessionActiveRef.current = false;
       sub.remove();
       gsub.remove();
       stopTick();
@@ -245,8 +293,8 @@ export function DriveScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.text}>Camera permission required for the monitoring preview.</Text>
-        <Pressable style={styles.btn} onPress={() => void requestPermission()}>
-          <Text style={styles.btnText}>Grant permission</Text>
+        <Pressable style={[styles.btn, styles.go]} onPress={() => void requestPermission()}>
+          <Text style={styles.btnTextPrimary}>Grant permission</Text>
         </Pressable>
       </View>
     );
@@ -276,14 +324,21 @@ export function DriveScreen() {
             <Text style={styles.alertTitle}>{alertTitle}</Text>
             <Text style={styles.alertHint}>Pull over when safe.</Text>
             <Pressable style={styles.alertBtn} onPress={() => setAlertOpen(false)}>
-              <Text style={styles.btnText}>I’m alert — dismiss</Text>
+              <Text style={styles.btnTextPrimary}>I’m alert — dismiss</Text>
             </Pressable>
           </View>
         </View>
       </Modal>
 
       <View style={styles.preview}>
-        <Camera style={StyleSheet.absoluteFill} device={device} isActive={Boolean(localSessionId)} />
+        <Camera
+          ref={cameraRef}
+          style={StyleSheet.absoluteFill}
+          device={device}
+          isActive={Boolean(localSessionId)}
+          faceDetectionOptions={faceOpts}
+          faceDetectionCallback={onFaces}
+        />
         {!localSessionId ? (
           <View style={styles.overlay}>
             <Text style={styles.overlayText}>Start session to enable the camera preview + ML loop</Text>
@@ -294,16 +349,20 @@ export function DriveScreen() {
       <View style={styles.panel}>
         <Text style={styles.meta}>Network: {netLabel}</Text>
         <Text style={styles.meta}>
-          Motion ML: accelerometer + gyro → head/brake proxies; drowsiness blends with admin thresholds. Yawns need a vision plugin or web MediaPipe path.
+          ML Kit face landmarks (mouth) estimate yawns; accelerometer + gyro cover head motion and braking proxies. Drowsiness blends with admin thresholds.
         </Text>
         <View style={styles.row}>
           {!localSessionId ? (
             <Pressable style={[styles.btn, styles.go]} disabled={busy} onPress={() => void startSession()}>
-              {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Start driving</Text>}
+              {busy ? (
+              <ActivityIndicator color={theme.onPrimary} />
+            ) : (
+              <Text style={styles.btnTextPrimary}>Start driving</Text>
+            )}
             </Pressable>
           ) : (
             <Pressable style={[styles.btn, styles.danger]} disabled={busy} onPress={() => void endSession()}>
-              <Text style={styles.btnText}>End session</Text>
+              <Text style={styles.btnTextDanger}>End session</Text>
             </Pressable>
           )}
         </View>
@@ -314,40 +373,64 @@ export function DriveScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#09090b" },
-  preview: { flex: 1, borderRadius: 16, overflow: "hidden", margin: 12, borderWidth: 1, borderColor: "#27272a" },
+  root: { flex: 1, backgroundColor: theme.background },
+  preview: {
+    flex: 1,
+    borderRadius: 20,
+    overflow: "hidden",
+    margin: 12,
+    borderWidth: 1,
+    borderColor: `${theme.outlineVariant}66`,
+  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.55)",
+    backgroundColor: "rgba(11, 19, 38, 0.72)",
     padding: 16,
   },
-  overlayText: { color: "#e4e4e7", textAlign: "center" },
-  panel: { padding: 16, gap: 8 },
-  meta: { color: "#a1a1aa", fontSize: 12 },
+  overlayText: { color: theme.onSurface, textAlign: "center", fontSize: 14 },
+  panel: {
+    padding: 16,
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: `${theme.outlineVariant}33`,
+    backgroundColor: theme.surfaceContainerLow,
+  },
+  meta: { color: theme.onSurfaceVariant, fontSize: 12, lineHeight: 18 },
   row: { flexDirection: "row", gap: 12, marginTop: 8 },
-  btn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center" },
-  go: { backgroundColor: "#059669" },
-  danger: { backgroundColor: "#7f1d1d" },
-  btnText: { color: "#fff", fontWeight: "700" },
-  status: { color: "#fcd34d", fontSize: 12, marginTop: 8 },
-  center: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#09090b" },
-  text: { color: "#e4e4e7", marginBottom: 16 },
+  btn: { flex: 1, paddingVertical: 14, borderRadius: 16, alignItems: "center" },
+  go: {
+    backgroundColor: theme.primary,
+    shadowColor: theme.primary,
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  danger: {
+    backgroundColor: `${theme.tertiary}33`,
+    borderWidth: 1,
+    borderColor: `${theme.tertiary}88`,
+  },
+  btnTextPrimary: { color: theme.onPrimary, fontWeight: "800", fontSize: 16 },
+  btnTextDanger: { color: theme.tertiary, fontWeight: "800", fontSize: 16 },
+  status: { color: theme.secondary, fontSize: 12, marginTop: 8 },
+  center: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: theme.background },
+  text: { color: theme.onSurface, marginBottom: 16 },
   alertRoot: {
     flex: 1,
-    backgroundColor: "#0b1326",
+    backgroundColor: theme.background,
     justifyContent: "center",
     padding: 24,
   },
-  alertFlash: { backgroundColor: "#1a0a0a" },
+  alertFlash: { backgroundColor: `${theme.background}` },
   alertBarTop: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     height: 10,
-    backgroundColor: "#ef4444",
+    backgroundColor: theme.tertiary,
   },
   alertBarBottom: {
     position: "absolute",
@@ -355,19 +438,28 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 10,
-    backgroundColor: "#ef4444",
+    backgroundColor: theme.tertiary,
   },
   alertBody: { alignItems: "center", gap: 12 },
-  alertKicker: { color: "#fca5a5", fontSize: 12, fontWeight: "700", letterSpacing: 2 },
-  alertLevel: { color: "#fff", fontSize: 42, fontWeight: "800" },
-  alertTitle: { color: "#7dd3fc", fontSize: 18, textAlign: "center" },
-  alertHint: { color: "#a1a1aa", fontSize: 14, textAlign: "center", marginBottom: 24 },
+  alertKicker: {
+    color: theme.tertiary,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 3,
+  },
+  alertLevel: { color: theme.onSurface, fontSize: 42, fontWeight: "800" },
+  alertTitle: { color: theme.primary, fontSize: 18, textAlign: "center", fontWeight: "600" },
+  alertHint: { color: theme.onSurfaceVariant, fontSize: 14, textAlign: "center", marginBottom: 24 },
   alertBtn: {
-    backgroundColor: "#0284c7",
+    backgroundColor: theme.primary,
     paddingVertical: 16,
     paddingHorizontal: 32,
-    borderRadius: 12,
+    borderRadius: 16,
     minWidth: 260,
     alignItems: "center",
+    shadowColor: theme.primary,
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
 });

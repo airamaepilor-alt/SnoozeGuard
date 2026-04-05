@@ -4,6 +4,7 @@
   "private": true,
   "description": "SnoozeGuard — drowsiness detection (web, mobile, API, IoT)",
   "scripts": {
+    "postinstall": "node scripts/android-cxx-shared-link.cjs",
     "dev:web": "npm run dev -w @snoozeguard/web",
     "dev:api": "npm run dev -w @snoozeguard/api",
     "dev:mobile": "npm run start -w @snoozeguard/mobile",
@@ -19,5 +20,9 @@
   ],
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@expo/cli": "^54.0.23",
+    "@react-native/debugger-frontend": "^0.81.5"
   }
 }

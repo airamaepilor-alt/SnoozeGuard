@@ -6,6 +6,7 @@ const easProjectId = process.env.EAS_PROJECT_ID;
 const config: ExpoConfig = {
   name: "SnoozeGuard",
   slug: "snoozeguard",
+  scheme: "snoozeguard",
   version: "1.0.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
@@ -30,6 +31,7 @@ const config: ExpoConfig = {
       backgroundColor: "#0b1326",
     },
     package: "com.snoozeguard.app",
+    minSdkVersion: 26,
     permissions: ["CAMERA"],
   },
   web: {

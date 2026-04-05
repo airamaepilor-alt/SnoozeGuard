@@ -2,7 +2,7 @@
  * On-device motion pipeline (FR-3 / FR-4):
  * - Accelerometer statistics → stillness vs movement, jerk → sudden braking proxy.
  * - Gyroscope spikes → head movement proxy (complements accel variance).
- * - Yawn: use web MediaPipe path or a native face plugin; `yawnCountDelta` stays 0 here (no random noise).
+ * - Yawn: handled on mobile via ML Kit mouth landmarks in `DriveScreen` (this class keeps `yawnCountDelta` at 0).
  */
 
 export type TelemetrySample = {

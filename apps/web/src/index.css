@@ -1,3 +1,55 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;700;800&family=Inter:wght@400;500;600&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+}
+
+@layer utilities {
+  .material-symbols-outlined {
+    font-family: "Material Symbols Outlined";
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  }
+
+  .sg-glass-panel {
+    background: rgba(34, 42, 61, 0.72);
+    backdrop-filter: blur(32px);
+    -webkit-backdrop-filter: blur(32px);
+  }
+
+  .sg-status-pulse {
+    box-shadow: 0 0 0 0 rgba(123, 208, 255, 0.4);
+    animation: sg-pulse-glow 3s ease-in-out infinite;
+  }
+
+  @keyframes sg-pulse-glow {
+    0% {
+      box-shadow: 0 0 0 0 rgba(123, 208, 255, 0.35);
+    }
+    70% {
+      box-shadow: 0 0 0 14px rgba(123, 208, 255, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(123, 208, 255, 0);
+    }
+  }
+
+  .sg-vision-pulse {
+    animation: sg-pulse-glow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+}

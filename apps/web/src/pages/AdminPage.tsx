@@ -26,10 +26,10 @@ function SliderRow(props: {
 }) {
   const { label, min, max, value, onChange } = props;
   return (
-    <label className="block text-sm text-zinc-400">
+    <label className="block text-sm text-on-surface-variant">
       <span className="flex justify-between gap-2">
         <span>{label}</span>
-        <span className="font-mono text-zinc-200">{value}</span>
+        <span className="font-mono text-on-surface">{value}</span>
       </span>
       <input
         type="range"
@@ -37,7 +37,7 @@ function SliderRow(props: {
         max={max}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-2 w-full accent-sky-500"
+        className="mt-2 w-full accent-primary"
       />
     </label>
   );
@@ -114,16 +114,16 @@ export function AdminPage() {
   }
 
   if (loading || !cfg) {
-    return <p className="text-zinc-400">Loading admin config…</p>;
+    return <p className="text-on-surface-variant">Loading admin config…</p>;
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <h1 className="text-2xl font-bold text-white">Admin configuration</h1>
-      <p className="text-sm text-zinc-500">
+    <div className="mx-auto max-w-2xl space-y-6 font-body text-on-surface">
+      <h1 className="font-headline text-2xl font-extrabold text-on-surface">Admin configuration</h1>
+      <p className="text-sm text-on-surface-variant">
         Thresholds drive when drowsiness scoring counts as an event; alert map defines responses for bands 6–8 (aligned with BRD §13).
       </p>
-      <form onSubmit={onSave} className="space-y-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
+      <form onSubmit={onSave} className="space-y-6 rounded-2xl border border-outline-variant/15 bg-surface-container-low/90 p-6 shadow-sm shadow-black/20">
         <div className="space-y-5">
           <SliderRow
             label="Yawn threshold"
@@ -148,13 +148,13 @@ export function AdminPage() {
           />
         </div>
 
-        <div className="border-t border-zinc-800 pt-6">
+        <div className="border-t border-outline-variant/20 pt-6">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Alert map (levels 6–8)</h2>
+            <h2 className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Alert map (levels 6–8)</h2>
             <button
               type="button"
               onClick={resetAlertMap}
-              className="rounded-lg border border-zinc-600 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+              className="rounded-lg border border-outline-variant/40 px-3 py-1 text-xs text-on-surface-variant hover:bg-surface-container-high"
             >
               Reset defaults
             </button>
@@ -163,9 +163,9 @@ export function AdminPage() {
             {levelKeys.map((k) => {
               const row = alertMap[k] ?? { label: "", actions: [] as string[] };
               return (
-                <div key={k} className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                <div key={k} className="rounded-xl border border-outline-variant/15 bg-surface-container/80 p-4">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-semibold uppercase text-sky-400">Level {k}</span>
+                    <span className="text-xs font-bold uppercase text-primary">Level {k}</span>
                     <input
                       type="text"
                       value={row.label}
@@ -175,7 +175,7 @@ export function AdminPage() {
                           [k]: { ...row, label: e.target.value },
                         }))
                       }
-                      className="min-w-[12rem] flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-100"
+                      className="min-w-[12rem] flex-1 rounded-lg border border-outline-variant/40 bg-background/60 px-3 py-1.5 text-sm text-on-surface"
                       placeholder="Label shown in alerts"
                     />
                   </div>
@@ -188,7 +188,7 @@ export function AdminPage() {
                           type="button"
                           onClick={() => toggleAction(k, a)}
                           className={`rounded-full px-3 py-1 text-xs font-medium ${
-                            on ? "bg-sky-600 text-white" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                            on ? "bg-primary text-on-primary shadow-md shadow-primary/20" : "bg-surface-container-high text-on-surface-variant hover:bg-surface-bright"
                           }`}
                         >
                           {a}
@@ -202,11 +202,11 @@ export function AdminPage() {
           </div>
         </div>
 
-        {message ? <p className="text-sm text-amber-300">{message}</p> : null}
+        {message ? <p className="text-sm text-secondary">{message}</p> : null}
         <button
           type="submit"
           disabled={saving}
-          className="w-full rounded-xl bg-sky-600 py-3 font-semibold text-white disabled:opacity-50"
+          className="w-full rounded-xl bg-gradient-to-br from-primary to-on-primary-container py-3 font-headline font-bold text-on-primary shadow-lg shadow-primary/15 disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save"}
         </button>

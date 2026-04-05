@@ -47,6 +47,18 @@ Copy the **Client ID** and **Client secret**.
 | Stuck after Google | Add your app origin to Supabase **Redirect URLs**; match **Site URL** for production. |
 | `Provider not enabled` | Turn on Google in Supabase **Authentication → Providers**. |
 
-## 5. Mobile (optional)
+## 5. Mobile (Expo dev client)
 
-Expo apps typically use `signInWithOAuth` with a custom scheme or universal links. This repo’s mobile flow is email/password first; extend similarly using [Supabase + Expo OAuth](https://supabase.com/docs/guides/auth/native-mobile-deep-linking) when you add a Google button on mobile.
+The `apps/mobile` app uses **`Continue with Google`** with:
+
+- **App scheme:** `snoozeguard` (see `app.config.ts`).
+- **Redirect URL** passed to `signInWithOAuth`: from `Linking.createURL("auth/callback", { scheme: "snoozeguard" })` (e.g. `snoozeguard://auth/callback`).
+
+In **Supabase → Authentication → URL configuration → Redirect URLs**, add:
+
+- `snoozeguard://**`
+- `snoozeguard://auth/callback`
+
+After a successful browser session, the app calls `supabase.auth.exchangeCodeForSession` on the returned URL (PKCE). Ensure **Google** is enabled in Supabase and the web OAuth client still uses the Supabase callback URL as in §1.
+
+See also: [Supabase: native mobile deep linking](https://supabase.com/docs/guides/auth/native-mobile-deep-linking).
