@@ -31,6 +31,7 @@ const config: ExpoConfig = {
       backgroundColor: "#0b1326",
     },
     package: "com.snoozeguard.app",
+    // @ts-expect-error minSdkVersion is a valid Expo Android config field; type definition gap in SDK 54 types
     minSdkVersion: 26,
     permissions: ["CAMERA"],
   },

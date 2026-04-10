@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(export JAVA_HOME=\"/c/java-17/jdk-17.0.11+9\" ANDROID_HOME=\"/c/android-sdk\" ANDROID_SDK_ROOT=\"/c/android-sdk\")",
+      "Bash(export PATH=\"$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/tools:$PATH\")",
+      "Bash(npm run:*)",
+      "Bash(export JAVA_HOME=\"/c/java-17/jdk-17.0.11+9\")",
+      "Bash(export ANDROID_HOME=\"/c/android-sdk\")",
+      "Bash(export ANDROID_SDK_ROOT=\"/c/android-sdk\")",
+      "Bash(npx kill-port:*)",
+      "Bash(export JAVA_HOME=\"/c/java-17/jdk-17.0.11+9\" ANDROID_HOME=\"/c/android-sdk\")",
+      "Bash(export PATH=\"$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH\")",
+      "Bash(/c/android-sdk/platform-tools/adb.exe shell:*)"
+    ]
+  }
+}

@@ -245,6 +245,28 @@ Use this before demos, thesis defense builds, or CI.
 | **D** | ML Kit face landmarks → yawn edge detector | `DriveScreen.tsx`, `ml/yawnFromFace.ts`, `react-native-vision-camera-face-detector` |
 | **E** | `user_driving_history` RPC + web/mobile pagination / fallback | `20260404160000_*.sql`, `HistoryPage.tsx`, `HistoryScreen.tsx` |
 
+## 14. Build & Sign-In fixes (2026-04-10)
+
+| Fix | Detail | File(s) |
+|-----|--------|---------|
+| **expo-linking** version | `^55.0.11` → `~8.0.11` (SDK 54 compatible) | `apps/mobile/package.json` |
+| **expo-sqlite** version | `~15.1.4` → `~16.0.10` | `apps/mobile/package.json` |
+| **expo-web-browser** version | `^55.0.12` → `~15.0.10` | `apps/mobile/package.json` |
+| **expo-file-system** added | `~19.0.21` (for `lib/logger.ts`) | `apps/mobile/package.json` |
+| **@expo/vector-icons** added | `^15.0.3` (used in `App.tsx`) | `apps/mobile/package.json` |
+| **babel worklets** | Restored `react-native-worklets-core/plugin` before reanimated | `apps/mobile/babel.config.js` |
+| **root package.json** | Removed bogus `react-native-worklets` (not a real package) | `package.json` |
+| **Google Sign-In** | Explicit `scheme: "snoozeguard"` in `Linking.createURL`; better error messages with OAuth error param extraction | `apps/mobile/screens/LoginScreen.tsx` |
+| **expo-file-system v19 API** | Updated `logger.ts` to use `Paths.document.uri` from `expo-file-system/next` | `apps/mobile/lib/logger.ts` |
+| **app.config.ts TS** | Added `@ts-expect-error` for `minSdkVersion` (valid field, missing from SDK 54 types) | `apps/mobile/app.config.ts` |
+
+## 15. BRD dashboard alignment (2026-04-10)
+
+| Screen | Before | After (BRD aligned) |
+|--------|--------|---------------------|
+| **HomeScreen** (FR-11, US-3) | Session count only | Full `user_dashboard_metrics` RPC: focus score, avg drowsiness, sessions, drive time, yawns, alert counts (L6/L7/L8), peak/safest fatigue hours; **Start Driving** CTA |
+| **DriveScreen** (US-1, US-2) | Camera preview + start/stop only | Live drowsiness gauge (color-coded 0–10), yawn counter, head-movement counter, session timer (mm:ss), drowsiness progress bar |
+
 ---
 
 *Generated for SnoozeGuard monorepo. Update this file when BRD or screens change.*

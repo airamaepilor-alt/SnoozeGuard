@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx expo:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('dependencies:', d.get\\('dependencies','NONE'\\)\\)\")",
+      "Bash(cmd /c \"java -version 2>&1\")",
+      "Bash(cmd /c \"\\\\\"C:\\\\Program Files \\(x86\\)\\\\Android\\\\android-sdk\\\\platform-tools\\\\adb.exe\\\\\" devices 2>&1\")",
+      "Bash(cmd /c \"where java 2>&1\")",
+      "Bash(cmd /c \"where adb 2>&1\")",
+      "Bash(cmd /c \"dir C:\\\\jdk11 2>&1 | head -5\")",
+      "Bash(cmd /c \"dir \\\\\"C:\\\\Program Files\\\\Java\\\\\" 2>&1\")",
+      "Bash(cmd /c \"set JAVA_HOME & set ANDROID_HOME & set ANDROID_SDK_ROOT & set PATH\")",
+      "Bash(cmd /c \"echo %JAVA_HOME% & echo %ANDROID_HOME% & echo %PATH%\")",
+      "Bash(powershell -Command \"Test-Path 'C:\\\\Program Files \\(x86\\)\\\\Android\\\\android-sdk\\\\platform-tools\\\\adb.exe'\")",
+      "Read(//c/jdk11/**)",
+      "Read(//c/java-11/**)",
+      "Read(//c/Program Files/**)",
+      "Bash(\"/c/Program Files \\(x86\\)/Android/android-sdk/platform-tools/adb.exe\" devices)",
+      "Read(//c/android-sdk//**)",
+      "Read(//c/java-17//**)",
+      "Bash(/c/android-sdk/platform-tools/adb.exe devices:*)",
+      "Bash(/c/java-17/jdk-17.0.11+9/bin/java.exe -version)",
+      "Bash(/c/android-sdk/platform-tools/adb.exe reverse:*)"
+    ]
+  }
+}

@@ -1,10 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { Session } from "@supabase/supabase-js";
+import { useNavigation } from "@react-navigation/native";
+import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { supabase } from "../lib/supabase";
+import type { MainTabParamList } from "../navigation/types";
 import { theme } from "../theme";
 
 type Props = { session: Session; onSignOut: () => void };
+
+type DashboardMetrics = {
+  ok: boolean;
+  session_count_total: number;
+  avg_drowsiness: number;
+  yawn_delta_sum: number;
+  head_delta_sum: number;
+  l6_count: number;
+  l7_count: number;
+  l8_count: number;
+  total_drive_seconds: number;
+  focus_score: number | null;
+  peak_hour: number | null;
+  safest_hour: number | null;
+};
 
 function dashboardFirstName(user: Session["user"]): string {
   const full = user.user_metadata?.full_name;
@@ -24,64 +42,152 @@ function greetingHour(): string {
   return "Good evening";
 }
 
+function focusColor(score: number | null): string {
+  if (score === null) return theme.onSurfaceVariant;
+  if (score >= 75) return "#4ade80";
+  if (score >= 50) return theme.secondary;
+  return theme.tertiary;
+}
+
+function formatDriveTime(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function formatHour(hr: number | null): string {
+  if (hr === null) return "—";
+  const suffix = hr >= 12 ? "PM" : "AM";
+  const h = hr % 12 || 12;
+  return `${h}:00 ${suffix}`;
+}
+
 export function HomeScreen({ session, onSignOut }: Props) {
-  const [count, setCount] = useState<number | null>(null);
+  const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const firstName = useMemo(() => dashboardFirstName(session.user), [session.user]);
+  const tzOffset = useMemo(() => -new Date().getTimezoneOffset(), []);
 
   const refresh = useCallback(async () => {
-    const { count: c } = await supabase
-      .from("driving_sessions")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", session.user.id);
-    setCount(c ?? 0);
-  }, [session.user.id]);
+    setLoading(true);
+    try {
+      const { data } = await supabase.rpc("user_dashboard_metrics", {
+        p_session_limit: 40,
+        p_tz_offset_minutes: tzOffset,
+      });
+      if (data && (data as DashboardMetrics).ok) {
+        setMetrics(data as DashboardMetrics);
+      }
+    } catch {
+      // Offline or RPC not yet deployed
+    } finally {
+      setLoading(false);
+    }
+  }, [tzOffset]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
+  const score = metrics?.focus_score ?? null;
+  const totalAlerts = metrics ? metrics.l6_count + metrics.l7_count + metrics.l8_count : 0;
+
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
+    >
       <Text style={styles.kicker}>SNOOZEGUARD</Text>
       <Text style={styles.greet}>
         {greetingHour()}, <Text style={styles.greetAccent}>{firstName}</Text>
       </Text>
       <Text style={styles.sub}>Stay sharp on the road.</Text>
 
+      {/* Focus score hero card */}
       <View style={styles.heroCard}>
-        <Text style={styles.heroLabel}>Focus overview</Text>
-        <Text style={styles.heroStat}>{count ?? "…"}</Text>
-        <Text style={styles.heroUnit}>sessions recorded</Text>
+        <Text style={styles.heroLabel}>FOCUS SCORE</Text>
+        <Text style={[styles.heroStat, { color: focusColor(score) }]}>
+          {loading ? "…" : score !== null ? `${score} / 100` : "No data yet"}
+        </Text>
+        <Text style={styles.heroUnit}>
+          {metrics && metrics.avg_drowsiness > 0
+            ? `avg drowsiness ${Number(metrics.avg_drowsiness).toFixed(1)} / 10 · ${metrics.session_count_total} sessions`
+            : loading
+              ? "Fetching your stats…"
+              : "Start a session to see your score"}
+        </Text>
       </View>
 
+      {/* Stats grid row 1 */}
       <View style={styles.row}>
-        <View style={[styles.tile, styles.tileSecondary]}>
-          <Text style={styles.tileLabel}>Next step</Text>
-          <Text style={styles.tileValue}>Drive tab</Text>
+        <View style={[styles.tile, styles.tilePrimary]}>
+          <Text style={styles.tileLabel}>SESSIONS</Text>
+          <Text style={styles.tileStat}>{loading ? "…" : metrics?.session_count_total ?? 0}</Text>
+          <Text style={styles.tileUnit}>total recorded</Text>
         </View>
-        <View style={[styles.tile, styles.tileTertiary]}>
-          <Text style={styles.tileLabel}>Sync</Text>
-          <Text style={styles.tileValue}>SQLite → cloud</Text>
+        <View style={[styles.tile, styles.tileSecondary]}>
+          <Text style={styles.tileLabel}>DRIVE TIME</Text>
+          <Text style={styles.tileStat}>
+            {loading ? "…" : metrics ? formatDriveTime(metrics.total_drive_seconds) : "—"}
+          </Text>
+          <Text style={styles.tileUnit}>last 40 sessions</Text>
         </View>
       </View>
 
-      <Text style={styles.hintTab}>Open the Drive tab to start a monitoring session.</Text>
+      {/* Stats grid row 2 */}
+      <View style={styles.row}>
+        <View style={[styles.tile, styles.tileTertiary]}>
+          <Text style={styles.tileLabel}>YAWNS DETECTED</Text>
+          <Text style={styles.tileStat}>{loading ? "…" : metrics?.yawn_delta_sum ?? 0}</Text>
+          <Text style={styles.tileUnit}>last 40 sessions</Text>
+        </View>
+        <View style={[styles.tile, styles.tileWarn]}>
+          <Text style={styles.tileLabel}>ALERTS FIRED</Text>
+          <Text style={styles.tileStat}>{loading ? "…" : totalAlerts}</Text>
+          <Text style={styles.tileUnit}>L6 / L7 / L8 events</Text>
+        </View>
+      </View>
+
+      {/* Peak hour insight */}
+      {metrics && metrics.peak_hour !== null ? (
+        <View style={styles.insightCard}>
+          <Text style={styles.insightLabel}>PEAK FATIGUE HOUR</Text>
+          <Text style={styles.insightValue}>{formatHour(metrics.peak_hour)}</Text>
+          {metrics.safest_hour !== null ? (
+            <Text style={styles.insightSub}>Safest window: {formatHour(metrics.safest_hour)}</Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Primary CTA */}
+      <Pressable style={styles.startBtn} onPress={() => navigation.navigate("Drive")}>
+        <Text style={styles.startBtnText}>Start Driving</Text>
+      </Pressable>
+
       <Pressable style={styles.secondary} onPress={() => void refresh()}>
         <Text style={styles.secondaryText}>Refresh stats</Text>
       </Pressable>
-      <Pressable style={styles.outline} onPress={() => void supabase.auth.signOut().then(onSignOut)}>
+      <Pressable
+        style={styles.outline}
+        onPress={() => void supabase.auth.signOut().then(onSignOut)}
+      >
         <Text style={styles.outlineText}>Sign out</Text>
       </Pressable>
+
       <Text style={styles.hint}>
-        Expo dev client + Vision Camera. Telemetry is written to SQLite first, then synced to Supabase when online.
+        Telemetry is stored locally in SQLite and synced to Supabase when online.
       </Text>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, paddingTop: 16, backgroundColor: theme.background },
+  scroll: { flex: 1, backgroundColor: theme.background },
+  container: { padding: 24, paddingTop: 16, paddingBottom: 40 },
   kicker: {
     fontSize: 10,
     fontWeight: "800",
@@ -100,14 +206,18 @@ const styles = StyleSheet.create({
     borderColor: `${theme.outlineVariant}55`,
   },
   heroLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 2, color: theme.onSurfaceVariant },
-  heroStat: { marginTop: 8, fontSize: 40, fontWeight: "800", color: theme.primary },
-  heroUnit: { marginTop: 4, fontSize: 13, color: theme.onSurfaceVariant },
-  row: { flexDirection: "row", gap: 12, marginTop: 16 },
+  heroStat: { marginTop: 8, fontSize: 32, fontWeight: "800" },
+  heroUnit: { marginTop: 4, fontSize: 12, color: theme.onSurfaceVariant },
+  row: { flexDirection: "row", gap: 12, marginTop: 12 },
   tile: {
     flex: 1,
     padding: 14,
     borderRadius: 16,
     borderWidth: 1,
+  },
+  tilePrimary: {
+    backgroundColor: `${theme.surfaceContainer}aa`,
+    borderColor: `${theme.primary}33`,
   },
   tileSecondary: {
     backgroundColor: `${theme.surfaceContainer}aa`,
@@ -115,11 +225,38 @@ const styles = StyleSheet.create({
   },
   tileTertiary: {
     backgroundColor: `${theme.surfaceContainer}aa`,
+    borderColor: `${theme.outlineVariant}44`,
+  },
+  tileWarn: {
+    backgroundColor: `${theme.surfaceContainer}aa`,
     borderColor: `${theme.tertiary}44`,
   },
-  tileLabel: { fontSize: 10, fontWeight: "700", color: theme.onSurfaceVariant, letterSpacing: 1 },
-  tileValue: { marginTop: 6, fontSize: 14, fontWeight: "700", color: theme.onSurface },
-  hintTab: { marginTop: 24, color: theme.primary, fontSize: 14, fontWeight: "600" },
+  tileLabel: { fontSize: 9, fontWeight: "700", color: theme.onSurfaceVariant, letterSpacing: 1 },
+  tileStat: { marginTop: 6, fontSize: 22, fontWeight: "800", color: theme.onSurface },
+  tileUnit: { marginTop: 2, fontSize: 10, color: theme.onSurfaceVariant },
+  insightCard: {
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: `${theme.surfaceContainer}88`,
+    borderWidth: 1,
+    borderColor: `${theme.secondary}44`,
+  },
+  insightLabel: { fontSize: 9, fontWeight: "700", color: theme.onSurfaceVariant, letterSpacing: 1 },
+  insightValue: { marginTop: 4, fontSize: 18, fontWeight: "800", color: theme.secondary },
+  insightSub: { marginTop: 2, fontSize: 11, color: theme.onSurfaceVariant },
+  startBtn: {
+    marginTop: 24,
+    backgroundColor: theme.primary,
+    padding: 18,
+    borderRadius: 20,
+    alignItems: "center",
+    shadowColor: theme.primary,
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  startBtnText: { color: theme.onPrimary, fontWeight: "800", fontSize: 17 },
   secondary: {
     marginTop: 12,
     backgroundColor: theme.surfaceContainerHigh,

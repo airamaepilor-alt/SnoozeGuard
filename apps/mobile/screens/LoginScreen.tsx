@@ -16,38 +16,61 @@ export function LoginScreen({ onSignedIn }: Props) {
   async function signInWithGoogle() {
     setBusy(true);
     try {
-      const redirectTo = Linking.createURL("auth/callback");
+      // Always use the custom scheme so Supabase redirects back into the native app.
+      // Matches the scheme registered in app.config.ts and AndroidManifest.xml.
+      const redirectTo = Linking.createURL("auth/callback", { scheme: "snoozeguard" });
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo, skipBrowserRedirect: true },
       });
       if (error || !data?.url) {
-        Alert.alert("Google sign-in", error?.message ?? "Could not start Google sign-in.");
+        Alert.alert(
+          "Google sign-in failed",
+          error?.message ?? "Could not start Google sign-in. Check that the Google provider is enabled in Supabase.",
+        );
         return;
       }
-      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo, {
+        showInRecents: true,
+      });
+
       if (result.type === "cancel" || result.type === "dismiss") return;
+
       if (result.type === "success" && result.url) {
         const parsed = Linking.parse(result.url);
+
+        // Extract the PKCE authorization code from query params
         const code =
           typeof parsed.queryParams?.code === "string"
             ? parsed.queryParams.code
             : Array.isArray(parsed.queryParams?.code)
-              ? parsed.queryParams?.code[0]
+              ? parsed.queryParams.code[0]
               : undefined;
+
         if (!code) {
-          Alert.alert("Google sign-in", "No authorization code in redirect URL.");
+          // Supabase may have returned an error param instead
+          const oauthError = parsed.queryParams?.error_description ?? parsed.queryParams?.error;
+          Alert.alert(
+            "Google sign-in failed",
+            typeof oauthError === "string" ? oauthError : "No authorization code returned. Ensure snoozeguard://auth/callback is added to Supabase Redirect URLs.",
+          );
           return;
         }
-        const exchange = await supabase.auth.exchangeCodeForSession(code);
-        if (exchange.error) {
-          Alert.alert("Google sign-in", exchange.error.message);
+
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+        if (exchangeError) {
+          Alert.alert("Google sign-in failed", exchangeError.message);
           return;
         }
+
+        // Session is now stored — onAuthStateChange in App.tsx picks it up automatically.
+        // Calling onSignedIn() triggers an immediate getSession() as a belt-and-suspenders.
         onSignedIn();
       }
     } catch (e) {
-      Alert.alert("Google sign-in", e instanceof Error ? e.message : "Unknown error");
+      Alert.alert("Google sign-in failed", e instanceof Error ? e.message : "Unknown error");
     } finally {
       setBusy(false);
     }
