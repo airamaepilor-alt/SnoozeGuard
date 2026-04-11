@@ -7,30 +7,35 @@ import {
   ActivityIndicator,
   Modal,
   Vibration,
+  Linking,
 } from "react-native";
 import * as Haptics from "expo-haptics";
-import { Accelerometer, Gyroscope } from "expo-sensors";
+import { Accelerometer } from "expo-sensors";
 import * as Crypto from "expo-crypto";
 import NetInfo from "@react-native-community/netinfo";
 import { Camera, useCameraDevice, useCameraPermission } from "react-native-vision-camera";
+import { acknowledgeEmergencyAlert, getEmergencyContact, triggerEmergencyAlert, type EmergencyContact } from "../lib/emergencyNotify";
 import {
   alertConfigForDrowsinessLevel,
-  computeDrowsinessLevelFromSignals,
+  computeLevelFromAlertMap,
   parseAlertMap,
   shouldAlertForLevel,
 } from "@snoozeguard/shared";
 import { useSession } from "../context/SessionContext";
 import { getDatabase } from "../db/database";
 import { supabase } from "../lib/supabase";
-import { HeuristicDrowsinessEstimator } from "../ml/heuristicEstimator";
+import {
+  detectFaceInSnapshot,
+  createYawnDetectorFromML,
+  createHeadMovementDetector,
+  createSustainedTiltDetector,
+} from "../ml/faceDetection";
 import { flushEndedSessions, flushPendingTelemetry, isOnline } from "../sync/flush";
 import { theme } from "../theme";
 
 type AdminRuntime = {
   trigger: number;
   map: ReturnType<typeof parseAlertMap>;
-  yawn_threshold: number;
-  head_movement_threshold: number;
 };
 
 async function playMobileAlertActions(actions: string[]) {
@@ -53,6 +58,7 @@ export function DriveScreen() {
   const user = session.user;
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice("front");
+  const cameraRef = useRef<Camera>(null);
 
   const [localSessionId, setLocalSessionId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -71,18 +77,49 @@ export function DriveScreen() {
   const [alertTitle, setAlertTitle] = useState("");
   const [alertFlash, setAlertFlash] = useState(false);
 
-  const estimatorRef = useRef(new HeuristicDrowsinessEstimator());
+  // Emergency contact + auto-escalation for Level 9
+  const [emergencyContact, setEmergencyContact] = useState<EmergencyContact | null>(null);
+  const [ecCountdown, setEcCountdown] = useState<number | null>(null); // seconds remaining
+  const ecTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ecAutoFiredRef = useRef(false);
+  const activeAlertIdRef = useRef<string | null>(null);
+
+  // ML Kit detectors
+  const yawnDetectorRef = useRef(createYawnDetectorFromML(() => {
+    yawnAccRef.current += 1;
+  }));
+  const headDetectorRef = useRef(createHeadMovementDetector(() => {
+    headAccRef.current += 1;
+  }));
+  const tiltDetectorRef = useRef(createSustainedTiltDetector(() => {
+    // Driver looked away for ≥5 seconds → critical alert
+    setAlertLevel(8);
+    setAlertTitle("Head turned away — eyes on the road!");
+    setAlertFlash(true);
+    setAlertOpen(true);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    Vibration.vibrate([0, 500, 200, 500]);
+  }));
+
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const snapshotLoopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const adminRef = useRef<AdminRuntime>({
     trigger: 6,
     map: parseAlertMap(undefined),
-    yawn_threshold: 3,
-    head_movement_threshold: 20,
   });
   const yawnAccRef = useRef(0);
   const headAccRef = useRef(0);
+  const yawnLastTickRef = useRef(0);
+  const headLastTickRef = useRef(0);
+  const suddenBrakeRef = useRef(false);
   const lastAlertRef = useRef<{ level: number; at: number } | null>(null);
   const sessionActiveRef = useRef(false);
+
+  // Shake detection for brake alert (delta-based — Expo Accelerometer returns Gs, rest ≈ 1G)
+  const accelWindowRef = useRef<number[]>([]);
+  const lastShakeTimeRef = useRef(0);
+  const SHAKE_DELTA_THRESHOLD = 0.45; // G change per 100ms — hard shake produces 0.5–1.5G swings
+  const SHAKE_COOLDOWN = 3000; // ms
 
   const loadAdminConfig = useCallback(async () => {
     const { data } = await supabase.from("admin_config").select("*").eq("id", 1).maybeSingle();
@@ -90,15 +127,15 @@ export function DriveScreen() {
     adminRef.current = {
       trigger: Number(data.drowsiness_trigger_level) || 6,
       map: parseAlertMap(data.alert_map),
-      yawn_threshold: Number(data.yawn_threshold) || 3,
-      head_movement_threshold: Number(data.head_movement_threshold) || 20,
     };
   }, []);
 
   useEffect(() => {
     getDatabase();
     if (!hasPermission) void requestPermission();
-  }, [hasPermission, requestPermission]);
+    // Load emergency contact once on mount
+    void getEmergencyContact(supabase, user.id).then(setEmergencyContact);
+  }, [hasPermission, requestPermission, user.id]);
 
   useEffect(() => {
     void loadAdminConfig();
@@ -116,10 +153,61 @@ export function DriveScreen() {
     return () => unsub();
   }, [user.id, loadAdminConfig]);
 
+  const stopEcTimer = useCallback(() => {
+    if (ecTimerRef.current) clearInterval(ecTimerRef.current);
+    ecTimerRef.current = null;
+    setEcCountdown(null);
+  }, []);
+
+  const fireEmergencyContact = useCallback(async () => {
+    stopEcTimer();
+    const driverName = user.user_metadata?.full_name ?? user.email ?? "Driver";
+    const { alertId } = await triggerEmergencyAlert(supabase, user.id, driverName, localSessionId);
+    activeAlertIdRef.current = alertId;
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    Vibration.vibrate([0, 500, 200, 500, 200, 500]);
+  }, [user, localSessionId, stopEcTimer]);
+
+  // Start 2-minute countdown when a Level 9 alert opens
+  const startEcCountdown = useCallback(() => {
+    if (ecTimerRef.current) return; // already running
+    ecAutoFiredRef.current = false;
+    setEcCountdown(120);
+    ecTimerRef.current = setInterval(() => {
+      setEcCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          if (!ecAutoFiredRef.current) {
+            ecAutoFiredRef.current = true;
+            void fireEmergencyContact();
+          }
+          if (ecTimerRef.current) clearInterval(ecTimerRef.current);
+          ecTimerRef.current = null;
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [fireEmergencyContact]);
+
   const stopTick = useCallback(() => {
     if (tickRef.current) clearInterval(tickRef.current);
     tickRef.current = null;
   }, []);
+
+  const stopSnapshotLoop = useCallback(() => {
+    if (snapshotLoopRef.current) clearTimeout(snapshotLoopRef.current);
+    snapshotLoopRef.current = null;
+  }, []);
+
+  // Start/stop EC countdown based on alert level 9
+  useEffect(() => {
+    if (alertOpen && alertLevel >= 9) {
+      startEcCountdown();
+    } else {
+      stopEcTimer();
+    }
+    return () => { /* cleanup handled in stopEcTimer */ };
+  }, [alertOpen, alertLevel, startEcCountdown, stopEcTimer]);
 
   const startSession = useCallback(async () => {
     setBusy(true);
@@ -140,15 +228,20 @@ export function DriveScreen() {
       lastAlertRef.current = null;
       yawnAccRef.current = 0;
       headAccRef.current = 0;
+      yawnLastTickRef.current = 0;
+      headLastTickRef.current = 0;
+      suddenBrakeRef.current = false;
       sessionStartRef.current = Date.now();
+      tiltDetectorRef.current.reset();
       setLiveLevel(0);
       setLiveYawns(0);
       setLiveHead(0);
       setSessionSecs(0);
+      accelWindowRef.current = [];
       if (await isOnline()) {
         await flushPendingTelemetry(supabase, user.id);
       }
-      setStatus("Session started. Telemetry queues to SQLite, syncs to Supabase when online.");
+      setStatus("Session started. ML Kit snapshots (500ms) + shake detection active.");
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Failed to start session");
     } finally {
@@ -160,7 +253,9 @@ export function DriveScreen() {
     if (!localSessionId) return;
     setBusy(true);
     stopTick();
+    stopSnapshotLoop();
     sessionActiveRef.current = false;
+    tiltDetectorRef.current.reset();
     try {
       const ended = new Date().toISOString();
       getDatabase().runSync("UPDATE driving_sessions_local SET ended_at = ? WHERE id = ?", ended, localSessionId);
@@ -177,38 +272,97 @@ export function DriveScreen() {
     } finally {
       setBusy(false);
     }
-  }, [localSessionId, stopTick, user.id]);
+  }, [localSessionId, stopTick, stopSnapshotLoop, user.id]);
+
+  // Face detection snapshot loop — runs every 200ms (5fps) for fast tilt/yawn detection
+  const runSnapshotLoop = useCallback(async () => {
+    if (!sessionActiveRef.current || !cameraRef.current) return;
+
+    try {
+      const snapshot = await cameraRef.current.takeSnapshot({ quality: 50 });
+      if (snapshot?.path) {
+        const face = await detectFaceInSnapshot(snapshot.path);
+        const now = Date.now();
+        yawnDetectorRef.current.process(face, now);
+        headDetectorRef.current.process(face, now);
+        tiltDetectorRef.current.process(face, now);
+      }
+    } catch {
+      // camera not ready yet or frame unavailable — retry next cycle
+    }
+
+    // Chain the next snapshot (100ms = 10fps — high enough for accurate yawn + head detection)
+    snapshotLoopRef.current = setTimeout(() => {
+      void runSnapshotLoop();
+    }, 100);
+  }, []);
 
   useEffect(() => {
     if (!localSessionId) {
       stopTick();
+      stopSnapshotLoop();
       return;
     }
 
-    Accelerometer.setUpdateInterval(200);
-    Gyroscope.setUpdateInterval(200);
+    // Start snapshot loop after a short delay for camera warmup
+    const warmupDelay = setTimeout(() => {
+      void runSnapshotLoop();
+    }, 500);
+
+    // Accelerometer for shake detection (brake alert)
+    Accelerometer.setUpdateInterval(100);
+    let prevMag: number | null = null;
+    let highDeltaCount = 0;
+
     const sub = Accelerometer.addListener(({ x, y, z }) => {
-      estimatorRef.current.pushAccel(x, y, z);
-    });
-    const gsub = Gyroscope.addListener(({ x, y, z }) => {
-      estimatorRef.current.pushGyro(x, y, z);
+      // Delta-based shake: Expo returns Gs (≈1G at rest). Rapid back-and-forth causes large
+      // magnitude changes between consecutive samples (100ms apart).
+      const magnitude = Math.sqrt(x * x + y * y + z * z);
+
+      if (prevMag !== null) {
+        const delta = Math.abs(magnitude - prevMag);
+        if (delta > SHAKE_DELTA_THRESHOLD) {
+          highDeltaCount = Math.min(highDeltaCount + 1, 6);
+        } else {
+          highDeltaCount = Math.max(0, highDeltaCount - 1);
+        }
+
+        if (highDeltaCount >= 2) {
+          const now = Date.now();
+          if (now - lastShakeTimeRef.current > SHAKE_COOLDOWN) {
+            lastShakeTimeRef.current = now;
+            highDeltaCount = 0;
+            suddenBrakeRef.current = true;
+            // Fire brake alert immediately at level 9 without waiting for the tick
+            setAlertLevel(9);
+            setAlertTitle("Sudden brake detected — pull over safely.");
+            setAlertFlash(true);
+            setAlertOpen(true);
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            Vibration.vibrate([0, 400, 100, 400]);
+          }
+        }
+      }
+      prevMag = magnitude;
     });
 
+    // Compute drowsiness every 1 second
     tickRef.current = setInterval(() => {
-      const sample = estimatorRef.current.tick(1000);
-      yawnAccRef.current += sample.yawnCountDelta;
-      headAccRef.current += sample.headEventCountDelta;
       const ar = adminRef.current;
-      const level = computeDrowsinessLevelFromSignals({
-        sessionYawnCount: yawnAccRef.current,
-        sessionHeadEventCount: headAccRef.current,
-        suddenBrakeThisTick: sample.suddenBrake,
-        thresholds: {
-          yawn_threshold: ar.yawn_threshold,
-          head_movement_threshold: ar.head_movement_threshold,
-        },
-        motionProxyLevel: sample.drowsinessLevel,
-      });
+      const brake = suddenBrakeRef.current;
+      suddenBrakeRef.current = false;
+
+      const yawnDelta = yawnAccRef.current - yawnLastTickRef.current;
+      const headDelta = headAccRef.current - headLastTickRef.current;
+      yawnLastTickRef.current = yawnAccRef.current;
+      headLastTickRef.current = headAccRef.current;
+
+      const level = computeLevelFromAlertMap(
+        yawnAccRef.current,
+        headAccRef.current,
+        brake,
+        ar.map,
+      );
 
       setLiveLevel(level);
       setLiveYawns(yawnAccRef.current);
@@ -225,10 +379,10 @@ export function DriveScreen() {
         localSessionId,
         recordedAt,
         level,
-        sample.yawnCountDelta,
-        sample.headEventCountDelta,
-        sample.suddenBrake ? 1 : 0,
-        "mobile_heuristic",
+        yawnDelta,
+        headDelta,
+        brake ? 1 : 0,
+        "mobile_mlkit",
       );
       void flushPendingTelemetry(supabase, user.id);
 
@@ -264,15 +418,16 @@ export function DriveScreen() {
     return () => {
       sessionActiveRef.current = false;
       sub.remove();
-      gsub.remove();
+      clearTimeout(warmupDelay);
       stopTick();
+      stopSnapshotLoop();
     };
-  }, [localSessionId, stopTick, user.id]);
+  }, [localSessionId, stopTick, stopSnapshotLoop, runSnapshotLoop, user.id]);
 
   if (!hasPermission) {
     return (
       <View style={styles.center}>
-        <Text style={styles.text}>Camera permission required for the monitoring preview.</Text>
+        <Text style={styles.text}>Camera permission required for face detection.</Text>
         <Pressable style={[styles.btn, styles.go]} onPress={() => void requestPermission()}>
           <Text style={styles.btnTextPrimary}>Grant permission</Text>
         </Pressable>
@@ -303,7 +458,62 @@ export function DriveScreen() {
             <Text style={styles.alertLevel}>Level {alertLevel}</Text>
             <Text style={styles.alertTitle}>{alertTitle}</Text>
             <Text style={styles.alertHint}>Pull over when safe.</Text>
-            <Pressable style={styles.alertBtn} onPress={() => setAlertOpen(false)}>
+
+            {/* Level 9+ emergency section */}
+            {alertLevel >= 9 && (
+              <View style={styles.ecSection}>
+                {ecCountdown !== null ? (
+                  <Text style={styles.ecCountdown}>
+                    Auto-notifying emergency contact in {ecCountdown}s
+                  </Text>
+                ) : (
+                  <Text style={styles.ecSent}>Emergency contact has been notified.</Text>
+                )}
+                {emergencyContact && (
+                  <View style={styles.ecBtnRow}>
+                    <Pressable
+                      style={styles.ecBtnCall}
+                      onPress={() => {
+                        if (emergencyContact.contact_phone)
+                          void Linking.openURL(`tel:${emergencyContact.contact_phone}`);
+                      }}
+                    >
+                      <Text style={styles.ecBtnText}>📞 Call {emergencyContact.contact_name}</Text>
+                    </Pressable>
+                    {emergencyContact.contact_phone && (
+                      <Pressable
+                        style={styles.ecBtnSms}
+                        onPress={() =>
+                          void Linking.openURL(
+                            `sms:${emergencyContact.contact_phone}&body=I triggered a drowsiness alert. Please check on me.`,
+                          )
+                        }
+                      >
+                        <Text style={styles.ecBtnText}>💬 SMS</Text>
+                      </Pressable>
+                    )}
+                    <Pressable
+                      style={styles.ecBtnNotify}
+                      onPress={() => void fireEmergencyContact()}
+                    >
+                      <Text style={styles.ecBtnText}>🚨 Notify Now</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </View>
+            )}
+
+            <Pressable
+              style={styles.alertBtn}
+              onPress={() => {
+                stopEcTimer();
+                // Mark as "alerted" (not dismissed) so emergency contact map keeps history
+                if (activeAlertIdRef.current) {
+                  void acknowledgeEmergencyAlert(supabase, activeAlertIdRef.current);
+                }
+                setAlertOpen(false);
+              }}
+            >
               <Text style={styles.btnTextPrimary}>I'm alert — dismiss</Text>
             </Pressable>
           </View>
@@ -315,10 +525,11 @@ export function DriveScreen() {
           style={StyleSheet.absoluteFill}
           device={device}
           isActive={Boolean(localSessionId)}
+          ref={cameraRef}
         />
         {!localSessionId ? (
           <View style={styles.overlay}>
-            <Text style={styles.overlayText}>Start session to enable the camera preview + motion tracking</Text>
+            <Text style={styles.overlayText}>Start session for ML Kit face detection</Text>
           </View>
         ) : null}
       </View>
@@ -329,10 +540,12 @@ export function DriveScreen() {
             <View style={styles.gaugeRow}>
               <View style={styles.gaugeBlock}>
                 <Text style={styles.gaugeLabel}>DROWSINESS</Text>
-                <Text style={[
-                  styles.gaugeValue,
-                  liveLevel >= 8 ? styles.gaugeRed : liveLevel >= 6 ? styles.gaugeAmber : styles.gaugeGreen,
-                ]}>
+                <Text
+                  style={[
+                    styles.gaugeValue,
+                    liveLevel >= 8 ? styles.gaugeRed : liveLevel >= 6 ? styles.gaugeAmber : styles.gaugeGreen,
+                  ]}
+                >
                   {liveLevel.toFixed(0)}
                 </Text>
                 <Text style={styles.gaugeUnit}>/ 10</Text>
@@ -357,19 +570,20 @@ export function DriveScreen() {
             </View>
 
             <View style={styles.barBg}>
-              <View style={[
-                styles.barFill,
-                {
-                  width: `${Math.min(100, liveLevel * 10)}%` as `${number}%`,
-                  backgroundColor: liveLevel >= 8 ? theme.tertiary : liveLevel >= 6 ? theme.secondary : theme.primary,
-                },
-              ]} />
+              <View
+                style={[
+                  styles.barFill,
+                  {
+                    width: `${Math.min(100, liveLevel * 10)}%` as `${number}%`,
+                    backgroundColor:
+                      liveLevel >= 8 ? theme.tertiary : liveLevel >= 6 ? theme.secondary : theme.primary,
+                  },
+                ]}
+              />
             </View>
           </>
         ) : (
-          <Text style={styles.meta}>
-            Camera preview and accelerometer/gyro motion tracking will activate when you start a session.
-          </Text>
+          <Text style={styles.meta}>Face detection + shake-based brake alerts active during session.</Text>
         )}
 
         <Text style={styles.metaSmall}>Network: {netLabel}</Text>
@@ -384,13 +598,15 @@ export function DriveScreen() {
               )}
             </Pressable>
           ) : (
-            <Pressable style={[styles.btn, styles.danger]} disabled={busy} onPress={() => void endSession()}>
-              {busy ? (
-                <ActivityIndicator color={theme.tertiary} />
-              ) : (
-                <Text style={styles.btnTextDanger}>End session</Text>
-              )}
-            </Pressable>
+            <>
+              <Pressable style={[styles.btn, styles.danger]} disabled={busy} onPress={() => void endSession()}>
+                {busy ? (
+                  <ActivityIndicator color={theme.tertiary} />
+                ) : (
+                  <Text style={styles.btnTextDanger}>End session</Text>
+                )}
+              </Pressable>
+            </>
           )}
         </View>
         {status ? <Text style={styles.status}>{status}</Text> : null}
@@ -442,7 +658,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   barFill: { height: 6, borderRadius: 3 },
-  row: { flexDirection: "row", gap: 12, marginTop: 8 },
+  row: { flexDirection: "row", gap: 8, marginTop: 8 },
   btn: { flex: 1, paddingVertical: 14, borderRadius: 16, alignItems: "center" },
   go: {
     backgroundColor: theme.primary,
@@ -457,7 +673,7 @@ const styles = StyleSheet.create({
     borderColor: `${theme.tertiary}88`,
   },
   btnTextPrimary: { color: theme.onPrimary, fontWeight: "800", fontSize: 16 },
-  btnTextDanger: { color: theme.tertiary, fontWeight: "800", fontSize: 16 },
+  btnTextDanger: { color: theme.tertiary, fontWeight: "800", fontSize: 14 },
   status: { color: theme.secondary, fontSize: 12, marginTop: 8 },
   center: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: theme.background },
   text: { color: theme.onSurface, marginBottom: 16 },
@@ -493,17 +709,63 @@ const styles = StyleSheet.create({
   },
   alertLevel: { color: theme.onSurface, fontSize: 42, fontWeight: "800" },
   alertTitle: { color: theme.primary, fontSize: 18, textAlign: "center", fontWeight: "600" },
-  alertHint: { color: theme.onSurfaceVariant, fontSize: 14, textAlign: "center", marginBottom: 24 },
+  alertHint: { color: theme.onSurfaceVariant, fontSize: 14, textAlign: "center", marginBottom: 12 },
+  ecSection: {
+    width: "100%",
+    backgroundColor: `${theme.tertiary}11`,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: `${theme.tertiary}44`,
+  },
+  ecCountdown: {
+    color: theme.tertiary,
+    fontWeight: "700",
+    textAlign: "center",
+    fontSize: 13,
+    marginBottom: 10,
+  },
+  ecSent: {
+    color: "#4ade80",
+    fontWeight: "700",
+    textAlign: "center",
+    fontSize: 13,
+    marginBottom: 10,
+  },
+  ecBtnRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  ecBtnCall: {
+    flex: 2,
+    backgroundColor: `#4ade8022`,
+    borderWidth: 1,
+    borderColor: `#4ade8066`,
+    padding: 10,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  ecBtnSms: {
+    flex: 1,
+    backgroundColor: `${theme.primary}22`,
+    borderWidth: 1,
+    borderColor: `${theme.primary}66`,
+    padding: 10,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  ecBtnNotify: {
+    flex: 1,
+    backgroundColor: `${theme.tertiary}22`,
+    borderWidth: 1,
+    borderColor: `${theme.tertiary}66`,
+    padding: 10,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  ecBtnText: { color: theme.onSurface, fontWeight: "700", fontSize: 12 },
   alertBtn: {
     backgroundColor: theme.primary,
     paddingVertical: 16,
     paddingHorizontal: 32,
-    borderRadius: 16,
-    minWidth: 260,
-    alignItems: "center",
-    shadowColor: theme.primary,
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
+    borderRadius: 12,
   },
 });

@@ -39,9 +39,10 @@ export function LoginScreen({ onSignedIn }: Props) {
       if (result.type === "cancel" || result.type === "dismiss") return;
 
       if (result.type === "success" && result.url) {
-        const parsed = Linking.parse(result.url);
+        const url = result.url;
+        const parsed = Linking.parse(url);
 
-        // Extract the PKCE authorization code from query params
+        // --- PKCE flow: authorization code in query params ---
         const code =
           typeof parsed.queryParams?.code === "string"
             ? parsed.queryParams.code
@@ -49,25 +50,46 @@ export function LoginScreen({ onSignedIn }: Props) {
               ? parsed.queryParams.code[0]
               : undefined;
 
-        if (!code) {
-          // Supabase may have returned an error param instead
-          const oauthError = parsed.queryParams?.error_description ?? parsed.queryParams?.error;
-          Alert.alert(
-            "Google sign-in failed",
-            typeof oauthError === "string" ? oauthError : "No authorization code returned. Ensure snoozeguard://auth/callback is added to Supabase Redirect URLs.",
-          );
+        if (code) {
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+          if (exchangeError) {
+            Alert.alert("Google sign-in failed", exchangeError.message);
+            return;
+          }
+          onSignedIn();
           return;
         }
 
-        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-        if (exchangeError) {
-          Alert.alert("Google sign-in failed", exchangeError.message);
-          return;
+        // --- Implicit flow: tokens in URL hash fragment ---
+        // e.g. snoozeguard://auth/callback#access_token=...&refresh_token=...
+        const hashIndex = url.indexOf("#");
+        if (hashIndex !== -1) {
+          const hash = url.slice(hashIndex + 1);
+          const params = Object.fromEntries(new URLSearchParams(hash));
+          const accessToken = params["access_token"];
+          const refreshToken = params["refresh_token"] ?? "";
+          if (accessToken) {
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+            if (sessionError) {
+              Alert.alert("Google sign-in failed", sessionError.message);
+              return;
+            }
+            onSignedIn();
+            return;
+          }
         }
 
-        // Session is now stored — onAuthStateChange in App.tsx picks it up automatically.
-        // Calling onSignedIn() triggers an immediate getSession() as a belt-and-suspenders.
-        onSignedIn();
+        // Neither code nor token found — show diagnostic
+        const oauthError = parsed.queryParams?.error_description ?? parsed.queryParams?.error;
+        Alert.alert(
+          "Google sign-in failed",
+          typeof oauthError === "string"
+            ? oauthError
+            : `No auth data in callback.\n\nURL: ${url.slice(0, 120)}\n\nCheck:\n1. Google Cloud Console → Authorized redirect URIs includes https://cjxxdqyhqscfklktxohq.supabase.co/auth/v1/callback\n2. Supabase → Auth → Providers → Google is enabled with correct Client ID/Secret`,
+        );
       }
     } catch (e) {
       Alert.alert("Google sign-in failed", e instanceof Error ? e.message : "Unknown error");
@@ -188,4 +210,5 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.5 },
   buttonText: { color: theme.onPrimary, textAlign: "center", fontWeight: "800", fontSize: 16 },
   link: { color: theme.onSurfaceVariant, textAlign: "center", marginTop: 16, textDecorationLine: "underline" },
+  dbg: { color: theme.onSurfaceVariant, textAlign: "center", fontSize: 9, marginTop: 4, opacity: 0.5 },
 });

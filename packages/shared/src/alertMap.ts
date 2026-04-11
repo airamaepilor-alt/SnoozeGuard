@@ -1,15 +1,21 @@
 export type AlertLevelConfig = {
   label: string;
   actions: string[];
+  /** Session yawn count that activates this level (OR logic with head_count) */
+  yawn_count: number;
+  /** Session head-movement event count that activates this level (OR logic with yawn_count) */
+  head_count: number;
 };
 
 /** Keys are stringified levels, e.g. "6", "7", "8". */
 export type AlertMap = Record<string, AlertLevelConfig>;
 
 export const DEFAULT_ALERT_MAP: AlertMap = {
-  "6": { label: "Soft alarm", actions: ["sound", "voice"] },
-  "7": { label: "Strong alert", actions: ["sound", "vibration"] },
-  "8": { label: "Critical", actions: ["flashlight", "alarm", "iot_led"] },
+  "6":  { label: "Mild fatigue",    actions: ["sound", "voice"],              yawn_count: 3,  head_count: 20 },
+  "7":  { label: "Moderate fatigue", actions: ["sound", "vibration"],          yawn_count: 5,  head_count: 35 },
+  "8":  { label: "High fatigue",     actions: ["alarm", "vibration"],           yawn_count: 8,  head_count: 55 },
+  "9":  { label: "Severe — pull over", actions: ["alarm", "flashlight"],        yawn_count: 12, head_count: 80 },
+  "10": { label: "Critical — stop now", actions: ["alarm", "flashlight", "iot_led"], yawn_count: 18, head_count: 110 },
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -21,11 +27,45 @@ export function parseAlertMap(raw: unknown): AlertMap {
   const out: AlertMap = {};
   for (const [k, v] of Object.entries(raw)) {
     if (!isRecord(v)) continue;
-    const label = typeof v.label === "string" ? v.label : DEFAULT_ALERT_MAP[k]?.label ?? `Level ${k}`;
+    const def = DEFAULT_ALERT_MAP[k];
+    const label = typeof v.label === "string" ? v.label : def?.label ?? `Level ${k}`;
     const actions = Array.isArray(v.actions) ? v.actions.filter((a): a is string => typeof a === "string") : [];
-    out[k] = { label, actions: actions.length ? actions : DEFAULT_ALERT_MAP[k]?.actions ?? ["sound"] };
+    const yawn_count = typeof v.yawn_count === "number" ? v.yawn_count : def?.yawn_count ?? 3;
+    const head_count = typeof v.head_count === "number" ? v.head_count : def?.head_count ?? 20;
+    out[k] = {
+      label,
+      actions: actions.length ? actions : def?.actions ?? ["sound"],
+      yawn_count,
+      head_count,
+    };
   }
   return Object.keys(out).length ? out : { ...DEFAULT_ALERT_MAP };
+}
+
+/**
+ * Compute drowsiness level from per-level thresholds stored in the alert map.
+ * Returns the highest level whose yawn OR head threshold has been reached.
+ * Sudden brake immediately returns level 9.
+ */
+export function computeLevelFromAlertMap(
+  yawnCount: number,
+  headCount: number,
+  suddenBrake: boolean,
+  alertMap: AlertMap,
+): number {
+  if (suddenBrake) return 9;
+  const levels = Object.keys(alertMap)
+    .map(Number)
+    .filter((n) => !Number.isNaN(n))
+    .sort((a, b) => a - b);
+  let result = 0;
+  for (const lv of levels) {
+    const cfg = alertMap[String(lv)];
+    if (yawnCount >= cfg.yawn_count || headCount >= cfg.head_count) {
+      result = lv;
+    }
+  }
+  return result;
 }
 
 /** Highest alert_map key ≤ current level (e.g. level 7 → config for "7"). */

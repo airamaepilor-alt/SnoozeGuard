@@ -1,7 +1,6 @@
 import type { ExpoConfig } from "expo/config";
 
-/** Set after `eas init` (Expo dashboard project ID). Optional for local `expo prebuild` only. */
-const easProjectId = process.env.EAS_PROJECT_ID;
+const easProjectId = process.env.EAS_PROJECT_ID ?? "249966ac-85af-4933-83a7-365abd3ebea2";
 
 const config: ExpoConfig = {
   name: "SnoozeGuard",
@@ -19,10 +18,12 @@ const config: ExpoConfig = {
   },
   ios: {
     supportsTablet: true,
-    bundleIdentifier: "com.snoozeguard.app",
+    bundleIdentifier: "com.airamae.snoozeguard",
     infoPlist: {
       NSCameraUsageDescription: "SnoozeGuard uses the camera for driver monitoring while a session is active.",
       NSMotionUsageDescription: "SnoozeGuard uses device motion as a signal for head-movement heuristics (on-device ML path).",
+      NSLocationWhenInUseUsageDescription: "SnoozeGuard captures your location during emergency alerts to share with your emergency contact.",
+      ITSAppUsesNonExemptEncryption: false,
     },
   },
   android: {
@@ -33,7 +34,20 @@ const config: ExpoConfig = {
     package: "com.snoozeguard.app",
     // @ts-expect-error minSdkVersion is a valid Expo Android config field; type definition gap in SDK 54 types
     minSdkVersion: 26,
-    permissions: ["CAMERA"],
+    permissions: ["CAMERA", "ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
+    intentFilters: [
+      {
+        action: "android.intent.action.VIEW",
+        autoVerify: true,
+        data: [
+          {
+            scheme: "snoozeguard",
+            host: "*",
+          },
+        ],
+        category: ["android.intent.category.BROWSABLE", "android.intent.category.DEFAULT"],
+      },
+    ],
   },
   web: {
     favicon: "./assets/favicon.png",
@@ -45,6 +59,20 @@ const config: ExpoConfig = {
       {
         cameraPermissionText: "SnoozeGuard uses the camera for driver monitoring.",
         enableMicrophonePermission: false,
+      },
+    ],
+    [
+      "expo-location",
+      {
+        locationAlwaysAndWhenInUsePermission: "SnoozeGuard captures your location during emergency alerts.",
+      },
+    ],
+    [
+      "expo-notifications",
+      {
+        icon: "./assets/icon.png",
+        color: "#0b1326",
+        sounds: [],
       },
     ],
   ],

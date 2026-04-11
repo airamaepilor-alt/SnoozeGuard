@@ -69,24 +69,63 @@ export function HomeScreen({ session, onSignOut }: Props) {
   const [loading, setLoading] = useState(true);
 
   const firstName = useMemo(() => dashboardFirstName(session.user), [session.user]);
-  const tzOffset = useMemo(() => -new Date().getTimezoneOffset(), []);
-
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await supabase.rpc("user_dashboard_metrics", {
-        p_session_limit: 40,
-        p_tz_offset_minutes: tzOffset,
+      // Query directly from Supabase tables — no RPC dependency
+      const { data: sessions } = await supabase
+        .from("driving_sessions")
+        .select("id, started_at, ended_at")
+        .eq("user_id", session.user.id)
+        .order("started_at", { ascending: false })
+        .limit(40);
+
+      if (!sessions || sessions.length === 0) return;
+
+      const sessionIds = sessions.map((s) => s.id as string);
+      const { data: telemetry } = await supabase
+        .from("session_telemetry")
+        .select("drowsiness_level, yawn_count_delta, head_event_count_delta")
+        .in("session_id", sessionIds);
+
+      const rows = telemetry ?? [];
+      const totalDriveSeconds = sessions.reduce((acc, s) => {
+        if (s.started_at && s.ended_at) {
+          acc += (new Date(s.ended_at as string).getTime() - new Date(s.started_at as string).getTime()) / 1000;
+        }
+        return acc;
+      }, 0);
+
+      const yawnSum = rows.reduce((a, r) => a + ((r.yawn_count_delta as number) ?? 0), 0);
+      const headSum = rows.reduce((a, r) => a + ((r.head_event_count_delta as number) ?? 0), 0);
+      const levels = rows.map((r) => (r.drowsiness_level as number) ?? 0);
+      const avgDrowsiness = levels.length > 0 ? levels.reduce((a, b) => a + b, 0) / levels.length : 0;
+      const l6 = rows.filter((r) => (r.drowsiness_level as number) >= 6 && (r.drowsiness_level as number) < 7).length;
+      const l7 = rows.filter((r) => (r.drowsiness_level as number) >= 7 && (r.drowsiness_level as number) < 8).length;
+      const l8 = rows.filter((r) => (r.drowsiness_level as number) >= 8).length;
+      // Always compute a score when sessions exist (0 avg drowsiness = perfect score 100)
+      const focusScore = sessions.length > 0 ? Math.max(0, Math.round(100 - avgDrowsiness * 10)) : null;
+
+      setMetrics({
+        ok: true,
+        session_count_total: sessions.length,
+        avg_drowsiness: avgDrowsiness,
+        yawn_delta_sum: yawnSum,
+        head_delta_sum: headSum,
+        l6_count: l6,
+        l7_count: l7,
+        l8_count: l8,
+        total_drive_seconds: Math.round(totalDriveSeconds),
+        focus_score: focusScore,
+        peak_hour: null,
+        safest_hour: null,
       });
-      if (data && (data as DashboardMetrics).ok) {
-        setMetrics(data as DashboardMetrics);
-      }
     } catch {
-      // Offline or RPC not yet deployed
+      // Offline — metrics stay null
     } finally {
       setLoading(false);
     }
-  }, [tzOffset]);
+  }, [session.user.id]);
 
   useEffect(() => {
     void refresh();

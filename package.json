@@ -4,14 +4,16 @@
   "private": true,
   "description": "SnoozeGuard — drowsiness detection (web, mobile, API, IoT)",
   "scripts": {
-    "postinstall": "node scripts/android-cxx-shared-link.cjs",
+    "postinstall": "node scripts/android-cxx-shared-link.cjs && npx patch-package",
     "dev:web": "npm run dev -w @snoozeguard/web",
     "dev:api": "npm run dev -w @snoozeguard/api",
     "dev:mobile": "npm run start -w @snoozeguard/mobile",
     "dev:mqtt-bridge": "npm run dev -w @snoozeguard/mqtt-bridge",
     "build": "npm run build -w @snoozeguard/shared && npm run build -w @snoozeguard/api && npm run build -w @snoozeguard/mqtt-bridge && npm run build -w @snoozeguard/web",
     "verify": "npm run build -w @snoozeguard/shared && npm run build -w @snoozeguard/api && npm run build -w @snoozeguard/mqtt-bridge && npm run build -w @snoozeguard/web && npm run lint -w @snoozeguard/mobile --if-present",
-    "lint": "npm run lint -w @snoozeguard/web -w @snoozeguard/api -w @snoozeguard/mobile --if-present"
+    "lint": "npm run lint -w @snoozeguard/web -w @snoozeguard/api -w @snoozeguard/mobile --if-present",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "workspaces": [
     "apps/*",
@@ -23,6 +25,12 @@
   },
   "devDependencies": {
     "@expo/cli": "^54.0.23",
-    "@react-native/debugger-frontend": "^0.81.5"
+    "@react-native/debugger-frontend": "^0.81.5",
+    "patch-package": "^8.0.1"
+  },
+  "dependencies": {
+    "expo": "~54.0.33",
+    "react": "19.1.0",
+    "react-native": "0.81.5"
   }
 }
