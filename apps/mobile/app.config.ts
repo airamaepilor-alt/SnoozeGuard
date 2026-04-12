@@ -1,6 +1,6 @@
 import type { ExpoConfig } from "expo/config";
 
-const easProjectId = process.env.EAS_PROJECT_ID ?? "249966ac-85af-4933-83a7-365abd3ebea2";
+const easProjectId = process.env.EAS_PROJECT_ID ?? "dca0364e-600b-452d-993d-1ba6e3da8c3b";
 
 const config: ExpoConfig = {
   name: "SnoozeGuard",
@@ -59,6 +59,7 @@ const config: ExpoConfig = {
       {
         cameraPermissionText: "SnoozeGuard uses the camera for driver monitoring.",
         enableMicrophonePermission: false,
+        enableFrameProcessors: true,
       },
     ],
     [
