@@ -45,10 +45,12 @@ type AdminRuntime = {
 
 // ─── Real alert actions ───────────────────────────────────────────────────────
 // voice      → TTS "drowsiness detected, please pull over"
+// alarm      → Android system alarm tone for 8 s (fallback: strong vibration)
 // flashlight → phone torch flicker (on/off every 250 ms for 5 s)
 // vibration  → device vibration
+// iot_led / iot_buzzer → handled server-side via IoT ingest
 
-function playMobileAlertActions(
+async function playMobileAlertActions(
   actions: string[],
   setTorchOn: (on: boolean) => void,
   flickerIntervalRef: { current: ReturnType<typeof setInterval> | null },
@@ -60,6 +62,19 @@ function playMobileAlertActions(
         rate: 0.85,
         pitch: 1.0,
       });
+    }
+    if (action === "alarm") {
+      try {
+        const { Audio } = await import("expo-av");
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, shouldDuckAndroid: false });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: "content://settings/system/alarm_alert" },
+          { shouldPlay: true, volume: 1.0 },
+        );
+        setTimeout(() => void sound.unloadAsync(), 8000);
+      } catch {
+        Vibration.vibrate([0, 500, 200, 500, 200, 500, 200, 500]);
+      }
     }
     if (action === "flashlight") {
       // Clear any in-progress flicker before starting a new one
@@ -464,7 +479,7 @@ export function DriveScreen() {
             local_session_hint: localSessionId, drowsiness_level: level,
             trigger_level: ar.trigger, alert_label: label, source: "mobile_drive",
           });
-          playMobileAlertActions(actions, setTorchOn, flickerIntervalRef);
+          void playMobileAlertActions(actions, setTorchOn, flickerIntervalRef);
         }
       }
     }, 1000);

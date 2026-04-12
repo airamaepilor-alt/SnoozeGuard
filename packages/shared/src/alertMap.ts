@@ -11,11 +11,11 @@ export type AlertLevelConfig = {
 export type AlertMap = Record<string, AlertLevelConfig>;
 
 export const DEFAULT_ALERT_MAP: AlertMap = {
-  "6":  { label: "Mild fatigue",       actions: ["voice"],                       yawn_count: 3,  head_count: 20 },
-  "7":  { label: "Moderate fatigue",   actions: ["voice", "vibration"],           yawn_count: 5,  head_count: 35 },
-  "8":  { label: "High fatigue",       actions: ["flashlight", "vibration"],      yawn_count: 8,  head_count: 55 },
-  "9":  { label: "Severe — pull over", actions: ["flashlight", "voice"],          yawn_count: 12, head_count: 80 },
-  "10": { label: "Critical — stop now", actions: ["flashlight", "voice", "iot_led"], yawn_count: 18, head_count: 110 },
+  "6":  { label: "Mild fatigue",        actions: ["voice"],                                    yawn_count: 3,  head_count: 20  },
+  "7":  { label: "Moderate fatigue",    actions: ["voice", "vibration"],                       yawn_count: 5,  head_count: 35  },
+  "8":  { label: "High fatigue",        actions: ["alarm", "vibration"],                       yawn_count: 8,  head_count: 55  },
+  "9":  { label: "Severe — pull over",  actions: ["alarm", "flashlight", "iot_led"],           yawn_count: 12, head_count: 80  },
+  "10": { label: "Critical — stop now", actions: ["alarm", "flashlight", "iot_led", "iot_buzzer"], yawn_count: 18, head_count: 110 },
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {

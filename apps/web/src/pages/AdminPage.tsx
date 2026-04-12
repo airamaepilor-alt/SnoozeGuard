@@ -8,7 +8,7 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 
-const ACTION_OPTIONS = ["voice", "vibration", "flashlight", "iot_led"] as const;
+const ACTION_OPTIONS = ["voice", "vibration", "alarm", "flashlight", "iot_led", "iot_buzzer"] as const;
 
 type Config = {
   yawn_threshold: number;
@@ -49,12 +49,14 @@ export function AdminPage() {
   const [alertMap, setAlertMap] = useState<AlertMap>(() => ({ ...DEFAULT_ALERT_MAP }));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      console.log("[AdminPage] loading config…");
       const { data, error } = await supabase.from("admin_config").select("*").eq("id", 1).maybeSingle();
+      console.log("[AdminPage] load result:", { data, error });
       if (!cancelled) {
         if (!error && data) {
           const c = data as Config;
@@ -64,9 +66,7 @@ export function AdminPage() {
         setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   const levelKeys = useMemo(() => ["6", "7", "8"] as const, []);
@@ -80,15 +80,27 @@ export function AdminPage() {
     if (!cfg || !user) return;
     setSaving(true);
     setMessage(null);
-    const { error } = await supabase.rpc("update_admin_config", {
+
+    const payload = {
       p_yawn_threshold: cfg.yawn_threshold,
       p_head_movement_threshold: cfg.head_movement_threshold,
       p_drowsiness_trigger_level: cfg.drowsiness_trigger_level,
       p_alert_map: alertMap,
       p_updated_by: user.id,
-    });
+    };
+    console.log("[AdminPage] saving config via RPC:", payload);
+    console.log("[AdminPage] current user id:", user.id, "role:", profile?.role);
+
+    const { data, error } = await supabase.rpc("update_admin_config", payload);
+    console.log("[AdminPage] RPC result:", { data, error });
+
     setSaving(false);
-    setMessage(error ? error.message : "Saved.");
+    if (error) {
+      console.error("[AdminPage] save failed:", error.code, error.message, error.details, error.hint);
+      setMessage({ text: `Error: ${error.message}`, ok: false });
+    } else {
+      setMessage({ text: "Saved successfully.", ok: true });
+    }
   }
 
   function resetAlertMap() {
@@ -198,13 +210,17 @@ export function AdminPage() {
           </div>
         </div>
 
-        {message ? <p className="text-sm text-secondary">{message}</p> : null}
+        {message ? (
+          <p className={`rounded-lg px-4 py-2 text-sm font-medium ${message.ok ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
+            {message.text}
+          </p>
+        ) : null}
         <button
           type="submit"
           disabled={saving}
           className="w-full rounded-xl bg-gradient-to-br from-primary to-on-primary-container py-3 font-headline font-bold text-on-primary shadow-lg shadow-primary/15 disabled:opacity-50"
         >
-          {saving ? "Saving…" : "Save"}
+          {saving ? "Saving…" : "Save configuration"}
         </button>
       </form>
     </div>
