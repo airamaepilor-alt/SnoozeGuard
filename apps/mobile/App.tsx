@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { drivingSessionActive, endSessionFn } from "./sessionState";
 import type { Session } from "@supabase/supabase-js";
 import { NavigationContainer, DarkTheme, useNavigation } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -257,7 +258,29 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
         onSkip={() => setShowEcSetup(false)}
       />
       <NavigationContainer theme={navTheme}>
-        <Tab.Navigator screenOptions={sharedScreenOptions}>
+        <Tab.Navigator
+          screenOptions={sharedScreenOptions}
+          screenListeners={({ navigation, route }) => ({
+            tabPress: (e) => {
+              // If a session is active and the user taps a tab other than Drive,
+              // intercept and confirm before allowing navigation.
+              if (route.name !== "Drive" && drivingSessionActive.current) {
+                e.preventDefault();
+                Alert.alert(
+                  "Session Active",
+                  "You have an active driving session. Do you want to leave?",
+                  [
+                    { text: "Keep Driving", style: "cancel" },
+                    { text: "End Session & Leave", style: "destructive", onPress: () => {
+                      endSessionFn.current?.();
+                      navigation.navigate(route.name as never);
+                    }},
+                  ],
+                );
+              }
+            },
+          })}
+        >
 
           {/* ── Visible tabs ── */}
           <Tab.Screen

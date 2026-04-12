@@ -4,6 +4,7 @@ import type { Session } from "@supabase/supabase-js";
 import { useNavigation } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { supabase } from "../lib/supabase";
+import { getDatabase } from "../db/database";
 import type { MainTabParamList } from "../navigation/types";
 import { theme } from "../theme";
 
@@ -69,46 +70,62 @@ export function HomeScreen({ session, onSignOut }: Props) {
   const [loading, setLoading] = useState(true);
 
   const firstName = useMemo(() => dashboardFirstName(session.user), [session.user]);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(() => {
     setLoading(true);
     try {
-      // Query directly from Supabase tables — no RPC dependency
-      const { data: sessions } = await supabase
-        .from("driving_sessions")
-        .select("id, started_at, ended_at")
-        .eq("user_id", session.user.id)
-        .order("started_at", { ascending: false })
-        .limit(40);
+      // Use the same local SQLite source as HistoryScreen for consistent counts
+      const db = getDatabase();
+      const rows = db.getAllSync<{
+        started_at: string;
+        ended_at: string | null;
+        avg_drowsiness: number | null;
+        yawn_sum: number;
+        head_sum: number;
+        sample_count: number;
+      }>(
+        `SELECT
+           s.started_at,
+           s.ended_at,
+           AVG(t.drowsiness_level)                                      AS avg_drowsiness,
+           COALESCE(SUM(t.yawn_count_delta), 0)                         AS yawn_sum,
+           COALESCE(SUM(t.head_event_count_delta), 0)                   AS head_sum,
+           COUNT(t.id)                                                   AS sample_count
+         FROM driving_sessions_local s
+         LEFT JOIN session_telemetry_local t ON t.local_session_id = s.id
+         WHERE s.user_id = ?
+         GROUP BY s.id
+         ORDER BY s.started_at DESC
+         LIMIT 40`,
+        session.user.id,
+      );
 
-      if (!sessions || sessions.length === 0) return;
+      if (rows.length === 0) {
+        setMetrics(null);
+        return;
+      }
 
-      const sessionIds = sessions.map((s) => s.id as string);
-      const { data: telemetry } = await supabase
-        .from("session_telemetry")
-        .select("drowsiness_level, yawn_count_delta, head_event_count_delta")
-        .in("session_id", sessionIds);
-
-      const rows = telemetry ?? [];
-      const totalDriveSeconds = sessions.reduce((acc, s) => {
-        if (s.started_at && s.ended_at) {
-          acc += (new Date(s.ended_at as string).getTime() - new Date(s.started_at as string).getTime()) / 1000;
+      const totalDriveSeconds = rows.reduce((acc, r) => {
+        if (r.started_at && r.ended_at) {
+          acc += (new Date(r.ended_at).getTime() - new Date(r.started_at).getTime()) / 1000;
         }
         return acc;
       }, 0);
 
-      const yawnSum = rows.reduce((a, r) => a + ((r.yawn_count_delta as number) ?? 0), 0);
-      const headSum = rows.reduce((a, r) => a + ((r.head_event_count_delta as number) ?? 0), 0);
-      const levels = rows.map((r) => (r.drowsiness_level as number) ?? 0);
-      const avgDrowsiness = levels.length > 0 ? levels.reduce((a, b) => a + b, 0) / levels.length : 0;
-      const l6 = rows.filter((r) => (r.drowsiness_level as number) >= 6 && (r.drowsiness_level as number) < 7).length;
-      const l7 = rows.filter((r) => (r.drowsiness_level as number) >= 7 && (r.drowsiness_level as number) < 8).length;
-      const l8 = rows.filter((r) => (r.drowsiness_level as number) >= 8).length;
-      // Always compute a score when sessions exist (0 avg drowsiness = perfect score 100)
-      const focusScore = sessions.length > 0 ? Math.max(0, Math.round(100 - avgDrowsiness * 10)) : null;
+      const yawnSum = rows.reduce((a, r) => a + Number(r.yawn_sum), 0);
+      const headSum = rows.reduce((a, r) => a + Number(r.head_sum), 0);
+      const avgValues = rows.map((r) => Number(r.avg_drowsiness ?? 0));
+      const avgDrowsiness = avgValues.length > 0 ? avgValues.reduce((a, b) => a + b, 0) / avgValues.length : 0;
+
+      // Count telemetry samples by level — query aggregated per session so we
+      // use the per-session average to classify rather than individual ticks.
+      const l6 = rows.filter((r) => { const a = Number(r.avg_drowsiness ?? 0); return a >= 6 && a < 7; }).length;
+      const l7 = rows.filter((r) => { const a = Number(r.avg_drowsiness ?? 0); return a >= 7 && a < 8; }).length;
+      const l8 = rows.filter((r) => Number(r.avg_drowsiness ?? 0) >= 8).length;
+      const focusScore = Math.max(0, Math.round(100 - avgDrowsiness * 10));
 
       setMetrics({
         ok: true,
-        session_count_total: sessions.length,
+        session_count_total: rows.length,
         avg_drowsiness: avgDrowsiness,
         yawn_delta_sum: yawnSum,
         head_delta_sum: headSum,
@@ -121,7 +138,7 @@ export function HomeScreen({ session, onSignOut }: Props) {
         safest_hour: null,
       });
     } catch {
-      // Offline — metrics stay null
+      // DB not ready yet — metrics stay null
     } finally {
       setLoading(false);
     }

@@ -1,0 +1,10 @@
+# Exclude large/unnecessary folders from the EAS archive
+apps/mobile/android/build/
+apps/mobile/android/app/build/
+apps/mobile/android/.gradle/
+apps/mobile/.expo/
+apps/mobile/dist/
+apps/web/
+apps/api/
+services/
+*.log

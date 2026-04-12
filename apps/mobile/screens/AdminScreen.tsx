@@ -14,7 +14,7 @@ import { supabase } from "../lib/supabase";
 import { DEFAULT_ALERT_MAP } from "@snoozeguard/shared";
 import { theme } from "../theme";
 
-const ALL_ACTIONS = ["voice", "vibration", "alarm", "flashlight", "iot_led", "iot_buzzer"] as const;
+const ALL_ACTIONS = ["voice", "vibration", "alarm", "iot_led", "iot_buzzer"] as const;
 type Action = typeof ALL_ACTIONS[number];
 
 type LevelConfig = { label: string; actions: Action[]; yawn_count: number; head_count: number };
@@ -26,7 +26,6 @@ const actionLabel: Record<Action, string> = {
   voice: "Voice",
   vibration: "Vibrate",
   alarm: "Alarm",
-  flashlight: "Flash",
   iot_led: "IoT LED",
   iot_buzzer: "IoT Buzzer",
 };

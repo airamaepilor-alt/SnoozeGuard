@@ -87,20 +87,24 @@ export function parseFaceFrame(result: MPFaceLandmarkerResult): ParsedFaceFrame 
   const jaw = result.faceBlendshapes[0].categories
     .find((c) => c.label === "jawOpen" || (c as { categoryName?: string }).categoryName === "jawOpen")?.score ?? 0;
 
-  // ── Roll: angle of the eye-to-eye line from horizontal ───────────────────
-  // Landmark 33 = left eye outer corner, 263 = right eye outer corner
-  // In normalized image coords y increases downward; atan2 gives signed angle.
-  const lEye = lms[33];
-  const rEye = lms[263];
-  const roll = Math.atan2(rEye.y - lEye.y, rEye.x - lEye.x);
+  // ── Shared landmarks ─────────────────────────────────────────────────────
+  const forehead   = lms[10];   // forehead center (shades-immune)
+  const chin       = lms[152];  // chin center
+  const noseBridge = lms[168];  // nose bridge between eyes
+  const noseTip    = lms[1];    // nose tip
+
+  // ── Roll: deviation of forehead→chin axis from vertical ─────────────────
+  // Landmark 10 = forehead center, 152 = chin center.
+  // These landmarks are never occluded by glasses/shades, making roll
+  // estimation reliable regardless of eyewear.
+  // When head is straight: forehead.x ≈ chin.x → roll ≈ 0.
+  // Tilted right: forehead shifts right relative to chin → roll > 0.
+  const roll = Math.atan2(forehead.x - chin.x, chin.y - forehead.y);
 
   // ── Pitch: nose position between eye-midpoint and chin ───────────────────
   // Landmark 168 = nose bridge (between eyes), 1 = nose tip, 152 = chin
   // noseRatio ≈ 0.45 when looking straight; increases when looking down.
   // Scaled so that ±0.12 ratio offset ≈ ±0.35 rad (the detection threshold).
-  const noseBridge = lms[168];
-  const noseTip    = lms[1];
-  const chin       = lms[152];
   const faceH = chin.y - noseBridge.y;
   if (faceH <= 0) return null;
   const noseRatio = (noseTip.y - noseBridge.y) / faceH;

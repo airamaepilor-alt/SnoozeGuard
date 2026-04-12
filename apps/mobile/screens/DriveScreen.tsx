@@ -14,8 +14,10 @@ import { Accelerometer } from "expo-sensors";
 import * as Crypto from "expo-crypto";
 import NetInfo from "@react-native-community/netinfo";
 import * as Speech from "expo-speech";
+import { Audio } from "expo-av";
 import { deleteAsync } from "expo-file-system/legacy";
 import { Camera, useCameraDevice, useCameraPermission } from "react-native-vision-camera";
+import { drivingSessionActive, endSessionFn } from "../sessionState";
 import { faceLandmarkDetectionOnImage, Delegate } from "react-native-mediapipe";
 import { acknowledgeEmergencyAlert, getEmergencyContact, triggerEmergencyAlert, type EmergencyContact } from "../lib/emergencyNotify";
 import {
@@ -46,15 +48,10 @@ type AdminRuntime = {
 // ─── Real alert actions ───────────────────────────────────────────────────────
 // voice      → TTS "drowsiness detected, please pull over"
 // alarm      → Android system alarm tone for 8 s (fallback: strong vibration)
-// flashlight → phone torch flicker (on/off every 250 ms for 5 s)
-// vibration  → device vibration
+// vibration  → repeating vibration pattern
 // iot_led / iot_buzzer → handled server-side via IoT ingest
 
-async function playMobileAlertActions(
-  actions: string[],
-  setTorchOn: (on: boolean) => void,
-  flickerIntervalRef: { current: ReturnType<typeof setInterval> | null },
-) {
+async function playMobileAlertActions(actions: string[]) {
   for (const action of actions) {
     if (action === "voice") {
       Speech.speak("Warning: drowsiness detected. Please pull over and rest.", {
@@ -65,38 +62,38 @@ async function playMobileAlertActions(
     }
     if (action === "alarm") {
       try {
-        const { Audio } = await import("expo-av");
-        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, shouldDuckAndroid: false });
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: "content://settings/system/alarm_alert" },
-          { shouldPlay: true, volume: 1.0 },
-        );
-        setTimeout(() => void sound.unloadAsync(), 8000);
-      } catch {
-        Vibration.vibrate([0, 500, 200, 500, 200, 500, 200, 500]);
-      }
-    }
-    if (action === "flashlight") {
-      // Clear any in-progress flicker before starting a new one
-      if (flickerIntervalRef.current) {
-        clearInterval(flickerIntervalRef.current);
-        flickerIntervalRef.current = null;
-      }
-      let count = 0;
-      setTorchOn(true);
-      flickerIntervalRef.current = setInterval(() => {
-        count++;
-        setTorchOn(count % 2 === 0); // even → on, odd → off
-        if (count >= 20) {
-          // 20 × 250 ms = 5 seconds total
-          clearInterval(flickerIntervalRef.current!);
-          flickerIntervalRef.current = null;
-          setTorchOn(false);
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: false,
+          staysActiveInBackground: true,
+          playThroughEarpieceAndroid: false,
+        });
+        // Try system alarm URI first, fall back to ringtone
+        let played = false;
+        for (const uri of [
+          "content://settings/system/alarm_alert",
+          "content://settings/system/ringtone",
+        ]) {
+          try {
+            const { sound } = await Audio.Sound.createAsync(
+              { uri },
+              { shouldPlay: true, volume: 1.0 },
+            );
+            setTimeout(() => void sound.unloadAsync(), 8000);
+            played = true;
+            break;
+          } catch { /* try next */ }
         }
-      }, 250);
+        if (!played) throw new Error("no uri worked");
+      } catch {
+        // Fallback: strong repeating vibration
+        Vibration.vibrate([0, 800, 200, 800, 200, 800, 200, 800, 200, 800], false);
+      }
     }
     if (action === "vibration") {
-      Vibration.vibrate(500);
+      // 5 pulses: 500ms on, 300ms off
+      Vibration.vibrate([0, 500, 300, 500, 300, 500, 300, 500, 300, 500], false);
     }
   }
 }
@@ -111,11 +108,10 @@ async function playMobileAlertActions(
 type FaceCameraProps = {
   modelPath: string;
   sessionActive: boolean;
-  torchOn: boolean;
   onFaceResults: (bundle: MPResultsBundle) => void;
 };
 
-function FaceCamera({ modelPath, sessionActive, torchOn, onFaceResults }: FaceCameraProps) {
+function FaceCamera({ modelPath, sessionActive, onFaceResults }: FaceCameraProps) {
   const device = useCameraDevice("front");
   const cameraRef = useRef<Camera>(null);
   const loopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -173,7 +169,6 @@ function FaceCamera({ modelPath, sessionActive, torchOn, onFaceResults }: FaceCa
       isActive={sessionActive}
       photo={false}
       video={false}
-      torch={torchOn ? "on" : "off"}
     />
   );
 }
@@ -206,7 +201,6 @@ export function DriveScreen() {
   const [alertLevel, setAlertLevel] = useState(0);
   const [alertTitle, setAlertTitle] = useState("");
   const [alertFlash, setAlertFlash] = useState(false);
-  const [torchOn, setTorchOn] = useState(false);
 
   // Emergency contact
   const [emergencyContact, setEmergencyContact] = useState<EmergencyContact | null>(null);
@@ -237,7 +231,6 @@ export function DriveScreen() {
   const lastAlertRef = useRef<{ level: number; at: number } | null>(null);
   const sessionActiveRef = useRef(false);
   const alertOpenRef = useRef(false);
-  const flickerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastShakeTimeRef = useRef(0);
   const SHAKE_DELTA_THRESHOLD = 0.45;
   const SHAKE_COOLDOWN = 3000;
@@ -361,6 +354,7 @@ export function DriveScreen() {
       );
       setLocalSessionId(id);
       sessionActiveRef.current = true;
+      drivingSessionActive.current = true;
       lastAlertRef.current = null;
       yawnAccRef.current = 0;
       headAccRef.current = 0;
@@ -379,33 +373,47 @@ export function DriveScreen() {
     }
   }, [user.id, loadAdminConfig]);
 
-  const endSession = useCallback(async () => {
+  const endSession = useCallback(() => {
     if (!localSessionId) return;
-    setBusy(true);
+    // Stop all active loops immediately
     stopTick();
     sessionActiveRef.current = false;
+    drivingSessionActive.current = false;
+    endSessionFn.current = null;
     tiltDetectorRef.current.reset();
-    if (flickerIntervalRef.current) {
-      clearInterval(flickerIntervalRef.current);
-      flickerIntervalRef.current = null;
-    }
-    setTorchOn(false);
+
+    // Write ended_at synchronously — no network needed
     try {
-      getDatabase().runSync("UPDATE driving_sessions_local SET ended_at = ? WHERE id = ?", new Date().toISOString(), localSessionId);
-      setLocalSessionId(null);
-      setAlertOpen(false);
-      setLiveLevel(0);
-      sessionStartRef.current = null;
-      setStatus("Session ended. Syncing…");
-      await flushEndedSessions(supabase, user.id);
-      await flushPendingTelemetry(supabase, user.id);
-      setStatus("Session ended.");
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : "Failed to end session");
-    } finally {
-      setBusy(false);
-    }
+      getDatabase().runSync(
+        "UPDATE driving_sessions_local SET ended_at = ? WHERE id = ?",
+        new Date().toISOString(),
+        localSessionId,
+      );
+    } catch { /* ignore DB error */ }
+
+    // Clear UI immediately so the button never gets stuck
+    const idToSync = localSessionId;
+    setLocalSessionId(null);
+    setAlertOpen(false);
+    setLiveLevel(0);
+    sessionStartRef.current = null;
+    setStatus("Session ended.");
+
+    // Background sync — fire-and-forget so it never blocks the UI
+    void (async () => {
+      try {
+        await flushEndedSessions(supabase, user.id);
+        await flushPendingTelemetry(supabase, user.id);
+      } catch { /* sync will retry next time the app is online */ }
+      void idToSync; // satisfy lint — idToSync captured for future use if needed
+    })();
   }, [localSessionId, stopTick, user.id]);
+
+  // Expose endSession to App.tsx so the nav-guard alert can call it
+  useEffect(() => {
+    endSessionFn.current = endSession;
+    return () => { endSessionFn.current = null; };
+  }, [endSession]);
 
   useEffect(() => {
     if (!localSessionId) { stopTick(); return; }
@@ -479,7 +487,7 @@ export function DriveScreen() {
             local_session_hint: localSessionId, drowsiness_level: level,
             trigger_level: ar.trigger, alert_label: label, source: "mobile_drive",
           });
-          void playMobileAlertActions(actions, setTorchOn, flickerIntervalRef);
+          void playMobileAlertActions(actions);
         }
       }
     }, 1000);
@@ -555,11 +563,6 @@ export function DriveScreen() {
 
             <Pressable style={styles.alertBtn} onPress={() => {
               stopEcTimer();
-              if (flickerIntervalRef.current) {
-                clearInterval(flickerIntervalRef.current);
-                flickerIntervalRef.current = null;
-              }
-              setTorchOn(false);
               if (activeAlertIdRef.current)
                 void acknowledgeEmergencyAlert(supabase, activeAlertIdRef.current);
               setAlertOpen(false);
@@ -571,13 +574,10 @@ export function DriveScreen() {
       </Modal>
 
       <View style={styles.preview}>
-        {/* FaceCamera mounts once model is ready — detector is created once and
-            reused for every frame (LIVE_STREAM mode), fixing the OOM crash */}
         {modelPath ? (
           <FaceCamera
             modelPath={modelPath}
             sessionActive={Boolean(localSessionId)}
-            torchOn={torchOn}
             onFaceResults={handleFaceResults}
           />
         ) : null}

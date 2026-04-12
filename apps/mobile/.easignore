@@ -1,0 +1,7 @@
+# Exclude local build outputs and caches — EAS installs node_modules itself
+android/build/
+android/app/build/
+android/.gradle/
+.expo/
+dist/
+*.log

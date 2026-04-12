@@ -8,7 +8,7 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 
-const ACTION_OPTIONS = ["voice", "vibration", "alarm", "flashlight", "iot_led", "iot_buzzer"] as const;
+const ACTION_OPTIONS = ["voice", "vibration", "alarm", "iot_led", "iot_buzzer"] as const;
 
 type Config = {
   yawn_threshold: number;

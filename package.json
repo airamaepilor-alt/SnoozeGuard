@@ -4,7 +4,7 @@
   "private": true,
   "description": "SnoozeGuard — drowsiness detection (web, mobile, API, IoT)",
   "scripts": {
-    "postinstall": "node scripts/android-cxx-shared-link.cjs && npx patch-package",
+    "postinstall": "node scripts/android-cxx-shared-link.cjs && node scripts/patch-mediapipe-frame-processor.cjs && npx patch-package",
     "dev:web": "npm run dev -w @snoozeguard/web",
     "dev:api": "npm run dev -w @snoozeguard/api",
     "dev:mobile": "npm run start -w @snoozeguard/mobile",

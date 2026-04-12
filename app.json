@@ -1,5 +1,11 @@
 {
   "android": {
     "package": "com.jamesducusin090500.snoozeguard"
-  }
+  },
+  "extra": {
+    "eas": {
+      "projectId": "c7088437-d807-453f-88e4-fe6e57f588f4"
+    }
+  },
+  "owner": "snoozeguard-org"
 }

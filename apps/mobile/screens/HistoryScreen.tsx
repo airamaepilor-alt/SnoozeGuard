@@ -124,39 +124,18 @@ export function HistoryScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           ListEmptyComponent={<Text style={styles.muted}>No sessions yet.</Text>}
-          renderItem={({ item: s }) => {
-            const durationMs = s.ended_at
-              ? new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()
-              : null;
-            const durationStr = durationMs !== null
-              ? `${Math.floor(durationMs / 60000)}m ${Math.floor((durationMs % 60000) / 1000)}s`
-              : "ongoing";
-
-            return (
-              <View style={styles.card}>
-                <Text style={styles.date}>{new Date(s.started_at).toLocaleString()}</Text>
-                <Text style={styles.meta}>
-                  {s.device_type} · {durationStr} · {s.sample_count} samples · avg level {Number(s.avg_drowsiness).toFixed(1)}
-                </Text>
-                <View style={styles.chipRow}>
-                  <View style={styles.chip}>
-                    <Text style={styles.chipLabel}>YAWNS</Text>
-                    <Text style={styles.chipValue}>{s.yawn_sum}</Text>
-                  </View>
-                  <View style={styles.chip}>
-                    <Text style={styles.chipLabel}>HEAD MOVES</Text>
-                    <Text style={styles.chipValue}>{s.head_sum}</Text>
-                  </View>
-                  {s.brake_count > 0 && (
-                    <View style={[styles.chip, styles.chipDanger]}>
-                      <Text style={styles.chipLabel}>SUDDEN BRAKE</Text>
-                      <Text style={[styles.chipValue, styles.chipValueDanger]}>×{s.brake_count}</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            );
-          }}
+          renderItem={({ item: s }) => (
+            <View style={styles.card}>
+              <Text style={styles.date}>{new Date(s.started_at).toLocaleString()}</Text>
+              <Text style={styles.meta}>
+                {s.device_type} · {s.sample_count} samples · avg {Number(s.avg_drowsiness).toFixed(2)}
+              </Text>
+              <Text style={styles.chips}>
+                YAWN +{s.yawn_sum} · HEAD +{s.head_sum}
+                {s.brake_count > 0 ? ` · BRAKE ×${s.brake_count}` : ""}
+              </Text>
+            </View>
+          )}
           ListFooterComponent={
             hasMore ? (
               <Pressable
@@ -180,8 +159,8 @@ export function HistoryScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.background, paddingTop: 8, paddingHorizontal: 16 },
-  title: { fontSize: 22, fontWeight: "800", color: theme.onSurface, marginBottom: 4 },
-  list: { paddingBottom: 24, marginTop: 12 },
+  title: { fontSize: 22, fontWeight: "800", color: theme.onSurface },
+  list: { paddingBottom: 24, marginTop: 16 },
   card: {
     borderWidth: 1,
     borderColor: `${theme.outlineVariant}55`,
@@ -190,27 +169,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     backgroundColor: `${theme.surfaceContainerLow}ee`,
   },
-  date: { color: theme.onSurface, fontWeight: "700", fontSize: 13 },
-  meta: { color: theme.onSurfaceVariant, fontSize: 11, marginTop: 3 },
-  chipRow: { flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" },
-  chip: {
-    flex: 1,
-    minWidth: 70,
-    alignItems: "center",
-    backgroundColor: `${theme.primary}12`,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: `${theme.primary}33`,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-  },
-  chipDanger: {
-    backgroundColor: `${theme.tertiary}12`,
-    borderColor: `${theme.tertiary}33`,
-  },
-  chipLabel: { color: theme.onSurfaceVariant, fontSize: 8, fontWeight: "700", letterSpacing: 1 },
-  chipValue: { color: theme.primary, fontSize: 18, fontWeight: "800", marginTop: 2 },
-  chipValueDanger: { color: theme.tertiary },
+  date: { color: theme.onSurface, fontWeight: "600" },
+  meta: { color: theme.onSurfaceVariant, fontSize: 12, marginTop: 4 },
+  chips: { color: theme.primary, fontSize: 11, marginTop: 8, fontWeight: "600" },
   muted: { color: theme.onSurfaceVariant, marginTop: 24 },
   more: {
     marginTop: 8,
