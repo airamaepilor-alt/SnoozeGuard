@@ -17,9 +17,7 @@ const config: ExpoConfig = {
     checkAutomatically: "ON_LOAD",
     fallbackToCacheTimeout: 0,
   },
-  runtimeVersion: {
-    policy: "appVersion",
-  },
+  runtimeVersion: "1.0.0",
   splash: {
     image: "./assets/splash-icon.png",
     resizeMode: "contain",
