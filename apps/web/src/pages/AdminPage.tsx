@@ -80,17 +80,13 @@ export function AdminPage() {
     if (!cfg || !user) return;
     setSaving(true);
     setMessage(null);
-    const { error } = await supabase
-      .from("admin_config")
-      .update({
-        yawn_threshold: cfg.yawn_threshold,
-        head_movement_threshold: cfg.head_movement_threshold,
-        drowsiness_trigger_level: cfg.drowsiness_trigger_level,
-        alert_map: alertMap,
-        updated_at: new Date().toISOString(),
-        updated_by: user.id,
-      })
-      .eq("id", 1);
+    const { error } = await supabase.rpc("update_admin_config", {
+      p_yawn_threshold: cfg.yawn_threshold,
+      p_head_movement_threshold: cfg.head_movement_threshold,
+      p_drowsiness_trigger_level: cfg.drowsiness_trigger_level,
+      p_alert_map: alertMap,
+      p_updated_by: user.id,
+    });
     setSaving(false);
     setMessage(error ? error.message : "Saved.");
   }
