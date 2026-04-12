@@ -14,7 +14,7 @@ import { supabase } from "../lib/supabase";
 import { DEFAULT_ALERT_MAP } from "@snoozeguard/shared";
 import { theme } from "../theme";
 
-const ALL_ACTIONS = ["sound", "voice", "vibration", "alarm", "flashlight", "iot_led"] as const;
+const ALL_ACTIONS = ["voice", "vibration", "alarm", "flashlight", "iot_led", "iot_buzzer"] as const;
 type Action = typeof ALL_ACTIONS[number];
 
 type LevelConfig = { label: string; actions: Action[]; yawn_count: number; head_count: number };
@@ -23,12 +23,12 @@ type AlertMapDraft = Record<string, LevelConfig>;
 const LEVELS = [6, 7, 8, 9, 10];
 
 const actionLabel: Record<Action, string> = {
-  sound: "Sound",
   voice: "Voice",
   vibration: "Vibrate",
   alarm: "Alarm",
   flashlight: "Flash",
   iot_led: "IoT LED",
+  iot_buzzer: "IoT Buzzer",
 };
 
 function clamp(val: number, min: number, max: number) {
@@ -52,7 +52,7 @@ export function AdminScreen() {
       const def = DEFAULT_ALERT_MAP[String(lv)];
       out[String(lv)] = {
         label: def?.label ?? `Level ${lv}`,
-        actions: (def?.actions ?? ["sound"]) as Action[],
+        actions: (def?.actions ?? ["voice"]) as Action[],
         yawn_count: def?.yawn_count ?? 3,
         head_count: def?.head_count ?? 20,
       };
@@ -88,7 +88,7 @@ export function AdminScreen() {
           const r = raw[key];
           draft[key] = {
             label: r?.label ?? def?.label ?? `Level ${lv}`,
-            actions: ((r?.actions ?? def?.actions ?? ["sound"]) as Action[]),
+            actions: ((r?.actions ?? def?.actions ?? ["voice"]) as Action[]),
             yawn_count: r?.yawn_count ?? def?.yawn_count ?? 3,
             head_count: r?.head_count ?? def?.head_count ?? 20,
           };
@@ -141,21 +141,21 @@ export function AdminScreen() {
 
   const save = async () => {
     const tl = clamp(Number(triggerLevel) || 6, 1, 10);
-    // Derive legacy global thresholds from level-6 config for backward compat
     const lvl6 = alertMap["6"];
+    const payload = {
+      p_yawn_threshold: lvl6?.yawn_count ?? 3,
+      p_head_movement_threshold: lvl6?.head_count ?? 20,
+      p_drowsiness_trigger_level: tl,
+      p_alert_map: alertMap,
+      p_updated_by: user.id,
+    };
+    console.log("[AdminScreen] saving via RPC:", JSON.stringify(payload));
     setSaving(true);
-    const { error } = await supabase
-      .from("admin_config")
-      .upsert({
-        id: 1,
-        yawn_threshold: lvl6?.yawn_count ?? 3,
-        head_movement_threshold: lvl6?.head_count ?? 20,
-        drowsiness_trigger_level: tl,
-        alert_map: alertMap,
-      });
+    const { data, error } = await supabase.rpc("update_admin_config", payload);
     setSaving(false);
+    console.log("[AdminScreen] RPC result:", JSON.stringify({ data, error }));
     if (error) {
-      Alert.alert("Save failed", error.message);
+      Alert.alert("Save failed", `${error.message}\n\nCode: ${error.code ?? "–"}\nHint: ${error.hint ?? "–"}`);
     } else {
       Alert.alert("Saved", "Admin configuration updated.");
     }
