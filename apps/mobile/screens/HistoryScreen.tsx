@@ -9,10 +9,13 @@ import {
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSession } from "../context/SessionContext";
-import { supabase } from "../lib/supabase";
+import { getDatabase } from "../db/database";
 import { theme } from "../theme";
 
-type HistoryRpcSession = {
+// Local SQLite is always the ground truth for counts — Supabase sync may lag.
+// We query the local DB directly so yawn/head/brake totals are always accurate.
+
+type LocalSession = {
   id: string;
   started_at: string;
   ended_at: string | null;
@@ -22,13 +25,6 @@ type HistoryRpcSession = {
   yawn_sum: number;
   head_sum: number;
   brake_count: number;
-  series: { t: string; level: number }[];
-};
-
-type HistoryRpcPayload = {
-  ok?: boolean;
-  sessions?: HistoryRpcSession[];
-  has_more?: boolean;
 };
 
 const PAGE = 20;
@@ -36,93 +32,86 @@ const PAGE = 20;
 export function HistoryScreen() {
   const session = useSession();
   const user = session.user;
-  const [sessions, setSessions] = useState<HistoryRpcSession[]>([]);
+  const [sessions, setSessions] = useState<LocalSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
-  const cursorRef = useRef<string | null>(null);
+  const offsetRef = useRef(0);
+
   const loadPage = useCallback(
-    async (reset: boolean) => {
+    (reset: boolean) => {
       if (!user) return;
       if (reset) {
         setLoading(true);
-        cursorRef.current = null;
+        offsetRef.current = 0;
       } else {
         setLoadingMore(true);
       }
 
-      // Query directly from Supabase tables — accurate and always up to date
-      const cursor = reset ? null : cursorRef.current;
-      let query = supabase
-        .from("driving_sessions")
-        .select("id, started_at, ended_at, device_type")
-        .eq("user_id", user.id)
-        .order("started_at", { ascending: false })
-        .limit(PAGE);
-      if (cursor) query = query.lt("started_at", cursor);
+      const offset = reset ? 0 : offsetRef.current;
 
+      try {
+        const db = getDatabase();
+        // Single query: join sessions with telemetry, aggregate counts per session
+        const rows = db.getAllSync<{
+          id: string;
+          started_at: string;
+          ended_at: string | null;
+          device_type: string;
+          sample_count: number;
+          avg_drowsiness: number | null;
+          yawn_sum: number;
+          head_sum: number;
+          brake_count: number;
+        }>(
+          `SELECT
+             s.id,
+             s.started_at,
+             s.ended_at,
+             s.device_type,
+             COUNT(t.id)                        AS sample_count,
+             AVG(t.drowsiness_level)            AS avg_drowsiness,
+             COALESCE(SUM(t.yawn_count_delta), 0)         AS yawn_sum,
+             COALESCE(SUM(t.head_event_count_delta), 0)   AS head_sum,
+             COALESCE(SUM(CASE WHEN t.sudden_brake = 1 THEN 1 ELSE 0 END), 0) AS brake_count
+           FROM driving_sessions_local s
+           LEFT JOIN session_telemetry_local t ON t.local_session_id = s.id
+           WHERE s.user_id = ?
+           GROUP BY s.id
+           ORDER BY s.started_at DESC
+           LIMIT ? OFFSET ?`,
+          user.id,
+          PAGE,
+          offset,
+        );
 
-      const { data: sess } = await query;
-      const ids = (sess ?? []).map((s) => s.id as string);
+        const next: LocalSession[] = rows.map((r) => ({
+          id: r.id,
+          started_at: r.started_at,
+          ended_at: r.ended_at,
+          device_type: r.device_type,
+          sample_count: Number(r.sample_count),
+          avg_drowsiness: Number(r.avg_drowsiness ?? 0),
+          yawn_sum: Number(r.yawn_sum),
+          head_sum: Number(r.head_sum),
+          brake_count: Number(r.brake_count),
+        }));
 
-      if (ids.length === 0) {
-        if (reset) setSessions([]);
-        setHasMore(false);
-        cursorRef.current = null;
+        if (reset) setSessions(next);
+        else setSessions((prev) => [...prev, ...next]);
+
+        offsetRef.current = offset + next.length;
+        setHasMore(next.length >= PAGE);
+      } finally {
         setLoading(false);
         setLoadingMore(false);
-        return;
       }
-
-      const { data: tel } = await supabase
-        .from("session_telemetry")
-        .select("session_id, recorded_at, drowsiness_level, yawn_count_delta, head_event_count_delta, sudden_brake")
-        .in("session_id", ids);
-
-      const bySession = new Map<string, NonNullable<typeof tel>>();
-      for (const row of tel ?? []) {
-        const sid = row.session_id as string;
-        const list = bySession.get(sid) ?? [];
-        list.push(row);
-        bySession.set(sid, list);
-      }
-
-      const next: HistoryRpcSession[] = (sess ?? []).map((s) => {
-        const rows = bySession.get(s.id as string) ?? [];
-        const n = rows.length;
-        const avg = n ? rows.reduce((a, r) => a + Number(r.drowsiness_level), 0) / n : 0;
-        const yawn_sum = rows.reduce((a, r) => a + (Number(r.yawn_count_delta) || 0), 0);
-        const head_sum = rows.reduce((a, r) => a + (Number(r.head_event_count_delta) || 0), 0);
-        const brake_count = rows.filter((r) => r.sudden_brake).length;
-        const series = rows
-          .slice(-40)
-          .map((r) => ({ t: r.recorded_at as string, level: Number(r.drowsiness_level) }));
-        return {
-          id: s.id as string,
-          started_at: s.started_at as string,
-          ended_at: (s.ended_at as string | null) ?? null,
-          device_type: s.device_type as string,
-          sample_count: n,
-          avg_drowsiness: avg,
-          yawn_sum,
-          head_sum,
-          brake_count,
-          series,
-        };
-      });
-
-      if (reset) setSessions(next);
-      else setSessions((prev) => [...prev, ...next]);
-      setHasMore(next.length >= PAGE);
-      cursorRef.current = next.length > 0 ? next[next.length - 1].started_at : reset ? null : cursorRef.current;
-      setLoading(false);
-      setLoadingMore(false);
     },
     [user.id],
   );
 
   // Reload every time the user switches to this tab
-  useFocusEffect(useCallback(() => { void loadPage(true); }, [loadPage]));
+  useFocusEffect(useCallback(() => { loadPage(true); }, [loadPage]));
 
   return (
     <View style={styles.root}>
@@ -135,24 +124,45 @@ export function HistoryScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           ListEmptyComponent={<Text style={styles.muted}>No sessions yet.</Text>}
-          renderItem={({ item: s }) => (
-            <View style={styles.card}>
-              <Text style={styles.date}>{new Date(s.started_at).toLocaleString()}</Text>
-              <Text style={styles.meta}>
-                {s.device_type} · {s.sample_count} samples · avg {Number(s.avg_drowsiness).toFixed(2)}
-              </Text>
-              <Text style={styles.chips}>
-                YAWN +{s.yawn_sum} · HEAD +{s.head_sum}
-                {s.brake_count > 0 ? ` · BRAKE ×${s.brake_count}` : ""}
-              </Text>
-            </View>
-          )}
+          renderItem={({ item: s }) => {
+            const durationMs = s.ended_at
+              ? new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()
+              : null;
+            const durationStr = durationMs !== null
+              ? `${Math.floor(durationMs / 60000)}m ${Math.floor((durationMs % 60000) / 1000)}s`
+              : "ongoing";
+
+            return (
+              <View style={styles.card}>
+                <Text style={styles.date}>{new Date(s.started_at).toLocaleString()}</Text>
+                <Text style={styles.meta}>
+                  {s.device_type} · {durationStr} · {s.sample_count} samples · avg level {Number(s.avg_drowsiness).toFixed(1)}
+                </Text>
+                <View style={styles.chipRow}>
+                  <View style={styles.chip}>
+                    <Text style={styles.chipLabel}>YAWNS</Text>
+                    <Text style={styles.chipValue}>{s.yawn_sum}</Text>
+                  </View>
+                  <View style={styles.chip}>
+                    <Text style={styles.chipLabel}>HEAD MOVES</Text>
+                    <Text style={styles.chipValue}>{s.head_sum}</Text>
+                  </View>
+                  {s.brake_count > 0 && (
+                    <View style={[styles.chip, styles.chipDanger]}>
+                      <Text style={styles.chipLabel}>SUDDEN BRAKE</Text>
+                      <Text style={[styles.chipValue, styles.chipValueDanger]}>×{s.brake_count}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            );
+          }}
           ListFooterComponent={
             hasMore ? (
               <Pressable
                 style={styles.more}
                 disabled={loadingMore}
-                onPress={() => void loadPage(false)}
+                onPress={() => loadPage(false)}
               >
                 {loadingMore ? (
                   <ActivityIndicator color={theme.onPrimary} />
@@ -170,9 +180,8 @@ export function HistoryScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.background, paddingTop: 8, paddingHorizontal: 16 },
-  title: { fontSize: 22, fontWeight: "800", color: theme.onSurface },
-  warn: { color: theme.secondary, fontSize: 11, marginTop: 8 },
-  list: { paddingBottom: 24, marginTop: 16 },
+  title: { fontSize: 22, fontWeight: "800", color: theme.onSurface, marginBottom: 4 },
+  list: { paddingBottom: 24, marginTop: 12 },
   card: {
     borderWidth: 1,
     borderColor: `${theme.outlineVariant}55`,
@@ -181,9 +190,27 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     backgroundColor: `${theme.surfaceContainerLow}ee`,
   },
-  date: { color: theme.onSurface, fontWeight: "600" },
-  meta: { color: theme.onSurfaceVariant, fontSize: 12, marginTop: 4 },
-  chips: { color: theme.primary, fontSize: 11, marginTop: 8, fontWeight: "600" },
+  date: { color: theme.onSurface, fontWeight: "700", fontSize: 13 },
+  meta: { color: theme.onSurfaceVariant, fontSize: 11, marginTop: 3 },
+  chipRow: { flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" },
+  chip: {
+    flex: 1,
+    minWidth: 70,
+    alignItems: "center",
+    backgroundColor: `${theme.primary}12`,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: `${theme.primary}33`,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  chipDanger: {
+    backgroundColor: `${theme.tertiary}12`,
+    borderColor: `${theme.tertiary}33`,
+  },
+  chipLabel: { color: theme.onSurfaceVariant, fontSize: 8, fontWeight: "700", letterSpacing: 1 },
+  chipValue: { color: theme.primary, fontSize: 18, fontWeight: "800", marginTop: 2 },
+  chipValueDanger: { color: theme.tertiary },
   muted: { color: theme.onSurfaceVariant, marginTop: 24 },
   more: {
     marginTop: 8,
