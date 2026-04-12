@@ -11,6 +11,15 @@ const config: ExpoConfig = {
   icon: "./assets/icon.png",
   userInterfaceStyle: "dark",
   newArchEnabled: true,
+  updates: {
+    url: `https://u.expo.dev/${easProjectId}`,
+    enabled: true,
+    checkAutomatically: "ON_LOAD",
+    fallbackToCacheTimeout: 0,
+  },
+  runtimeVersion: {
+    policy: "appVersion",
+  },
   splash: {
     image: "./assets/splash-icon.png",
     resizeMode: "contain",
@@ -53,6 +62,7 @@ const config: ExpoConfig = {
     favicon: "./assets/favicon.png",
   },
   plugins: [
+    "expo-updates",
     "expo-dev-client",
     [
       "react-native-vision-camera",
