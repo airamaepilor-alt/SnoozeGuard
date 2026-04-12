@@ -220,7 +220,7 @@ export function DriveScreen() {
   const headDetectorRef = useRef(createHeadDetector(() => { headAccRef.current += 1; }));
   const tiltDetectorRef = useRef(createTiltDetector(() => {
     setAlertLevel(8);
-    setAlertTitle("Head turned away — eyes on the road!");
+    setAlertTitle("Head tilted for 10 s — keep your head straight!");
     setAlertFlash(true);
     setAlertOpen(true);
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
