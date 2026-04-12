@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { useSession } from "../context/SessionContext";
 import { supabase } from "../lib/supabase";
 import { theme } from "../theme";
@@ -40,8 +41,6 @@ export function HistoryScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const cursorRef = useRef<string | null>(null);
-  const tzOffset = -new Date().getTimezoneOffset();
-
   const loadPage = useCallback(
     async (reset: boolean) => {
       if (!user) return;
@@ -61,6 +60,7 @@ export function HistoryScreen() {
         .order("started_at", { ascending: false })
         .limit(PAGE);
       if (cursor) query = query.lt("started_at", cursor);
+
 
       const { data: sess } = await query;
       const ids = (sess ?? []).map((s) => s.id as string);
@@ -118,12 +118,11 @@ export function HistoryScreen() {
       setLoading(false);
       setLoadingMore(false);
     },
-    [user.id, tzOffset],
+    [user.id],
   );
 
-  useEffect(() => {
-    void loadPage(true);
-  }, [user.id, tzOffset, loadPage]);
+  // Reload every time the user switches to this tab
+  useFocusEffect(useCallback(() => { void loadPage(true); }, [loadPage]));
 
   return (
     <View style={styles.root}>
