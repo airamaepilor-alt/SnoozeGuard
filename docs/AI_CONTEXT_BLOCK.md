@@ -1,6 +1,6 @@
 # AI_CONTEXT_BLOCK — SnoozeGuard
 
-**Version:** 1.3 | **Date:** 2026-04-18 | **Format:** Machine-readable compressed context  
+**Version:** 1.4 | **Date:** 2026-04-18 | **Format:** Machine-readable compressed context  
 **Purpose:** Drop this block into any AI prompt to provide complete system understanding without re-analyzing the codebase.  
 **Updates:** Increment version and update only changed sections; reference unchanged sections by label.
 
@@ -40,6 +40,7 @@ KEY MODULES (mobile):
   screens/LoginScreen.tsx           → auth (Google OAuth + email/password), Terms link
   components/DateRangePicker.tsx    → custom calendar date range picker (zero new deps)
   components/InfoModal.tsx          → shared tooltip/info modal
+  components/OfflineNotificationModal.tsx → reusable offline warning modal (themed, animated fade)
   lib/alertMap.ts (packages/shared) → computeLevelFromAlertMap(), default thresholds
   db/database.ts                    → SQLite schema + getDatabase() + getPref/setPref
   sessionState.ts                   → module-level refs (drivingSessionActive, endSessionFn)
@@ -154,7 +155,8 @@ OTA: User-initiated only: cd apps/mobile && eas update --branch preview --messag
       "width": 300,
       "animation": "Animated.spring",
       "trigger": "openDrawerRef.current() from headerLeft hamburger",
-      "nav_items": ["EmergencyContact", "Account", "Admin (super_admin only)", "About", "Terms", "Web Dashboard (coming soon)"]
+      "nav_items_order": ["EmergencyContact", "Account", "About SnoozeGuard", "Terms & Privacy", "Admin (super_admin only)", "Web Dashboard (coming soon, disabled)"],
+      "share_button": "Icon-only button (primary bg) in drawer user section header — native Share API with Expo download link"
     },
     "tab_center": "Drive is at position 3 of 5 (center)"
   },
@@ -427,11 +429,13 @@ feature: "Emergency Contact Management"
     save: "writeToCache(pending=true) → isOnline() → if online: upsertEmergencyContact → writeToCache(pending=false)"
     auto_sync: "NetInfo listener in App.tsx MainApp detects offline→online → re-fetches EC → updates cache"
     startup: "App.tsx startup effect: getEmergencyContact() → if ec: runSync INSERT OR REPLACE INTO emergency_contacts_local"
+  setup_modal_offline: "If offline when modal shown: display OfflineNotificationModal instead of EC form. Form blocked until user reconnects or dismisses."
   setup_modal_sqlite: "After successful Supabase save: INSERT OR REPLACE INTO emergency_contacts_local"
   alert_map_screen:
     polling: "15s setInterval + Supabase Realtime channel"
     offline: "readAlertsFromCache() from emergency_alert_events_local on load"
     call_sms_ui: "Side-by-side Call + SMS buttons (contactRow style)"
+    sms_uri_fix: "SMS URI scheme uses ?body= not &body= (correct: sms:${phone}?body=Got your SnoozeGuard alert — are you okay?)"
 
 feature: "Theme System"
   file: apps/mobile/context/ThemeContext.tsx
@@ -525,9 +529,9 @@ IF canAlert AND (bypassCooldown OR cooldown elapsed OR level escalates) THEN
   IF isLevel10Retrigger: update baseline refs + startScoreResetTimer()
   open AlertModal → playMobileAlertActions(actions, level, soundRef)
 
-ON DISMISS:
+ON DISMISS (all alert types including tilt and brake):
   dismissedLevelsRef.add(alertLevelRef.current)
-  stopAlertAudio(); stopEcTimer()
+  stopAlertAudio(); stopEcTimer()  ← stopAlertAudio() called for ALL dismiss paths (button + onRequestClose)
   IF level >= 10: startScoreResetTimer()
   acknowledgeEmergencyAlert()
 
@@ -567,7 +571,7 @@ ON tabPress in App.tsx screenListeners:
 AppDrawer: left slide-in (Animated.spring, DRAWER_WIDTH=300)
   Triggered by headerLeft hamburger button via openDrawerRef.current()
   Module-level: navigationRef (createNavigationContainerRef), openDrawerRef
-  Content: user avatar/name/email/phone, online/offline+sync button, nav items, divider, web dashboard link, sign out (with inline confirm sheet)
+  Content: user avatar/name/email/phone + share button (right side), online/offline+sync button, nav items (EC→Account→About→Terms→Admin), divider, web dashboard link (disabled), sign out (with inline confirm sheet)
   Nav: guardedNav() → checks drivingSessionActive → shows ConfirmModal if needed
 
 ── EC OFFLINE SYNC ────────────────────────────────────────────
@@ -588,6 +592,9 @@ ON EC SCREEN LOAD (EmergencyContactScreen.load):
 ON EC SCREEN SAVE (EmergencyContactScreen.save):
   1. writeToCache(pending=true) → always works offline
   2. if online: upsertEmergencyContact + profiles.update → writeToCache(pending=false)
+
+ON SETUP MODAL OPEN (EmergencyContactSetupModal):
+  IF offline: show OfflineNotificationModal instead of EC form (form not rendered while offline)
 
 ON SETUP MODAL SAVE (EmergencyContactSetupModal.save):
   1. upsertEmergencyContact(supabase)
@@ -707,7 +714,8 @@ c:\Thesis\SnoozeGuard\
 │   │   │   └── LoginScreen.tsx          # Auth, theme-aware, Terms link in footer
 │   │   ├── components/
 │   │   │   ├── DateRangePicker.tsx      # Calendar date range picker (custom, zero new deps)
-│   │   │   └── InfoModal.tsx            # Shared tooltip/info modal
+│   │   │   ├── InfoModal.tsx            # Shared tooltip/info modal
+│   │   │   └── OfflineNotificationModal.tsx  # Reusable offline warning modal (themed, animated)
 │   │   ├── context/
 │   │   │   ├── ThemeContext.tsx         # ThemeProvider, useTheme(), useThemeToggle()
 │   │   │   └── SessionContext.tsx       # SessionProvider, useSession()
@@ -839,6 +847,12 @@ CONSTRAINT: DateRangePicker is a zero-dependency custom calendar. Do NOT add
 | 2026-04-18 | 1.3 | AppDrawer: Terms + Web Dashboard items added | Terms nav item; Web Dashboard placeholder (coming soon) |
 | 2026-04-18 | 1.3 | Analytics chart colors: #60a5fa + #f97316 | Replaced theme colors that appeared black in dark mode |
 | 2026-04-18 | 1.3 | EmergencyContactSetupModal writes SQLite | After Supabase save, caches to emergency_contacts_local |
+| 2026-04-18 | 1.4 | OfflineNotificationModal component added | Reusable themed modal: ⚠️ warning + 3 info bullets + custom message/title/button props |
+| 2026-04-18 | 1.4 | EC setup modal shows offline modal when offline | Prevents EC form from loading while offline; shows OfflineNotificationModal with EC-specific message instead |
+| 2026-04-18 | 1.4 | AppDrawer: Share button added | Native Share API button in user header section (icon-only, primary bg); shares Expo APK download link |
+| 2026-04-18 | 1.4 | Drawer nav item order updated | New order: EmergencyContact → Account → About → Terms → Admin (super_admin) |
+| 2026-04-18 | 1.4 | SMS URI fix in EmergencyAlertMapScreen | sms:${phone}&body= → sms:${phone}?body= (correct URI scheme for SMS deep link) |
+| 2026-04-18 | 1.4 | stopAlertAudio() called on all alert dismissals | Tilt and brake alert audio now stops on dismiss (button + back button); was only working for L6-10 before |
 
 ---
 

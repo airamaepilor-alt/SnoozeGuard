@@ -1,7 +1,10 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ThemeProvider } from "./context/ThemeContext";
 import { AdminPage } from "./pages/AdminPage";
+import { AlertsPage } from "./pages/AlertsPage";
+import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DrivePage } from "./pages/DrivePage";
 import { HistoryPage } from "./pages/HistoryPage";
@@ -31,8 +34,10 @@ function AppRoutes() {
         }
       >
         <Route index element={<DashboardPage />} />
+        <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="drive" element={<DrivePage />} />
         <Route path="history" element={<HistoryPage />} />
+        <Route path="alerts" element={<AlertsPage />} />
         <Route path="admin" element={<AdminPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -43,9 +48,11 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }

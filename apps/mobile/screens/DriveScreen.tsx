@@ -707,13 +707,13 @@ export function DriveScreen() {
         </View>
       </Modal>
 
-      <Modal visible={specialAlertOpen} animationType="fade" transparent={false} onRequestClose={() => setSpecialAlertOpen(false)}>
+      <Modal visible={specialAlertOpen} animationType="fade" transparent={false} onRequestClose={() => { stopAlertAudio(); setSpecialAlertOpen(false); }}>
         <View style={styles.alertRoot}>
           <View style={styles.alertBody}>
             <Text style={styles.alertKicker}>⚠ SAFETY ALERT</Text>
             <Text style={styles.alertTitle}>{specialAlertTitle}</Text>
             <Text style={[styles.alertHint, { marginTop: 12 }]}>{specialAlertMessage}</Text>
-            <Pressable style={styles.alertBtn} onPress={() => setSpecialAlertOpen(false)}>
+            <Pressable style={styles.alertBtn} onPress={() => { stopAlertAudio(); setSpecialAlertOpen(false); }}>
               <Text style={styles.btnTextPrimary}>Understood — dismiss</Text>
             </Pressable>
           </View>

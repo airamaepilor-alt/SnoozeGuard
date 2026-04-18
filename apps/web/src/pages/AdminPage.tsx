@@ -105,7 +105,7 @@ export function AdminPage() {
 
   function resetAlertMap() {
     setAlertMap({ ...DEFAULT_ALERT_MAP });
-    setMessage("Alert map reset to defaults (save to persist).");
+    setMessage({ text: "Alert map reset to defaults (save to persist).", ok: true });
   }
 
   function toggleAction(levelKey: string, action: string) {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -13,6 +13,8 @@ import { supabase } from "../lib/supabase";
 import { upsertEmergencyContact } from "../lib/emergencyNotify";
 import { getDatabase } from "../db/database";
 import { useTheme } from "../context/ThemeContext";
+import { isOnline } from "../sync/flush";
+import { OfflineNotificationModal } from "../components/OfflineNotificationModal";
 import type { Theme } from "../theme";
 
 type Props = {
@@ -31,6 +33,21 @@ export function EmergencyContactSetupModal({ visible, userId, onDone, onSkip }: 
   const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [offline, setOffline] = useState(false);
+  const [showOfflineModal, setShowOfflineModal] = useState(false);
+
+  // Check if offline when modal becomes visible
+  useEffect(() => {
+    if (!visible) return;
+    const checkOnlineStatus = async () => {
+      const online = await isOnline();
+      setOffline(!online);
+      if (!online) {
+        setShowOfflineModal(true);
+      }
+    };
+    void checkOnlineStatus();
+  }, [visible]);
 
   const save = async () => {
     setError("");
@@ -70,8 +87,16 @@ export function EmergencyContactSetupModal({ visible, userId, onDone, onSkip }: 
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={false}>
-      <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <>
+      <OfflineNotificationModal
+        visible={showOfflineModal}
+        onDismiss={() => setShowOfflineModal(false)}
+        title="Offline Mode"
+        message="You're offline. Automatic emergency notifications and SMS alerts to your contact are unavailable. However, rest assured that real-time drowsiness detection and alerts on this device remain fully functional. Your contact information will sync when you reconnect."
+        dismissButtonText="Got it"
+      />
+      <Modal visible={visible && !showOfflineModal} animationType="slide" transparent={false}>
+        <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <Text style={styles.title}>Emergency Contact</Text>
           <Text style={styles.subtitle}>
@@ -146,8 +171,9 @@ export function EmergencyContactSetupModal({ visible, userId, onDone, onSkip }: 
         <Pressable style={styles.skipBtn} onPress={onSkip}>
           <Text style={styles.skipText}>Skip for now (you can add this in Profile)</Text>
         </Pressable>
-      </ScrollView>
-    </Modal>
+        </ScrollView>
+      </Modal>
+    </>
   );
 }
 

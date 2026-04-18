@@ -4,11 +4,95 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Theme tokens (CSS custom properties) ────────────────────────────────────
+   Values are space-separated RGB channels so Tailwind's <alpha-value>
+   opacity modifiers (e.g. bg-primary/20) work correctly.
+   Mirrors mobile darkTheme / lightTheme from apps/mobile/theme.ts
+──────────────────────────────────────────────────────────────────────────────*/
+
+/* Light theme (default) — mirrors mobile lightTheme */
+:root {
+  --sg-background:                  244 247 255;   /* #f4f7ff */
+  --sg-surface:                     244 247 255;   /* #f4f7ff */
+  --sg-surface-container-lowest:    240 243 252;   /* #f0f3fc */
+  --sg-surface-container:           229 234 245;   /* #e5eaf5 */
+  --sg-surface-container-low:       237 240 250;   /* #edf0fa */
+  --sg-surface-container-high:      220 226 240;   /* #dce2f0 */
+  --sg-surface-container-highest:   210 216 236;   /* #d2d8ec */
+  --sg-surface-bright:              255 255 255;   /* #ffffff */
+  --sg-primary:                     0 91 135;      /* #005b87 */
+  --sg-on-primary:                  255 255 255;   /* #ffffff */
+  --sg-primary-container:           200 230 255;   /* #c8e6ff */
+  --sg-on-primary-container:        0 58 87;       /* #003a57 */
+  --sg-secondary:                   138 85 0;      /* #8a5500 */
+  --sg-on-secondary:                255 255 255;   /* #ffffff */
+  --sg-secondary-container:         255 221 184;   /* #ffddb8 */
+  --sg-on-secondary-container:      42 23 0;       /* #2a1700 */
+  --sg-tertiary:                    140 29 24;     /* #8c1d18 */
+  --sg-on-tertiary:                 255 255 255;   /* #ffffff */
+  --sg-tertiary-container:          255 218 215;   /* #ffdad7 */
+  --sg-on-tertiary-container:       65 0 4;        /* #410004 */
+  --sg-on-surface:                  26 29 39;      /* #1a1d27 */
+  --sg-on-surface-variant:          68 71 90;      /* #44475a */
+  --sg-outline-variant:             188 192 206;   /* #bcc0ce */
+  --sg-error:                       186 26 26;     /* #ba1a1a */
+  --sg-error-container:             255 218 214;   /* #ffdad6 */
+  --sg-on-error:                    255 255 255;   /* #ffffff */
+  --sg-on-error-container:          65 0 2;        /* #410002 */
+}
+
+/* Dark theme — mirrors mobile darkTheme */
+.dark {
+  --sg-background:                  11 19 38;      /* #0b1326 */
+  --sg-surface:                     11 19 38;      /* #0b1326 */
+  --sg-surface-container-lowest:    6 14 32;       /* #060e20 */
+  --sg-surface-container:           23 31 51;      /* #171f33 */
+  --sg-surface-container-low:       19 27 46;      /* #131b2e */
+  --sg-surface-container-high:      34 42 61;      /* #222a3d */
+  --sg-surface-container-highest:   45 52 73;      /* #2d3449 */
+  --sg-surface-bright:              49 57 77;      /* #31394d */
+  --sg-primary:                     123 208 255;   /* #7bd0ff */
+  --sg-on-primary:                  0 53 74;       /* #00354a */
+  --sg-primary-container:           0 26 39;       /* #001a27 */
+  --sg-on-primary-container:        0 138 187;     /* #008abb */
+  --sg-secondary:                   255 185 95;    /* #ffb95f */
+  --sg-on-secondary:                71 42 0;       /* #472a00 */
+  --sg-secondary-container:         238 152 0;     /* #ee9800 */
+  --sg-on-secondary-container:      91 56 0;       /* #5b3800 */
+  --sg-tertiary:                    255 179 173;   /* #ffb3ad */
+  --sg-on-tertiary:                 104 0 10;      /* #68000a */
+  --sg-tertiary-container:          57 0 3;        /* #390003 */
+  --sg-on-tertiary-container:       235 65 65;     /* #eb4141 */
+  --sg-on-surface:                  218 226 253;   /* #dae2fd */
+  --sg-on-surface-variant:          198 198 205;   /* #c6c6cd */
+  --sg-outline-variant:             69 70 77;      /* #45464d */
+  --sg-error:                       255 180 171;   /* #ffb4ab */
+  --sg-error-container:             147 0 10;      /* #93000a */
+  --sg-on-error:                    105 0 5;       /* #690005 */
+  --sg-on-error-container:          255 218 214;   /* #ffdad6 */
+}
+
+/* ─── Base ────────────────────────────────────────────────────────────────────*/
+
 @layer base {
   html {
     @apply antialiased;
   }
+
+  /* Smooth theme transitions */
+  *, *::before, *::after {
+    transition-property: background-color, border-color, color, fill, stroke;
+    transition-duration: 150ms;
+    transition-timing-function: ease;
+  }
+
+  /* Disable transitions on page load to avoid FOUC flash */
+  html.no-transition *, html.no-transition *::before, html.no-transition *::after {
+    transition: none !important;
+  }
 }
+
+/* ─── Utilities ───────────────────────────────────────────────────────────────*/
 
 @layer utilities {
   .material-symbols-outlined {
@@ -26,27 +110,26 @@
     font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
   }
 
-  .sg-glass-panel {
+  /* Glass panel — adapts to theme */
+  .dark .sg-glass-panel {
     background: rgba(34, 42, 61, 0.72);
+    backdrop-filter: blur(32px);
+    -webkit-backdrop-filter: blur(32px);
+  }
+  .sg-glass-panel {
+    background: rgba(229, 234, 245, 0.80);
     backdrop-filter: blur(32px);
     -webkit-backdrop-filter: blur(32px);
   }
 
   .sg-status-pulse {
-    box-shadow: 0 0 0 0 rgba(123, 208, 255, 0.4);
     animation: sg-pulse-glow 3s ease-in-out infinite;
   }
 
   @keyframes sg-pulse-glow {
-    0% {
-      box-shadow: 0 0 0 0 rgba(123, 208, 255, 0.35);
-    }
-    70% {
-      box-shadow: 0 0 0 14px rgba(123, 208, 255, 0);
-    }
-    100% {
-      box-shadow: 0 0 0 0 rgba(123, 208, 255, 0);
-    }
+    0%   { box-shadow: 0 0 0 0   rgba(var(--sg-primary) / 0.35); }
+    70%  { box-shadow: 0 0 0 14px rgba(var(--sg-primary) / 0); }
+    100% { box-shadow: 0 0 0 0   rgba(var(--sg-primary) / 0); }
   }
 
   .sg-vision-pulse {

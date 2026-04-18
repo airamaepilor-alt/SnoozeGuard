@@ -7,21 +7,8 @@ import { supabase } from "../lib/supabase";
 import { countPendingTelemetryForUser } from "../lib/offline/db";
 import { flushOutbox } from "../lib/offline/sync";
 
-type SessionRow = {
-  id: string;
-  started_at: string;
-  ended_at: string | null;
-  device_type: string;
-};
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-type TelemetryLite = {
-  drowsiness_level: number;
-  yawn_count_delta: number;
-  head_event_count_delta: number;
-  recorded_at: string;
-};
-
-/** Matches `user_dashboard_metrics` JSON from Supabase (migration `20260404120000`). */
 type DashboardRpcPayload = {
   ok?: boolean;
   reason?: string;
@@ -39,17 +26,27 @@ type DashboardRpcPayload = {
   total_drive_seconds?: number;
   focus_score?: number | null;
   peak_hour?: number | null;
-  peak_hour_sample_count?: number | null;
   safest_hour?: number | null;
-  safest_hour_avg_drowsiness?: number | null;
-  caution_hour?: number | null;
-  caution_hour_avg_drowsiness?: number | null;
   histogram_hours?: unknown;
-  /** Minutes east of UTC used for hour buckets (matches `-new Date().getTimezoneOffset()`). */
   tz_offset_minutes_applied?: number | null;
 };
 
-function dashboardFirstName(u: User | null): string {
+type AlertEvent = {
+  id: string;
+  drowsiness_level: number;
+  alert_label: string | null;
+  source: string | null;
+  created_at: string;
+};
+
+type SessionDay = {
+  date: string;
+  count: number;
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function firstName(u: User | null): string {
   if (!u) return "Driver";
   const fn = u.user_metadata?.full_name;
   if (typeof fn === "string" && fn.trim()) return fn.trim().split(/\s+/)[0] ?? "Driver";
@@ -57,466 +54,524 @@ function dashboardFirstName(u: User | null): string {
   return local ? local.charAt(0).toUpperCase() + local.slice(1) : "Driver";
 }
 
-function timeGreeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  return "Good evening";
+function formatHoursLarge(totalSec: number): { value: string; unit: string } {
+  if (totalSec <= 0) return { value: "—", unit: "" };
+  const h = Math.floor(totalSec / 3600);
+  return { value: h.toLocaleString(), unit: "Hours Recorded" };
 }
 
-function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function scoreLabel(score: number | null): { text: string; color: string } {
+  if (score == null) return { text: "N/A", color: "text-on-surface-variant bg-surface-container" };
+  if (score >= 75) return { text: "Optimal", color: "text-primary bg-primary/20" };
+  if (score >= 50) return { text: "Elevated", color: "text-secondary bg-secondary/20" };
+  return { text: "Critical", color: "text-error bg-error/20" };
+}
+
+function avgSessionMin(totalSec: number, count: number): string {
+  if (!count || totalSec <= 0) return "—";
+  const avg = totalSec / count / 60;
+  if (avg >= 60) return `${(avg / 60).toFixed(1)} hrs`;
+  return `${Math.round(avg)} min`;
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function SessionActivityChart({
+  data,
+  filter,
+}: {
+  data: SessionDay[];
+  filter: "week" | "month";
+}) {
+  const filtered = filter === "week" ? data.slice(-7) : data;
+  const max = Math.max(1, ...filtered.map((d) => d.count));
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (filtered.length === 0) {
+    return (
+      <div className="flex items-end justify-center h-48 text-on-surface-variant text-sm">
+        No session data yet
+      </div>
+    );
+  }
+
+  // X-axis label positions (show ~5 evenly spaced)
+  const labelIndices = new Set<number>([0]);
+  if (filtered.length > 1) labelIndices.add(filtered.length - 1);
+  if (filtered.length > 4) labelIndices.add(Math.floor(filtered.length / 4));
+  if (filtered.length > 2) labelIndices.add(Math.floor(filtered.length / 2));
+  if (filtered.length > 3) labelIndices.add(Math.floor((3 * filtered.length) / 4));
+
   return (
-    <div className="rounded-xl border border-outline-variant/15 bg-surface-container-low/80 p-3 sm:p-4">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">{label}</p>
-      <p className="mt-1 font-headline text-lg font-bold text-on-surface sm:text-xl">{value}</p>
-      {hint ? <p className="mt-1 text-[10px] text-on-surface-variant/80">{hint}</p> : null}
+    <div>
+      <div className="flex items-end justify-between h-48 gap-1.5">
+        {filtered.map((d) => {
+          const pct = Math.max(4, Math.round((d.count / max) * 100));
+          const isToday = d.date === today;
+          const hasData = d.count > 0;
+          return (
+            <div
+              key={d.date}
+              className={`flex-1 rounded-t-sm transition-all hover:opacity-80 cursor-default ${
+                isToday
+                  ? "bg-primary"
+                  : hasData
+                    ? "bg-primary/55"
+                    : "bg-surface-container-high"
+              }`}
+              style={{ height: `${pct}%` }}
+              title={`${d.date}: ${d.count} session${d.count !== 1 ? "s" : ""}`}
+            />
+          );
+        })}
+      </div>
+      <div className="flex justify-between mt-3 text-[10px] text-slate-500 uppercase tracking-tighter">
+        {filtered.map((d, i) =>
+          labelIndices.has(i) ? (
+            <span key={d.date}>
+              {new Date(d.date + "T00:00:00").toLocaleDateString("en", {
+                month: "short",
+                day: "numeric",
+              })}
+            </span>
+          ) : (
+            <span key={d.date} />
+          ),
+        )}
+      </div>
     </div>
   );
 }
 
-function hourHistogram(rows: TelemetryLite[]): number[] {
-  const h = Array.from({ length: 24 }, () => 0);
-  for (const r of rows) {
-    const hr = new Date(r.recorded_at).getHours();
-    if (hr >= 0 && hr < 24) h[hr] += 1;
-  }
-  return h;
-}
+function IncidentRow({ event }: { event: AlertEvent }) {
+  const level = Number(event.drowsiness_level);
+  const isCritical = level >= 8;
+  const isWarning = level >= 6 && level < 8;
 
-function parseHistogramUtc(raw: unknown): number[] {
-  if (!Array.isArray(raw)) return Array.from({ length: 24 }, () => 0);
-  return raw.map((v) => (typeof v === "number" ? v : Number(v) || 0));
-}
+  const icon = isCritical ? "event_busy" : isWarning ? "warning" : "verified";
+  const iconColor = isCritical ? "text-error" : isWarning ? "text-secondary" : "text-primary";
+  const bgColor = isCritical ? "bg-error/10" : isWarning ? "bg-secondary/10" : "bg-primary/10";
 
-function metricsFromClientTelemetry(telemetry: TelemetryLite[]) {
-  if (telemetry.length === 0) {
-    return {
-      avgDrowsy: "—",
-      yawns: 0,
-      head: 0,
-      l6: 0,
-      l7: 0,
-      l8: 0,
-      hours: hourHistogram([]),
-      peakHour: 0,
-      peakC: 0,
-      samplesWeek: 0,
-      safeScore: 0 as number | null,
-    };
-  }
-  const sum = telemetry.reduce((a, r) => a + Number(r.drowsiness_level), 0);
-  const yawns = telemetry.reduce((a, r) => a + (r.yawn_count_delta ?? 0), 0);
-  const head = telemetry.reduce((a, r) => a + (r.head_event_count_delta ?? 0), 0);
-  let l6 = 0;
-  let l7 = 0;
-  let l8 = 0;
-  for (const r of telemetry) {
-    const lv = Number(r.drowsiness_level);
-    if (lv >= 8) l8 += 1;
-    else if (lv >= 7) l7 += 1;
-    else if (lv >= 6) l6 += 1;
-  }
-  const hours = hourHistogram(telemetry);
-  let peakHour = 0;
-  let peakC = 0;
-  hours.forEach((c, i) => {
-    if (c > peakC) {
-      peakC = c;
-      peakHour = i;
-    }
+  const label =
+    event.alert_label ??
+    (isCritical ? "Critical Fatigue Alert" : isWarning ? "Drowsiness Warning" : "Safe Session");
+  const date = new Date(event.created_at);
+  const dateStr = date.toLocaleDateString("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
-  const weekMs = 7 * 24 * 60 * 60 * 1000;
-  const newestTs = telemetry.reduce((m, r) => Math.max(m, new Date(r.recorded_at).getTime()), 0);
-  const cutoff = newestTs - weekMs;
-  const samplesWeek = telemetry.filter((r) => new Date(r.recorded_at).getTime() >= cutoff).length;
-  const avgNum = sum / telemetry.length;
-  const safeScore = Math.max(0, Math.min(100, Math.round(100 - avgNum * 9)));
-  return {
-    avgDrowsy: avgNum.toFixed(2),
-    yawns,
-    head,
-    l6,
-    l7,
-    l8,
-    hours,
-    peakHour,
-    peakC,
-    samplesWeek,
-    safeScore,
-  };
-}
+  const timeStr = date.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" });
+  const shortId = `#SG-${event.id.slice(0, 4).toUpperCase()}`;
 
-function metricsFromRpc(rpc: DashboardRpcPayload) {
-  const hours = parseHistogramUtc(rpc.histogram_hours);
-  let peakHour = 0;
-  let peakC = 0;
-  hours.forEach((c, i) => {
-    if (c > peakC) {
-      peakC = c;
-      peakHour = i;
-    }
-  });
-  const avg = Number(rpc.avg_drowsiness) || 0;
-  const focus = rpc.focus_score ?? (rpc.sample_count ? Math.max(0, Math.min(100, Math.round(100 - avg * 9))) : null);
-  return {
-    avgDrowsy: (rpc.sample_count ?? 0) > 0 ? avg.toFixed(2) : "—",
-    yawns: Number(rpc.yawn_delta_sum) || 0,
-    head: Number(rpc.head_delta_sum) || 0,
-    l6: Number(rpc.l6_count) || 0,
-    l7: Number(rpc.l7_count) || 0,
-    l8: Number(rpc.l8_count) || 0,
-    hours,
-    peakHour,
-    peakC,
-    samplesWeek: Number(rpc.samples_7d_trail) || 0,
-    safeScore: focus,
-  };
-}
-
-function MiniHistogram({ counts }: { counts: number[] }) {
-  const max = Math.max(1, ...counts);
-  const w = 320;
-  const h = 80;
-  const barW = w / 24;
   return (
-    <svg width="100%" viewBox={`0 0 ${w} ${h}`} className="text-primary" aria-label="Samples by hour">
-      {counts.map((c, i) => {
-        const bh = (c / max) * (h - 8);
-        return (
-          <rect
-            key={i}
-            x={i * barW + 1}
-            y={h - bh - 4}
-            width={barW - 2}
-            height={Math.max(1, bh)}
-            fill="currentColor"
-            opacity={0.75}
-          />
-        );
-      })}
-    </svg>
+    <div className="flex items-center justify-between p-5 bg-surface-container/30 rounded-xl hover:bg-surface-container/50 transition-colors">
+      <div className="flex items-center gap-4">
+        <div className={`w-10 h-10 rounded-full ${bgColor} flex items-center justify-center shrink-0`}>
+          <span
+            className={`material-symbols-outlined ${iconColor} text-xl`}
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            {icon}
+          </span>
+        </div>
+        <div>
+          <p className="font-bold text-on-surface">
+            {label}{" "}
+            <span className="text-on-surface-variant font-normal ml-1 text-sm">{shortId}</span>
+          </p>
+          <p className="text-xs text-on-surface-variant">
+            Level {level} · {event.source ?? "mobile"}
+          </p>
+        </div>
+      </div>
+      <div className="text-right shrink-0 ml-4">
+        <p className="text-sm font-bold text-on-surface">{dateStr}</p>
+        <p className="text-xs text-on-surface-variant">{timeStr}</p>
+      </div>
+    </div>
   );
 }
 
-function formatDriveDuration(totalSec: number) {
-  if (totalSec <= 0) return "—";
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m} min`;
-}
-
-function localHourLabel(h: number | null | undefined) {
-  if (h == null || Number.isNaN(h)) return "—";
-  return `${h}:00 (device local)`;
-}
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export function DashboardPage() {
   const { user } = useAuth();
   const online = useOnlineStatus();
-  const [sessions, setSessions] = useState<SessionRow[]>([]);
-  const [telemetry, setTelemetry] = useState<TelemetryLite[]>([]);
+
   const [rpcMetrics, setRpcMetrics] = useState<DashboardRpcPayload | null>(null);
-  const [rpcFailed, setRpcFailed] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [pendingLocal, setPendingLocal] = useState(0);
-  const [clientSessionCount, setClientSessionCount] = useState<number | null>(null);
+  const [sessionCountTotal, setSessionCountTotal] = useState<number | null>(null);
+  const [alertEvents, setAlertEvents] = useState<AlertEvent[]>([]);
+  const [sessionsByDay, setSessionsByDay] = useState<SessionDay[]>([]);
   const [alerts7dCount, setAlerts7dCount] = useState<number | null>(null);
+  const [totalDriveSec, setTotalDriveSec] = useState(0);
+  const [pendingLocal, setPendingLocal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [chartFilter, setChartFilter] = useState<"week" | "month">("week");
 
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
+
     (async () => {
       if (online) await flushOutbox(supabase, user.id);
 
       const tzOffset = -new Date().getTimezoneOffset();
-      const { data: rpcRaw, error: rpcErr } = await supabase.rpc("user_dashboard_metrics", {
+
+      // RPC for main metrics
+      const { data: rpcRaw } = await supabase.rpc("user_dashboard_metrics", {
         p_session_limit: 40,
         p_tz_offset_minutes: tzOffset,
       });
-      const rpcParsed = rpcRaw as DashboardRpcPayload | null;
-      const rpcOk = !rpcErr && rpcParsed?.ok === true;
+      const rpc = rpcRaw as DashboardRpcPayload | null;
+      const rpcOk = rpc?.ok === true;
+
       if (!cancelled) {
-        setRpcFailed(Boolean(rpcErr) || !rpcOk);
-        setRpcMetrics(rpcOk ? rpcParsed : null);
+        if (rpcOk && rpc) {
+          setRpcMetrics(rpc);
+          setSessionCountTotal(rpc.session_count_total ?? null);
+          setTotalDriveSec(Number(rpc.total_drive_seconds) || 0);
+        }
       }
 
-      const { data: recent } = await supabase
-        .from("driving_sessions")
-        .select("id, started_at, ended_at, device_type")
-        .eq("user_id", user.id)
-        .order("started_at", { ascending: false })
-        .limit(5);
-
-      let tel: TelemetryLite[] = [];
+      // Fallback session count
       if (!rpcOk) {
         const { count: sc } = await supabase
           .from("driving_sessions")
           .select("id", { count: "exact", head: true })
           .eq("user_id", user.id);
-        if (!cancelled) setClientSessionCount(sc ?? null);
-
-        const { data: win } = await supabase
-          .from("driving_sessions")
-          .select("id")
-          .eq("user_id", user.id)
-          .order("started_at", { ascending: false })
-          .limit(40);
-        const sessionIds = (win ?? []).map((s) => s.id as string);
-        if (sessionIds.length > 0) {
-          const { data: telData, error: e3 } = await supabase
-            .from("session_telemetry")
-            .select("drowsiness_level, yawn_count_delta, head_event_count_delta, recorded_at")
-            .in("session_id", sessionIds)
-            .order("recorded_at", { ascending: false })
-            .limit(2500);
-          if (!e3 && telData) tel = telData as TelemetryLite[];
-        }
-      } else if (!cancelled) {
-        setClientSessionCount(null);
+        if (!cancelled) setSessionCountTotal(sc ?? null);
       }
 
+      // Sessions by day (last 30 days) for bar chart
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data: sessionDates } = await supabase
+        .from("driving_sessions")
+        .select("started_at")
+        .eq("user_id", user.id)
+        .gte("started_at", thirtyDaysAgo);
+
+      if (!cancelled && sessionDates) {
+        const dayMap = new Map<string, number>();
+        for (let i = 29; i >= 0; i--) {
+          const d = new Date(Date.now() - i * 86400000);
+          dayMap.set(d.toISOString().slice(0, 10), 0);
+        }
+        for (const s of sessionDates) {
+          const key = new Date(s.started_at as string).toISOString().slice(0, 10);
+          dayMap.set(key, (dayMap.get(key) ?? 0) + 1);
+        }
+        setSessionsByDay(
+          Array.from(dayMap.entries()).map(([date, count]) => ({ date, count })),
+        );
+      }
+
+      // Recent alert events for incidents list
+      const { data: eventsData } = await supabase
+        .from("alert_events")
+        .select("id, drowsiness_level, alert_label, source, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      if (!cancelled && eventsData) setAlertEvents(eventsData as AlertEvent[]);
+
+      // 7-day alert count
       const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-      const { count: alertC, error: alertErr } = await supabase
+      const { count: alertC } = await supabase
         .from("alert_events")
         .select("*", { count: "exact", head: true })
         .eq("user_id", user.id)
         .gte("created_at", weekAgo);
+      if (!cancelled) setAlerts7dCount(alertC ?? 0);
 
       if (!cancelled) {
-        if (recent) setSessions(recent as SessionRow[]);
-        setTelemetry(tel);
         setPendingLocal(await countPendingTelemetryForUser(user.id));
-        setAlerts7dCount(alertErr ? null : alertC ?? 0);
         setLoading(false);
       }
     })();
+
     return () => {
       cancelled = true;
     };
   }, [user, online]);
 
-  const metrics = useMemo(() => {
-    if (rpcMetrics) return metricsFromRpc(rpcMetrics);
-    return metricsFromClientTelemetry(telemetry);
-  }, [rpcMetrics, telemetry]);
+  const focusScore = useMemo(() => {
+    if (rpcMetrics?.focus_score != null) return Math.round(rpcMetrics.focus_score);
+    if (rpcMetrics?.avg_drowsiness != null && (rpcMetrics.sample_count ?? 0) > 0) {
+      return Math.max(0, Math.min(100, Math.round(100 - Number(rpcMetrics.avg_drowsiness) * 10)));
+    }
+    return null;
+  }, [rpcMetrics]);
 
-  const sessionCountTotal = rpcMetrics?.session_count_total ?? clientSessionCount;
-  const hasChart = rpcMetrics
-    ? parseHistogramUtc(rpcMetrics.histogram_hours).some((n) => n > 0)
-    : telemetry.length > 0;
-
-  const firstName = useMemo(() => dashboardFirstName(user), [user]);
-  const focusDisplay = metrics.safeScore != null ? `${metrics.safeScore}` : "—";
-  const readyLabel =
-    metrics.safeScore != null && metrics.safeScore >= 70 ? "Ready" : metrics.safeScore != null ? "Monitor" : "…";
+  const yawns = Number(rpcMetrics?.yawn_delta_sum) || 0;
+  const headEvents = Number(rpcMetrics?.head_delta_sum) || 0;
+  const drowsyEvents = yawns + headEvents;
+  const scoreInfo = scoreLabel(focusScore);
+  const driveTime = formatHoursLarge(totalDriveSec);
+  const avgMin = avgSessionMin(totalDriveSec, sessionCountTotal ?? 0);
+  const name = firstName(user);
 
   return (
-    <div className="mx-auto max-w-lg space-y-10 lg:max-w-5xl">
-      <div className="flex flex-col items-center text-center lg:max-w-lg lg:items-start lg:text-left">
-        <div className="relative mb-6">
-          <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-primary/25 bg-primary-container sg-status-pulse">
-            <span className="material-symbols-outlined text-4xl text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>
-              shield_with_heart
+    <div className="space-y-8">
+      {/* ── Hero row ── */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-end">
+        <div>
+          <h2 className="text-3xl sm:text-4xl font-headline font-extrabold tracking-tight text-on-surface mb-2">
+            Systems Online
+          </h2>
+          <p className="text-on-surface-variant font-body max-w-md text-sm sm:text-base">
+            Real-time driver fatigue monitoring active for{" "}
+            <span className="text-primary font-semibold">{name}</span>. Local database synced.
+            {!online && (
+              <span className="ml-2 text-secondary font-semibold">· Offline mode</span>
+            )}
+            {pendingLocal > 0 && (
+              <span className="ml-2 text-secondary">{pendingLocal} queued</span>
+            )}
+          </p>
+        </div>
+        <Link
+          to="/drive"
+          className="group relative flex items-center justify-center gap-3 bg-gradient-to-r from-primary to-on-primary-container text-on-primary px-5 py-3 sm:px-8 sm:py-5 rounded-xl font-headline font-bold text-base sm:text-lg shadow-lg hover:shadow-primary/20 transition-all active:scale-95 shrink-0 sm:ml-8"
+        >
+          <span
+            className="material-symbols-outlined text-2xl transition-transform group-hover:scale-110"
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            play_circle
+          </span>
+          <span>Start Driving Session</span>
+        </Link>
+      </div>
+
+      {/* ── KPI Bento grid ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+        {/* Focus Score — spans 2 cols */}
+        <div className="sm:col-span-2 bg-surface-container-high p-6 lg:p-8 rounded-xl flex flex-col justify-between relative overflow-hidden">
+          <div className="flex justify-between items-start z-10">
+            <div>
+              <p className="text-on-surface-variant font-label text-sm uppercase tracking-widest flex items-center gap-2">
+                Focus Score
+                <span className="material-symbols-outlined text-sm opacity-50 cursor-default">info</span>
+              </p>
+              <h3 className="text-5xl font-headline font-black text-on-surface mt-2">
+                {loading ? "…" : focusScore != null ? focusScore : "—"}
+                {focusScore != null && !loading && (
+                  <span className="text-2xl text-primary">/100</span>
+                )}
+              </h3>
+            </div>
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-tighter ${scoreInfo.color}`}
+            >
+              {loading ? "…" : scoreInfo.text}
             </span>
           </div>
-          <div className="absolute -bottom-2 -right-2 rounded-full bg-primary px-3 py-1 font-headline text-[10px] font-bold uppercase tracking-widest text-primary-container">
-            {readyLabel}
-          </div>
-        </div>
-        <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-on-surface-variant">Vigilance system active</p>
-        <h1 className="font-headline text-3xl font-extrabold leading-tight text-on-surface">
-          {timeGreeting()}, <span className="text-primary">{firstName}</span>
-        </h1>
-        <p className="mt-3 text-sm text-on-surface-variant">
-          {rpcMetrics ? (
-            <>
-              Metrics from <strong className="text-on-surface">Supabase</strong>{" "}
-              <code className="text-primary/80">user_dashboard_metrics</code> (40 sessions, local hour buckets).
-            </>
-          ) : (
-            <>
-              <strong className="text-on-surface">Browser-side</strong> aggregates — apply dashboard RPC migrations for server analytics.
-            </>
-          )}
-        </p>
-        <p className="mt-2 text-xs text-on-surface-variant/90">
-          <span className={online ? "text-emerald-400" : "text-secondary"}>{online ? "Online" : "Offline"}</span>
-          {rpcFailed && !rpcMetrics ? <span className="text-secondary"> · RPC fallback</span> : null}
-          {pendingLocal > 0 ? <span className="text-secondary"> · {pendingLocal} queued in IndexedDB</span> : null}
-        </p>
-      </div>
-
-      <Link
-        to="/drive"
-        className="group flex h-20 w-full max-w-md items-center justify-center gap-4 rounded-xl bg-gradient-to-r from-primary to-on-primary-container shadow-lg shadow-primary/10 transition-all duration-200 active:scale-[0.98] lg:max-w-lg"
-      >
-        <span className="material-symbols-outlined text-3xl text-on-primary transition-transform group-hover:scale-110" style={{ fontVariationSettings: "'FILL' 1" }}>
-          play_circle
-        </span>
-        <span className="font-headline text-xl font-extrabold tracking-tight text-on-primary">Start driving</span>
-      </Link>
-
-      <div className="grid grid-cols-2 gap-4 lg:max-w-3xl">
-        <div className="sg-glass-panel relative col-span-2 overflow-hidden rounded-2xl border border-primary/10 p-6">
-          <div className="mb-4 flex justify-between gap-4">
-            <div>
-              <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Focus score (heuristic)</p>
-              <h2 className="font-headline text-5xl font-black text-primary">
-                {focusDisplay}
-                {metrics.safeScore != null ? <span className="text-xl text-on-primary-container">%</span> : null}
-              </h2>
-            </div>
-            <div className="rounded-lg bg-primary/10 p-2">
-              <span className="material-symbols-outlined text-primary">analytics</span>
-            </div>
-          </div>
-          <div className="h-1 w-full overflow-hidden rounded-full bg-surface-container">
-            <div
-              className="h-full bg-primary transition-all duration-500"
-              style={{ width: `${metrics.safeScore != null ? Math.min(100, Math.max(4, metrics.safeScore)) : 8}%` }}
-            />
-          </div>
-          <p className="mt-4 text-xs text-on-surface/60">
-            Based on average drowsiness in your telemetry window. Higher is more alert — tune thresholds in Admin if needed.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-outline-variant/15 bg-surface-container-low p-5">
-          <span className="material-symbols-outlined mb-3 text-secondary" style={{ fontVariationSettings: "'FILL' 1" }}>
-            verified_user
-          </span>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Samples (7d trail)</p>
-          <p className="font-headline text-2xl font-bold text-on-surface">{metrics.samplesWeek}</p>
-          <p className="mt-2 text-[10px] font-bold text-secondary">Telemetry in trailing week</p>
-        </div>
-
-        <div className="rounded-2xl border border-outline-variant/15 bg-surface-container-low p-5">
-          <span className="material-symbols-outlined mb-3 text-tertiary" style={{ fontVariationSettings: "'FILL' 1" }}>
-            warning
-          </span>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Alerts (7 days)</p>
-          <p className="font-headline text-2xl font-bold text-on-surface">{alerts7dCount === null ? "—" : String(alerts7dCount)}</p>
-          <p className="mt-2 text-[10px] font-bold text-tertiary">From alert_events</p>
-        </div>
-
-        <div className="col-span-2 rounded-2xl border border-outline-variant/15 bg-surface-container-high p-5">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Overview (BRD §12)</p>
-          {loading ? (
-            <p className="text-on-surface-variant">Loading…</p>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <StatCard
-                label="Total sessions"
-                value={sessionCountTotal != null ? String(sessionCountTotal) : "—"}
-                hint="All time"
-              />
-              <StatCard
-                label="Avg drowsiness"
-                value={metrics.avgDrowsy}
-                hint={rpcMetrics ? "Server window" : "Browser window"}
-              />
-              <StatCard label="Yawn Δ sum" value={String(metrics.yawns)} />
-              <StatCard label="Head Δ sum" value={String(metrics.head)} />
-              <StatCard
-                label="L6+ samples"
-                value={`${metrics.l6 + metrics.l7 + metrics.l8}`}
-                hint={`L7+: ${metrics.l7 + metrics.l8} · L8+: ${metrics.l8}`}
-              />
-              <StatCard
-                label="Peak hour"
-                value={metrics.peakC > 0 ? `${metrics.peakHour}:00` : "—"}
-                hint={metrics.peakC > 0 ? `${metrics.peakC} samples` : undefined}
+          <div className="mt-8 z-10">
+            <div className="h-3 w-full bg-surface-container rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-primary to-on-primary-container rounded-full shadow-[0_0_15px_rgba(123,208,255,0.4)] transition-all duration-700"
+                style={{ width: `${focusScore != null ? Math.max(2, focusScore) : 0}%` }}
               />
             </div>
-          )}
-          <p className="mt-3 text-[10px] text-on-surface-variant">
-            Time-of-day trends: see{" "}
-            <Link to="/history" className="font-bold text-primary hover:underline">
-              History
-            </Link>
-            .
-          </p>
+            <p className="text-xs text-slate-500 mt-4 flex items-center gap-2">
+              <span className="material-symbols-outlined text-xs text-primary">trending_up</span>
+              Based on avg drowsiness across your telemetry window
+            </p>
+          </div>
+          {/* Background glow */}
+          <div className="absolute -right-10 -bottom-10 w-48 h-48 bg-primary/5 rounded-full blur-3xl" />
         </div>
-      </div>
 
-      {rpcMetrics && (rpcMetrics.sample_count ?? 0) > 0 ? (
-        <section className="grid gap-4 lg:max-w-3xl lg:grid-cols-3">
-          <div className="rounded-2xl border border-emerald-500/25 bg-emerald-950/25 p-5 lg:col-span-1">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-300/90">Safe hours insight</p>
-            <p className="mt-2 text-sm leading-relaxed text-on-surface/90">
-              Lowest avg drowsiness around <strong className="text-emerald-300">{localHourLabel(rpcMetrics.safest_hour)}</strong>
-              {rpcMetrics.safest_hour_avg_drowsiness != null ? (
-                <>
-                  {" "}
-                  (avg <span className="font-mono">{Number(rpcMetrics.safest_hour_avg_drowsiness).toFixed(2)}</span>).
-                </>
-              ) : null}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-secondary/30 bg-secondary/5 p-5 lg:col-span-1">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-secondary">Higher-load window</p>
-            <p className="mt-2 text-sm leading-relaxed text-on-surface/90">
-              Highest avg around <strong className="text-secondary">{localHourLabel(rpcMetrics.caution_hour)}</strong>
-              {rpcMetrics.caution_hour_avg_drowsiness != null ? (
-                <>
-                  {" "}
-                  (avg <span className="font-mono">{Number(rpcMetrics.caution_hour_avg_drowsiness).toFixed(2)}</span>).
-                </>
-              ) : null}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-primary/20 bg-surface-container/80 p-5 lg:col-span-1">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Drive time (window)</p>
-            <p className="mt-2 font-headline text-3xl font-bold text-on-surface">
-              {formatDriveDuration(Number(rpcMetrics.total_drive_seconds) || 0)}
-            </p>
-            <p className="mt-2 text-xs text-on-surface-variant">
-              Ended sessions in latest {rpcMetrics.window_session_count ?? 40} (server).
-            </p>
-          </div>
-        </section>
-      ) : null}
-
-      {!loading && hasChart ? (
-        <section className="rounded-2xl border border-outline-variant/15 bg-surface-container-low/60 p-4 lg:max-w-3xl">
-          <h2 className="mb-2 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
-            {rpcMetrics ? "Time-of-day sample density" : "Time-of-day sample density (local)"}
-          </h2>
-          <p className="mb-3 text-xs text-on-surface-variant">
-            {rpcMetrics
-              ? "Server buckets use your browser timezone offset."
-              : "Bucketed by your browser local hour."}
-          </p>
-          <MiniHistogram counts={metrics.hours} />
-        </section>
-      ) : null}
-
-      <section className="lg:max-w-3xl">
-        <h2 className="mb-3 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Recent sessions</h2>
-        {loading ? (
-          <p className="text-on-surface-variant">Loading…</p>
-        ) : sessions.length === 0 ? (
-          <p className="text-on-surface-variant">No sessions yet. Start one from Drive.</p>
-        ) : (
-          <ul className="space-y-2">
-            {sessions.map((s) => (
-              <li
-                key={s.id}
-                className="rounded-xl border border-outline-variant/15 bg-surface-container-low/90 px-4 py-3 shadow-sm shadow-black/20"
+        {/* Drowsy Events */}
+        <div className="bg-surface-container-low p-6 lg:p-8 rounded-xl border-l-4 border-secondary flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-start mb-2">
+              <p className="text-on-surface-variant font-label text-sm uppercase tracking-widest">
+                Drowsy Events
+              </p>
+              <span
+                className="material-symbols-outlined text-secondary"
+                style={{ fontVariationSettings: "'FILL' 1" }}
               >
-                <div className="flex justify-between gap-2 text-sm">
-                  <span className="text-on-surface">{new Date(s.started_at).toLocaleString()}</span>
-                  <span className="text-on-surface-variant">{s.device_type}</span>
-                </div>
-                <div className="text-xs text-on-surface-variant">
-                  {s.ended_at ? `Ended ${new Date(s.ended_at).toLocaleString()}` : "Active"}
-                </div>
-              </li>
+                visibility
+              </span>
+            </div>
+            <h3 className="text-4xl font-headline font-bold text-on-surface">
+              {loading ? "…" : String(drowsyEvents).padStart(2, "0")}
+            </h3>
+            <div className="mt-2 flex gap-2 flex-wrap">
+              {yawns > 0 && (
+                <span className="text-[10px] bg-secondary/10 text-secondary px-2 py-0.5 rounded border border-secondary/20">
+                  {yawns} YAWN{yawns !== 1 ? "S" : ""}
+                </span>
+              )}
+              {headEvents > 0 && (
+                <span className="text-[10px] bg-secondary/10 text-secondary px-2 py-0.5 rounded border border-secondary/20">
+                  {headEvents} NOD{headEvents !== 1 ? "S" : ""}
+                </span>
+              )}
+              {!loading && yawns === 0 && headEvents === 0 && (
+                <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded border border-primary/20">
+                  ALL CLEAR
+                </span>
+              )}
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-4">
+            ⓘ Yawns + head movements in your last 40 sessions
+          </p>
+        </div>
+
+        {/* Total Sessions */}
+        <div className="bg-surface-container-low p-6 lg:p-8 rounded-xl flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-start mb-2">
+              <p className="text-on-surface-variant font-label text-sm uppercase tracking-widest">
+                Total Sessions
+              </p>
+              <span className="material-symbols-outlined text-on-surface-variant">route</span>
+            </div>
+            <h3 className="text-4xl font-headline font-bold text-on-surface">
+              {loading ? "…" : sessionCountTotal != null ? sessionCountTotal.toLocaleString() : "—"}
+            </h3>
+          </div>
+          <div className="mt-4 pt-4 border-t border-outline-variant/10">
+            <p className="text-xs text-slate-500">
+              Alerts (7d):{" "}
+              <span className="text-on-surface-variant font-semibold">
+                {alerts7dCount != null ? alerts7dCount : "—"}
+              </span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Secondary row: chart + drive time ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+        {/* Session Activity Chart — spans 2 cols */}
+        <div className="lg:col-span-2 bg-surface-container p-6 lg:p-8 rounded-xl">
+          <div className="flex justify-between items-center mb-8">
+            <div>
+              <h4 className="text-lg font-headline font-bold text-on-surface">Session Activity</h4>
+              <p className="text-sm text-slate-500">
+                Frequency over last {chartFilter === "week" ? "7" : "30"} days
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setChartFilter("month")}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                  chartFilter === "month"
+                    ? "bg-surface-bright text-primary"
+                    : "bg-surface-container-high text-slate-300 hover:text-on-surface"
+                }`}
+              >
+                Month
+              </button>
+              <button
+                onClick={() => setChartFilter("week")}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                  chartFilter === "week"
+                    ? "bg-surface-bright text-primary"
+                    : "bg-surface-container-high text-slate-300 hover:text-on-surface"
+                }`}
+              >
+                Week
+              </button>
+            </div>
+          </div>
+          {loading ? (
+            <div className="h-48 flex items-center justify-center text-on-surface-variant text-sm">
+              Loading…
+            </div>
+          ) : (
+            <SessionActivityChart data={sessionsByDay} filter={chartFilter} />
+          )}
+        </div>
+
+        {/* Total Drive Time */}
+        <div className="bg-surface-container-high p-6 lg:p-8 rounded-xl flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-start mb-6">
+              <p className="text-on-surface-variant font-label text-sm uppercase tracking-widest">
+                Total Drive Time
+              </p>
+              <span className="material-symbols-outlined text-primary">timer</span>
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-5xl font-headline font-black text-on-surface">
+                {loading ? "…" : driveTime.value}
+              </h3>
+              <p className="text-primary font-headline font-bold text-lg">
+                {driveTime.unit || "Hours Recorded"}
+              </p>
+            </div>
+          </div>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-slate-400">Avg. Session Length</span>
+              <span className="text-on-surface font-bold">
+                {loading ? "…" : avgMin}
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-slate-400">Telemetry Samples</span>
+              <span className="text-on-surface font-bold">
+                {loading ? "…" : (rpcMetrics?.sample_count ?? "—")}
+              </span>
+            </div>
+            <div className="w-full bg-surface-container h-1.5 rounded-full">
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-700"
+                style={{
+                  width: `${Math.min(100, Math.max(4, (focusScore ?? 0)))}%`,
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Recent Fatigue Incidents ── */}
+      <div className="bg-surface-container-lowest p-8 rounded-2xl border border-outline-variant/10">
+        <div className="flex justify-between items-center mb-8">
+          <h4 className="text-xl font-headline font-bold text-on-surface">
+            Recent Fatigue Incidents
+          </h4>
+          <Link
+            to="/history"
+            className="text-primary text-sm font-bold flex items-center gap-1 hover:underline"
+          >
+            View Complete Log
+            <span className="material-symbols-outlined text-sm">arrow_forward</span>
+          </Link>
+        </div>
+
+        {loading ? (
+          <p className="text-on-surface-variant text-sm">Loading…</p>
+        ) : alertEvents.length === 0 ? (
+          <div className="flex items-center gap-4 p-5 bg-primary/5 rounded-xl border border-primary/10">
+            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <span
+                className="material-symbols-outlined text-primary text-xl"
+                style={{ fontVariationSettings: "'FILL' 1" }}
+              >
+                verified
+              </span>
+            </div>
+            <p className="text-on-surface-variant text-sm">
+              No fatigue incidents recorded yet. Stay safe on the road!
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {alertEvents.map((ev) => (
+              <IncidentRow key={ev.id} event={ev} />
             ))}
-          </ul>
+          </div>
         )}
-      </section>
+      </div>
     </div>
   );
 }

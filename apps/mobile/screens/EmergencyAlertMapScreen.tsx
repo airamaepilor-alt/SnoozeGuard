@@ -343,7 +343,7 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
                     style={styles.smsBtn}
                     onPress={() =>
                       void Linking.openURL(
-                        `sms:${selected.driver_phone}&body=Got your SnoozeGuard alert — are you okay?`,
+                        `sms:${selected.driver_phone}?body=Got your SnoozeGuard alert — are you okay?`,
                       )
                     }
                   >

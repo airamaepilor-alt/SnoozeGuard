@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Animated, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
 import { drivingSessionActive, endSessionFn } from "./sessionState";
 import type { Session } from "@supabase/supabase-js";
@@ -195,9 +195,9 @@ function AppDrawer({ visible, onClose, session, superAdmin, onSignOut, onGuard }
   const navItems: NavItem[] = [
     { name: "EmergencyContact", icon: "emergency", label: "Emergency Contact" },
     { name: "Account", icon: "manage-accounts", label: "Account" },
-    ...(superAdmin ? [{ name: "Admin" as keyof MainTabParamList, icon: "admin-panel-settings", label: "Admin Config" }] : []),
     { name: "About", icon: "info-outline", label: "About SnoozeGuard" },
     { name: "Terms", icon: "gavel", label: "Terms & Privacy" },
+    ...(superAdmin ? [{ name: "Admin" as keyof MainTabParamList, icon: "admin-panel-settings", label: "Admin Config" }] : []),
   ];
 
   return (
@@ -207,12 +207,31 @@ function AppDrawer({ visible, onClose, session, superAdmin, onSignOut, onGuard }
         <Animated.View style={[styles.panel, { transform: [{ translateX: slideAnim }] }]}>
           {/* User info */}
           <View style={styles.userSection}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initial}</Text>
+            <View style={styles.userInfo}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{initial}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.userName}>{displayName}</Text>
+                <Text style={styles.userEmail}>{session.user.email}</Text>
+                {myPhone ? <Text style={styles.userPhone}>{myPhone}</Text> : null}
+              </View>
             </View>
-            <Text style={styles.userName}>{displayName}</Text>
-            <Text style={styles.userEmail}>{session.user.email}</Text>
-            {myPhone ? <Text style={styles.userPhone}>{myPhone}</Text> : null}
+            
+            {/* Share Button - Right side */}
+            <Pressable
+              style={styles.shareButtonIcon}
+              onPress={() => {
+                void Share.share({
+                  message: "Check out SnoozeGuard - Real-time driver drowsiness detection! Download now:\nhttps://expo.dev/accounts/airamaepilor/projects/snoozeguard/builds/2928e749-d945-48af-8121-bfee1dcb76a2",
+                  title: "Share SnoozeGuard",
+                  // @ts-expect-error Android specific prop
+                  icon: require("./assets/icon.png"),
+                });
+              }}
+            >
+              <MaterialIcons name="share" size={20} color={t.primary} />
+            </Pressable>
           </View>
 
           {/* Online / offline + sync */}
@@ -304,16 +323,23 @@ const makeDrawerStyles = (t: Theme) => StyleSheet.create({
     paddingTop: 56, paddingHorizontal: 20, paddingBottom: 20,
     backgroundColor: `${t.primary}11`,
     borderBottomWidth: 1, borderBottomColor: `${t.outlineVariant}33`,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12,
+  },
+  userInfo: {
+    flexDirection: "row", alignItems: "center", flex: 1, gap: 12,
   },
   avatar: {
     width: 52, height: 52, borderRadius: 26,
     backgroundColor: `${t.primary}33`,
-    alignItems: "center", justifyContent: "center", marginBottom: 10,
+    alignItems: "center", justifyContent: "center",
   },
   avatarText: { color: t.primary, fontSize: 22, fontWeight: "800" },
   userName: { color: t.onSurface, fontWeight: "700", fontSize: 16 },
   userEmail: { color: t.onSurfaceVariant, fontSize: 12, marginTop: 2 },
   userPhone: { color: t.onSurfaceVariant, fontSize: 12, marginTop: 2 },
+  shareButtonIcon: { paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: `${t.primary}22`, borderWidth: 1, borderColor: `${t.primary}44`, alignItems: "center", justifyContent: "center" },
+  shareButtonCompact: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, paddingVertical: 10, paddingHorizontal: 12, backgroundColor: `${t.primary}22`, borderRadius: 12, borderWidth: 1, borderColor: `${t.primary}44` },
+  shareTextCompact: { color: t.primary, fontSize: 13, fontWeight: "700" },
   syncBtn: { flexDirection: "row", alignItems: "center", margin: 12, padding: 12, borderRadius: 14, borderWidth: 1, gap: 8 },
   syncBtnOk: { backgroundColor: "#4ade8011", borderColor: "#4ade8044" },
   syncBtnWarn: { backgroundColor: `${t.outlineVariant}22`, borderColor: `${t.outlineVariant}66` },
