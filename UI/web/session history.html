@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Driving History | Sentinel Night</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;700;800&amp;family=Inter:wght@400;500;600;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-tint": "#7bd0ff",
+                        "surface-dim": "#0b1326",
+                        "on-primary-fixed-variant": "#004c69",
+                        "on-tertiary": "#68000a",
+                        "primary-fixed": "#c4e7ff",
+                        "on-primary": "#00354a",
+                        "on-surface": "#dae2fd",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-container": "#eb4141",
+                        "on-secondary-container": "#5b3800",
+                        "tertiary-fixed": "#ffdad7",
+                        "inverse-on-surface": "#283044",
+                        "on-primary-fixed": "#001e2c",
+                        "surface-container-low": "#131b2e",
+                        "primary-container": "#001a27",
+                        "surface-container-highest": "#2d3449",
+                        "on-secondary": "#472a00",
+                        "inverse-primary": "#00668a",
+                        "primary-fixed-dim": "#7bd0ff",
+                        "surface": "#0b1326",
+                        "secondary-fixed-dim": "#ffb95f",
+                        "on-background": "#dae2fd",
+                        "inverse-surface": "#dae2fd",
+                        "tertiary-fixed-dim": "#ffb3ad",
+                        "tertiary": "#ffb3ad",
+                        "on-primary-container": "#008abb",
+                        "surface-bright": "#31394d",
+                        "on-secondary-fixed-variant": "#653e00",
+                        "surface-container-high": "#222a3d",
+                        "tertiary-container": "#390003",
+                        "surface-container-lowest": "#060e20",
+                        "surface-variant": "#2d3449",
+                        "secondary": "#ffb95f",
+                        "error-container": "#93000a",
+                        "outline-variant": "#45464d",
+                        "on-secondary-fixed": "#2a1700",
+                        "background": "#0b1326",
+                        "outline": "#909097",
+                        "on-tertiary-fixed-variant": "#930013",
+                        "on-surface-variant": "#c6c6cd",
+                        "on-error": "#690005",
+                        "secondary-fixed": "#ffddb8",
+                        "primary": "#7bd0ff",
+                        "on-tertiary-fixed": "#410004",
+                        "secondary-container": "#ee9800",
+                        "error": "#ffb4ab",
+                        "surface-container": "#171f33"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body {
+            background-color: #0b1326;
+            color: #dae2fd;
+        }
+    </style>
+</head>
+<body class="font-body selection:bg-primary/30">
+<!-- SideNavBar (The Anchor) -->
+<aside class="h-screen w-64 fixed left-0 top-0 flex flex-col bg-slate-950 border-r border-white/5 z-[60] font-inter text-sm font-medium">
+<div class="py-8 px-6 flex flex-col gap-y-1">
+<div class="flex items-center gap-3 mb-8">
+<div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-on-primary-container flex items-center justify-center shadow-[0_0_20px_rgba(123,208,255,0.3)]">
+<span class="material-symbols-outlined text-surface" style="font-variation-settings: 'FILL' 1;">security</span>
+</div>
+<div>
+<h1 class="text-lg font-black text-white leading-none">SnoozeGuard</h1>
+<p class="text-[10px] uppercase tracking-widest text-primary font-bold mt-1">Status: Vigilant</p>
+</div>
+</div>
+<nav class="flex flex-col gap-y-2">
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-300 hover:bg-slate-900 transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-300 hover:bg-slate-900 transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="videocam">videocam</span>
+<span>Live Monitor</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-sky-400 bg-sky-400/10 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="history" style="font-variation-settings: 'FILL' 1;">history</span>
+<span>Alert Logs</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-300 hover:bg-slate-900 transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span>Safety Analytics</span>
+</a>
+</nav>
+</div>
+<div class="mt-auto p-6 flex flex-col gap-y-4">
+<button class="w-full py-3 bg-surface-container-high hover:bg-surface-bright text-white rounded-xl text-xs font-bold tracking-wide transition-all border border-white/5 active:scale-95">
+                Run System Check
+            </button>
+<nav class="flex flex-col gap-y-1">
+<a class="flex items-center gap-3 px-4 py-2 text-slate-500 hover:text-slate-300 hover:bg-slate-900 transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-slate-500 hover:text-slate-300 hover:bg-slate-900 transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="help_outline">help_outline</span>
+<span>Support</span>
+</a>
+</nav>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="ml-64 min-h-screen flex flex-col">
+<!-- TopNavBar -->
+<header class="sticky top-0 z-50 bg-slate-950/80 backdrop-blur-xl flex justify-between items-center w-full px-8 h-20 shadow-[0_20px_40px_rgba(123,208,255,0.08)]">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-bold tracking-tighter text-sky-400 font-manrope">Sentinel Night</span>
+<nav class="hidden md:flex gap-6 items-center">
+<a class="text-slate-400 hover:text-slate-200 transition-colors font-manrope text-sm font-medium" href="#">Fleet View</a>
+<a class="text-sky-400 font-bold border-b-2 border-sky-400 pb-2 font-manrope text-sm" href="#">Driving History</a>
+<a class="text-slate-400 hover:text-slate-200 transition-colors font-manrope text-sm font-medium" href="#">Driver Ratings</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined p-2 text-slate-400 hover:bg-white/5 transition-all rounded-full" data-icon="notifications_active">notifications_active</button>
+<button class="material-symbols-outlined p-2 text-slate-400 hover:bg-white/5 transition-all rounded-full" data-icon="account_circle">account_circle</button>
+<div class="h-8 w-[1px] bg-white/10 mx-2"></div>
+<button class="bg-error-container text-error px-6 py-2.5 rounded-full font-bold text-sm tracking-tight scale-95 active:scale-90 transition-transform">
+                    Emergency Stop
+                </button>
+</div>
+</header>
+<!-- Content Canvas -->
+<div class="p-10 flex-1 space-y-10">
+<!-- Page Header & Filters -->
+<section class="flex flex-col md:flex-row md:items-end justify-between gap-6">
+<div class="space-y-2">
+<h2 class="text-4xl font-headline font-extrabold tracking-tight text-white">Driving History</h2>
+<p class="text-on-surface-variant font-medium max-w-lg">Comprehensive log of fatigue levels and safety events from your recent nighttime operations.</p>
+</div>
+<div class="flex items-center gap-3 bg-surface-container-low p-2 rounded-2xl border border-white/5 shadow-xl">
+<div class="relative flex-1 min-w-[240px]">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none">search</span>
+<input class="w-full bg-surface-container-lowest border-none rounded-xl pl-12 pr-4 py-3 text-sm focus:ring-2 focus:ring-primary/50 placeholder:text-slate-600 transition-all" placeholder="Search sessions..." type="text"/>
+</div>
+<div class="flex items-center bg-surface-container-lowest rounded-xl px-4 py-3 gap-3 cursor-pointer hover:bg-surface-bright transition-colors">
+<span class="material-symbols-outlined text-primary text-sm">calendar_month</span>
+<span class="text-xs font-bold text-slate-300">Oct 12 — Oct 19, 2023</span>
+<span class="material-symbols-outlined text-slate-500 text-sm">expand_more</span>
+</div>
+<button class="p-3 bg-primary/10 text-primary rounded-xl hover:bg-primary/20 transition-all">
+<span class="material-symbols-outlined">filter_list</span>
+</button>
+</div>
+</section>
+<!-- Stats Overview (Glanceable Data) -->
+<section class="grid grid-cols-1 md:grid-cols-4 gap-6">
+<div class="bg-surface-container p-6 rounded-3xl space-y-4">
+<p class="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface-variant">Total Sessions</p>
+<div class="flex items-baseline gap-2">
+<span class="text-4xl font-headline font-black text-white">124</span>
+<span class="text-secondary text-sm font-bold">+12%</span>
+</div>
+</div>
+<div class="bg-surface-container p-6 rounded-3xl space-y-4">
+<p class="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface-variant">Avg Fatigue</p>
+<div class="flex items-baseline gap-2">
+<span class="text-4xl font-headline font-black text-white">14%</span>
+<span class="text-primary text-sm font-bold">-2%</span>
+</div>
+</div>
+<div class="bg-surface-container-high p-6 rounded-3xl space-y-4 relative overflow-hidden">
+<div class="absolute top-0 right-0 w-24 h-24 bg-tertiary/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
+<p class="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface-variant">Critical Alerts</p>
+<div class="flex items-baseline gap-2">
+<span class="text-4xl font-headline font-black text-tertiary">3</span>
+<span class="text-slate-500 text-sm font-medium">this week</span>
+</div>
+</div>
+<div class="bg-surface-container p-6 rounded-3xl space-y-4">
+<p class="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface-variant">Safety Score</p>
+<div class="flex items-baseline gap-2">
+<span class="text-4xl font-headline font-black text-white">98.2</span>
+<span class="text-primary text-sm font-bold">A+</span>
+</div>
+</div>
+</section>
+<!-- Tabular View -->
+<section class="bg-surface-container-low rounded-[2rem] overflow-hidden shadow-2xl">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-high/50">
+<th class="px-8 py-6 text-[10px] font-black uppercase tracking-widest text-slate-500">Date &amp; Start Time</th>
+<th class="px-8 py-6 text-[10px] font-black uppercase tracking-widest text-slate-500">Duration</th>
+<th class="px-8 py-6 text-[10px] font-black uppercase tracking-widest text-slate-500 text-center">Avg Drowsiness</th>
+<th class="px-8 py-6 text-[10px] font-black uppercase tracking-widest text-slate-500 text-center">Max Alert</th>
+<th class="px-8 py-6 text-[10px] font-black uppercase tracking-widest text-slate-500">Key Events</th>
+<th class="px-8 py-6 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Action</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-white/5">
+<!-- Row 1 -->
+<tr class="hover:bg-white/[0.02] transition-colors group">
+<td class="px-8 py-6">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-xl bg-surface-container-highest flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined">event</span>
+</div>
+<div>
+<p class="text-white font-bold text-sm">Oct 19, 2023</p>
+<p class="text-slate-500 text-xs">22:14 PM</p>
+</div>
+</div>
+</td>
+<td class="px-8 py-6 font-medium text-slate-300">4h 12m</td>
+<td class="px-8 py-6 text-center">
+<div class="inline-flex items-center gap-2 px-3 py-1 bg-primary/10 rounded-full border border-primary/20">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="text-xs font-bold text-primary">8%</span>
+</div>
+</td>
+<td class="px-8 py-6 text-center">
+<span class="text-xs font-bold uppercase tracking-wider text-slate-400 bg-slate-800 px-3 py-1 rounded-full">Level 1 (Idle)</span>
+</td>
+<td class="px-8 py-6">
+<div class="flex gap-3">
+<div class="group/icon relative">
+<span class="material-symbols-outlined text-slate-500 hover:text-secondary transition-colors cursor-help" data-icon="sentiment_neutral">sentiment_neutral</span>
+<span class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-surface-bright text-[10px] rounded opacity-0 group-hover/icon:opacity-100 transition-opacity whitespace-nowrap">2 Yawns</span>
+</div>
+<div class="group/icon relative">
+<span class="material-symbols-outlined text-slate-500 hover:text-tertiary transition-colors cursor-help" data-icon="warning">warning</span>
+<span class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-surface-bright text-[10px] rounded opacity-0 group-hover/icon:opacity-100 transition-opacity whitespace-nowrap">1 Micro-sleep</span>
+</div>
+</div>
+</td>
+<td class="px-8 py-6 text-right">
+<button class="text-xs font-black text-primary uppercase tracking-widest hover:underline">Details</button>
+</td>
+</tr>
+<!-- Row 2 (Critical Alert) -->
+<tr class="bg-tertiary-container/10 hover:bg-tertiary-container/20 transition-colors group">
+<td class="px-8 py-6 border-l-4 border-tertiary">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-xl bg-tertiary-container flex items-center justify-center text-tertiary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">emergency_home</span>
+</div>
+<div>
+<p class="text-white font-bold text-sm">Oct 18, 2023</p>
+<p class="text-slate-500 text-xs">03:45 AM</p>
+</div>
+</div>
+</td>
+<td class="px-8 py-6 font-medium text-slate-300">1h 45m</td>
+<td class="px-8 py-6 text-center">
+<div class="inline-flex items-center gap-2 px-3 py-1 bg-tertiary/10 rounded-full border border-tertiary/20">
+<span class="w-2 h-2 rounded-full bg-tertiary animate-pulse"></span>
+<span class="text-xs font-bold text-tertiary">42%</span>
+</div>
+</td>
+<td class="px-8 py-6 text-center">
+<span class="text-xs font-bold uppercase tracking-wider text-white bg-error-container px-3 py-1 rounded-full">Level 4 (CRITICAL)</span>
+</td>
+<td class="px-8 py-6">
+<div class="flex gap-3">
+<span class="material-symbols-outlined text-tertiary" data-icon="notifications_active">notifications_active</span>
+<span class="material-symbols-outlined text-tertiary" data-icon="car_crash">car_crash</span>
+<span class="material-symbols-outlined text-tertiary" data-icon="do_not_disturb_on">do_not_disturb_on</span>
+</div>
+</td>
+<td class="px-8 py-6 text-right">
+<button class="text-xs font-black text-tertiary uppercase tracking-widest hover:underline">Review Incident</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-white/[0.02] transition-colors group">
+<td class="px-8 py-6">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-xl bg-surface-container-highest flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined">event</span>
+</div>
+<div>
+<p class="text-white font-bold text-sm">Oct 17, 2023</p>
+<p class="text-slate-500 text-xs">21:00 PM</p>
+</div>
+</div>
+</td>
+<td class="px-8 py-6 font-medium text-slate-300">8h 05m</td>
+<td class="px-8 py-6 text-center">
+<div class="inline-flex items-center gap-2 px-3 py-1 bg-primary/10 rounded-full border border-primary/20">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="text-xs font-bold text-primary">5%</span>
+</div>
+</td>
+<td class="px-8 py-6 text-center">
+<span class="text-xs font-bold uppercase tracking-wider text-slate-400 bg-slate-800 px-3 py-1 rounded-full">Level 0 (Optimal)</span>
+</td>
+<td class="px-8 py-6">
+<div class="flex gap-3 text-slate-600">
+<span>No notable events</span>
+</div>
+</td>
+<td class="px-8 py-6 text-right">
+<button class="text-xs font-black text-primary uppercase tracking-widest hover:underline">Details</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-white/[0.02] transition-colors group">
+<td class="px-8 py-6">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-xl bg-surface-container-highest flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined">event</span>
+</div>
+<div>
+<p class="text-white font-bold text-sm">Oct 16, 2023</p>
+<p class="text-slate-500 text-xs">23:55 PM</p>
+</div>
+</div>
+</td>
+<td class="px-8 py-6 font-medium text-slate-300">6h 30m</td>
+<td class="px-8 py-6 text-center">
+<div class="inline-flex items-center gap-2 px-3 py-1 bg-secondary/10 rounded-full border border-secondary/20">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+<span class="text-xs font-bold text-secondary">22%</span>
+</div>
+</td>
+<td class="px-8 py-6 text-center">
+<span class="text-xs font-bold uppercase tracking-wider text-secondary bg-on-secondary-container/20 px-3 py-1 rounded-full">Level 2 (Caution)</span>
+</td>
+<td class="px-8 py-6">
+<div class="flex gap-3">
+<span class="material-symbols-outlined text-secondary" data-icon="bedtime">bedtime</span>
+<span class="material-symbols-outlined text-slate-500" data-icon="airline_seat_recline_extra">airline_seat_recline_extra</span>
+</div>
+</td>
+<td class="px-8 py-6 text-right">
+<button class="text-xs font-black text-primary uppercase tracking-widest hover:underline">Details</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Table Footer/Pagination -->
+<div class="px-8 py-6 bg-surface-container-highest/30 flex justify-between items-center border-t border-white/5">
+<p class="text-xs text-slate-500">Showing <span class="text-white font-bold">1-10</span> of <span class="text-white font-bold">124</span> results</p>
+<div class="flex items-center gap-4">
+<button class="p-2 text-slate-500 hover:text-white disabled:opacity-30" disabled="">
+<span class="material-symbols-outlined">chevron_left</span>
+</button>
+<div class="flex gap-1">
+<button class="w-8 h-8 rounded-lg bg-primary text-surface font-bold text-xs">1</button>
+<button class="w-8 h-8 rounded-lg hover:bg-white/10 text-slate-300 font-bold text-xs transition-colors">2</button>
+<button class="w-8 h-8 rounded-lg hover:bg-white/10 text-slate-300 font-bold text-xs transition-colors">3</button>
+<span class="px-2 text-slate-600">...</span>
+<button class="w-8 h-8 rounded-lg hover:bg-white/10 text-slate-300 font-bold text-xs transition-colors">13</button>
+</div>
+<button class="p-2 text-slate-500 hover:text-white transition-colors">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Bottom Insight Card (Asymmetric Layout) -->
+<section class="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-10">
+<div class="lg:col-span-2 bg-gradient-to-br from-primary/10 to-transparent p-8 rounded-[2rem] border border-primary/10 flex items-center justify-between relative overflow-hidden group">
+<div class="relative z-10 space-y-4 max-w-md">
+<h3 class="text-2xl font-headline font-bold text-white">Your Weekly Safety Pulse</h3>
+<p class="text-on-surface-variant text-sm leading-relaxed">Fatigue levels are down by 14% compared to last week. Most incidents occur between 3 AM and 5 AM. Consider scheduling a mandatory rest break during these hours.</p>
+<button class="flex items-center gap-2 text-primary font-bold text-sm group-hover:gap-4 transition-all">
+                            View Full Analysis
+                            <span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+</div>
+<div class="hidden md:block absolute right-0 bottom-0 w-64 h-64 opacity-20 pointer-events-none group-hover:scale-110 transition-transform duration-700">
+<div class="w-full h-full bg-primary/40 rounded-full blur-[100px]"></div>
+</div>
+</div>
+<div class="bg-surface-container p-8 rounded-[2rem] flex flex-col justify-center items-center text-center space-y-4 border border-white/5">
+<div class="w-16 h-16 rounded-full bg-secondary/10 flex items-center justify-center text-secondary mb-2">
+<span class="material-symbols-outlined text-3xl" style="font-variation-settings: 'FILL' 1;">emoji_events</span>
+</div>
+<h4 class="text-xl font-headline font-bold text-white">Safety Milestones</h4>
+<p class="text-on-surface-variant text-xs">You've reached 500 hours of vigilant nighttime driving this month.</p>
+<div class="w-full bg-surface-container-highest h-2 rounded-full overflow-hidden mt-4">
+<div class="bg-secondary h-full rounded-full" style="width: 85%"></div>
+</div>
+</div>
+</section>
+</div>
+</main>
+</body></html>

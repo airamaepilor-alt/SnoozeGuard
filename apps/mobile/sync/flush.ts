@@ -79,6 +79,81 @@ export async function flushPendingTelemetry(supabase: SupabaseClient, userId: st
   return pushed;
 }
 
+/**
+ * Pulls sessions (and their telemetry) from Supabase that are missing from local SQLite.
+ * Called once on app startup after login. Covers the last 90 days.
+ * Uses the remote UUID as both the local `id` and `remote_id` since the original
+ * local UUID was lost when app data was cleared.
+ */
+export async function rehydrateSessions(supabase: SupabaseClient, userId: string): Promise<void> {
+  if (!(await isOnline())) return;
+  const db = getDatabase();
+
+  // Collect remote_ids we already have locally so we don't re-insert them
+  const existing = new Set(
+    db
+      .getAllSync<{ remote_id: string }>(
+        "SELECT remote_id FROM driving_sessions_local WHERE user_id = ? AND remote_id IS NOT NULL",
+        userId,
+      )
+      .map((r) => r.remote_id),
+  );
+
+  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: remoteSessions } = await supabase
+    .from("driving_sessions")
+    .select("id, started_at, ended_at, device_type")
+    .eq("user_id", userId)
+    .gte("started_at", since)
+    .order("started_at", { ascending: false })
+    .limit(40);
+
+  if (!remoteSessions?.length) return;
+
+  for (const rs of remoteSessions as { id: string; started_at: string; ended_at: string | null; device_type: string }[]) {
+    if (existing.has(rs.id)) continue;
+
+    // Insert the session — use remote UUID as local id too
+    db.runSync(
+      `INSERT OR IGNORE INTO driving_sessions_local
+         (id, user_id, remote_id, started_at, ended_at, device_type, ended_synced)
+       VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      rs.id,
+      userId,
+      rs.id,
+      rs.started_at,
+      rs.ended_at ?? null,
+      rs.device_type ?? "mobile",
+    );
+
+    // Fetch and insert telemetry for this session
+    const { data: trows } = await supabase
+      .from("session_telemetry")
+      .select("recorded_at, drowsiness_level, yawn_count_delta, head_event_count_delta, sudden_brake, source")
+      .eq("session_id", rs.id)
+      .order("recorded_at", { ascending: true });
+
+    if (trows?.length) {
+      for (const t of trows as { recorded_at: string; drowsiness_level: number; yawn_count_delta: number; head_event_count_delta: number; sudden_brake: boolean; source: string }[]) {
+        db.runSync(
+          `INSERT INTO session_telemetry_local
+             (local_session_id, recorded_at, drowsiness_level, yawn_count_delta,
+              head_event_count_delta, sudden_brake, source, remote_synced)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+          rs.id,
+          t.recorded_at,
+          t.drowsiness_level,
+          t.yawn_count_delta,
+          t.head_event_count_delta,
+          t.sudden_brake ? 1 : 0,
+          t.source ?? "mobile",
+        );
+      }
+    }
+  }
+}
+
 export async function flushEndedSessions(supabase: SupabaseClient, userId: string): Promise<void> {
   if (!(await isOnline())) return;
   const db = getDatabase();

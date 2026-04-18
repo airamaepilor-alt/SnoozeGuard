@@ -1,27 +1,36 @@
-import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import NetInfo from "@react-native-community/netinfo";
 import { drivingSessionActive, endSessionFn } from "./sessionState";
 import type { Session } from "@supabase/supabase-js";
-import { NavigationContainer, DarkTheme, useNavigation } from "@react-navigation/native";
+import { NavigationContainer, DarkTheme, createNavigationContainerRef } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { MaterialIcons } from "@expo/vector-icons";
+import * as Updates from "expo-updates";
 import * as WebBrowser from "expo-web-browser";
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { SessionProvider } from "./context/SessionContext";
+import { ThemeProvider, useTheme, useThemeToggle } from "./context/ThemeContext";
 import { supabase } from "./lib/supabase";
 import type { MainTabParamList } from "./navigation/types";
+import type { Theme } from "./theme";
 import { HomeScreen } from "./screens/HomeScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { DriveScreen } from "./screens/DriveScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
-import { ProfileScreen } from "./screens/ProfileScreen";
+import { EmergencyContactScreen } from "./screens/EmergencyContactScreen";
+import { AccountScreen } from "./screens/AccountScreen";
+import { AboutScreen } from "./screens/AboutScreen";
+import { TermsScreen } from "./screens/TermsScreen";
 import { AdminScreen } from "./screens/AdminScreen";
+import { AnalyticsScreen } from "./screens/AnalyticsScreen";
 import { EmergencyAlertMapScreen } from "./screens/EmergencyAlertMapScreen";
 import { EmergencyContactSetupModal } from "./screens/EmergencyContactSetupModal";
 import { getEmergencyContact, registerPushToken } from "./lib/emergencyNotify";
+import { getDatabase } from "./db/database";
+import { flushEndedSessions, flushPendingTelemetry, rehydrateSessions } from "./sync/flush";
 import { theme } from "./theme";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -37,8 +46,10 @@ Notifications.setNotificationHandler({
 });
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
+const navigationRef = createNavigationContainerRef<MainTabParamList>();
+const openDrawerRef = { current: null as (() => void) | null };
 
-const navTheme = {
+const NAV_DARK_THEME = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
@@ -51,99 +62,306 @@ const navTheme = {
 };
 
 const TAB_BAR_CONTENT_HEIGHT = 52;
+const DRAWER_WIDTH = 300;
 
-// ─── Burger menu ─────────────────────────────────────────────────────────────
+// ─── Themed confirmation modal (reusable) ────────────────────────────────────
 
-function HeaderMenu({ superAdmin, onSignOut }: { superAdmin: boolean; onSignOut: () => void }) {
-  const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
-  const [open, setOpen] = useState(false);
+type ConfirmModalProps = {
+  visible: boolean;
+  icon?: string;
+  title: string;
+  body: string;
+  confirmLabel: string;
+  confirmDanger?: boolean;
+  cancelLabel?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+};
 
+function ConfirmModal({
+  visible, icon, title, body,
+  confirmLabel, confirmDanger = false,
+  cancelLabel = "Cancel",
+  onConfirm, onCancel,
+}: ConfirmModalProps) {
+  const t = useTheme();
+  const cs = useMemo(() => makeConfirmStyles(t), [t]);
   return (
-    <>
-      <Pressable
-        onPress={() => setOpen(true)}
-        style={menuStyles.trigger}
-        hitSlop={8}
-      >
-        <MaterialIcons name="menu" size={24} color={theme.onSurface} />
-      </Pressable>
-
-      <Modal
-        visible={open}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setOpen(false)}
-      >
-        <Pressable style={menuStyles.overlay} onPress={() => setOpen(false)}>
-          <View style={menuStyles.sheet}>
-            <Text style={menuStyles.sheetTitle}>Menu</Text>
-
-            <Pressable
-              style={menuStyles.item}
-              onPress={() => { setOpen(false); navigation.navigate("Profile"); }}
-            >
-              <MaterialIcons name="person" size={22} color={theme.onSurface} />
-              <Text style={menuStyles.itemText}>Profile & Emergency Contact</Text>
-            </Pressable>
-
-            {superAdmin && (
-              <Pressable
-                style={menuStyles.item}
-                onPress={() => { setOpen(false); navigation.navigate("Admin"); }}
-              >
-                <MaterialIcons name="admin-panel-settings" size={22} color={theme.onSurface} />
-                <Text style={menuStyles.itemText}>Admin Config</Text>
-              </Pressable>
-            )}
-
-            <View style={menuStyles.divider} />
-
-            <Pressable
-              style={menuStyles.item}
-              onPress={() => { setOpen(false); onSignOut(); }}
-            >
-              <MaterialIcons name="logout" size={22} color={theme.tertiary} />
-              <Text style={[menuStyles.itemText, { color: theme.tertiary }]}>Sign out</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Modal>
-    </>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={cs.overlay}>
+        <View style={cs.sheet}>
+          {icon ? <Text style={cs.icon}>{icon}</Text> : null}
+          <Text style={cs.title}>{title}</Text>
+          <Text style={cs.body}>{body}</Text>
+          <Pressable style={[cs.btn, confirmDanger ? cs.dangerBtn : cs.primaryBtn]} onPress={onConfirm}>
+            <Text style={[cs.btnText, confirmDanger ? cs.dangerText : cs.primaryText]}>{confirmLabel}</Text>
+          </Pressable>
+          <Pressable style={cs.cancelBtn} onPress={onCancel}>
+            <Text style={cs.cancelText}>{cancelLabel}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
-const menuStyles = StyleSheet.create({
-  trigger: { paddingHorizontal: 14, paddingVertical: 8 },
-  overlay: { flex: 1, backgroundColor: "#00000066", justifyContent: "flex-start", alignItems: "flex-end" },
+const makeConfirmStyles = (t: Theme) => StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "#000000aa", justifyContent: "center", alignItems: "center", padding: 24 },
   sheet: {
-    marginTop: 56,
-    marginRight: 12,
-    backgroundColor: theme.surfaceContainerLow,
-    borderRadius: 18,
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    minWidth: 230,
-    borderWidth: 1,
-    borderColor: `${theme.outlineVariant}44`,
-    shadowColor: "#000",
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 12,
+    backgroundColor: t.surfaceContainerLow, borderRadius: 24, padding: 28,
+    width: "100%", maxWidth: 380, alignItems: "center",
+    borderWidth: 1, borderColor: `${t.outlineVariant}44`,
+    gap: 10, shadowColor: "#000", shadowOpacity: 0.5, shadowRadius: 20, elevation: 16,
   },
-  sheetTitle: { color: theme.onSurfaceVariant, fontSize: 11, fontWeight: "700", letterSpacing: 1, paddingHorizontal: 16, paddingVertical: 6, textTransform: "uppercase" },
-  item: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 13, paddingHorizontal: 16 },
-  itemText: { color: theme.onSurface, fontSize: 15, fontWeight: "600" },
-  divider: { height: 1, backgroundColor: `${theme.outlineVariant}44`, marginVertical: 4, marginHorizontal: 10 },
+  icon: { fontSize: 42 },
+  title: { fontSize: 20, fontWeight: "800", color: t.onSurface, textAlign: "center" },
+  body: { fontSize: 14, color: t.onSurfaceVariant, textAlign: "center", lineHeight: 21, marginBottom: 4 },
+  btn: { width: "100%", paddingVertical: 15, borderRadius: 16, alignItems: "center", borderWidth: 1 },
+  primaryBtn: { backgroundColor: t.primary, borderColor: t.primary },
+  dangerBtn: { backgroundColor: `${t.tertiary}22`, borderColor: `${t.tertiary}88` },
+  btnText: { fontWeight: "800", fontSize: 15 },
+  primaryText: { color: t.onPrimary },
+  dangerText: { color: t.tertiary },
+  cancelBtn: { paddingVertical: 10 },
+  cancelText: { color: t.onSurfaceVariant, fontSize: 14, fontWeight: "600" },
+});
+
+// ─── Left navigation drawer ───────────────────────────────────────────────────
+
+type AppDrawerProps = {
+  visible: boolean;
+  onClose: () => void;
+  session: Session;
+  superAdmin: boolean;
+  onSignOut: () => void;
+  onGuard: (navFn: () => void) => void;
+};
+
+function AppDrawer({ visible, onClose, session, superAdmin, onSignOut, onGuard }: AppDrawerProps) {
+  const t = useTheme();
+  const styles = useMemo(() => makeDrawerStyles(t), [t]);
+  const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
+  const [myPhone, setMyPhone] = useState("");
+  const [online, setOnline] = useState<boolean | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+
+  // Real-time network status
+  useEffect(() => {
+    const unsub = NetInfo.addEventListener((state) => {
+      setOnline(Boolean(state.isConnected && state.isInternetReachable !== false));
+    });
+    return () => unsub();
+  }, []);
+
+  const loadDrawerData = useCallback(async () => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("phone")
+      .eq("id", session.user.id)
+      .maybeSingle();
+    setMyPhone((data as { phone?: string } | null)?.phone ?? "");
+  }, [session.user.id]);
+
+  useEffect(() => {
+    if (visible) {
+      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 220 }).start();
+      void loadDrawerData();
+    } else {
+      Animated.spring(slideAnim, { toValue: -DRAWER_WIDTH, useNativeDriver: true, damping: 20, stiffness: 220 }).start();
+    }
+  }, [visible, slideAnim, loadDrawerData]);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await flushEndedSessions(supabase, session.user.id);
+      await flushPendingTelemetry(supabase, session.user.id);
+    } catch { /* silent */ }
+    finally { setSyncing(false); }
+  };
+
+  const guardedNav = (screenName: keyof MainTabParamList) => {
+    onClose();
+    const nav = () => { if (navigationRef.isReady()) navigationRef.navigate(screenName); };
+    if (drivingSessionActive.current) onGuard(nav);
+    else nav();
+  };
+
+  const displayName = session.user.user_metadata?.full_name ?? session.user.email ?? "User";
+  const initial = displayName.charAt(0).toUpperCase();
+
+  type NavItem = { name: keyof MainTabParamList; icon: string; label: string };
+  const navItems: NavItem[] = [
+    { name: "EmergencyContact", icon: "emergency", label: "Emergency Contact" },
+    { name: "Account", icon: "manage-accounts", label: "Account" },
+    ...(superAdmin ? [{ name: "Admin" as keyof MainTabParamList, icon: "admin-panel-settings", label: "Admin Config" }] : []),
+    { name: "About", icon: "info-outline", label: "About SnoozeGuard" },
+    { name: "Terms", icon: "gavel", label: "Terms & Privacy" },
+  ];
+
+  return (
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <View style={styles.root}>
+        <Pressable style={styles.scrim} onPress={onClose} />
+        <Animated.View style={[styles.panel, { transform: [{ translateX: slideAnim }] }]}>
+          {/* User info */}
+          <View style={styles.userSection}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{initial}</Text>
+            </View>
+            <Text style={styles.userName}>{displayName}</Text>
+            <Text style={styles.userEmail}>{session.user.email}</Text>
+            {myPhone ? <Text style={styles.userPhone}>{myPhone}</Text> : null}
+          </View>
+
+          {/* Online / offline + sync */}
+          <Pressable
+            style={[styles.syncBtn, online ? styles.syncBtnOk : styles.syncBtnWarn]}
+            onPress={() => online ? void handleSync() : undefined}
+            disabled={syncing || online === null}
+          >
+            {syncing ? (
+              <ActivityIndicator size="small" color={t.primary} style={{ marginRight: 8 }} />
+            ) : (
+              <Text style={online ? styles.syncIconOk : styles.syncIcon}>
+                {online === null ? "…" : online ? "●" : "○"}
+              </Text>
+            )}
+            <Text style={online ? styles.syncLabelOk : styles.syncLabelWarn}>
+              {syncing ? "Syncing…" : online === null ? "Checking…" : online ? "Online — tap to sync" : "Offline"}
+            </Text>
+          </Pressable>
+
+          <View style={styles.divider} />
+
+          {/* Navigation links */}
+          <ScrollView style={styles.navList} showsVerticalScrollIndicator={false}>
+            {navItems.map((item) => (
+              <Pressable key={item.name} style={styles.navItem} onPress={() => guardedNav(item.name)}>
+                <MaterialIcons name={item.icon as React.ComponentProps<typeof MaterialIcons>["name"]} size={22} color={t.onSurface} />
+                <Text style={styles.navItemText}>{item.label}</Text>
+              </Pressable>
+            ))}
+            <View style={styles.navSectionDivider} />
+            <Pressable style={styles.navItem} onPress={() => onClose()}>
+              <MaterialIcons name="open-in-browser" size={22} color={t.onSurfaceVariant} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.navItemText, { color: t.onSurfaceVariant }]}>Web Dashboard</Text>
+                <Text style={styles.navItemSub}>Coming soon</Text>
+              </View>
+            </Pressable>
+          </ScrollView>
+
+          <View style={styles.divider} />
+
+          {/* Sign out */}
+          <Pressable style={styles.signOutItem} onPress={() => setConfirmSignOut(true)}>
+            <MaterialIcons name="logout" size={22} color={t.tertiary} />
+            <Text style={styles.signOutText}>Sign out</Text>
+          </Pressable>
+
+          {confirmSignOut && (
+            <View style={styles.confirmSheet}>
+              <Text style={styles.confirmTitle}>Sign out?</Text>
+              <Text style={styles.confirmBody}>
+                {drivingSessionActive.current
+                  ? "Your active session will be ended and saved."
+                  : "You'll need to sign in again to access SnoozeGuard."}
+              </Text>
+              <Pressable
+                style={styles.confirmDangerBtn}
+                onPress={() => {
+                  setConfirmSignOut(false);
+                  onClose();
+                  if (drivingSessionActive.current) endSessionFn.current?.();
+                  void supabase.auth.signOut().then(onSignOut);
+                }}
+              >
+                <Text style={styles.confirmDangerText}>Sign out</Text>
+              </Pressable>
+              <Pressable style={styles.confirmCancelBtn} onPress={() => setConfirmSignOut(false)}>
+                <Text style={styles.confirmCancelText}>Cancel</Text>
+              </Pressable>
+            </View>
+          )}
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+const makeDrawerStyles = (t: Theme) => StyleSheet.create({
+  root: { flex: 1, flexDirection: "row" },
+  scrim: { flex: 1, backgroundColor: "#000000aa" },
+  panel: {
+    position: "absolute", left: 0, top: 0, bottom: 0, width: DRAWER_WIDTH,
+    backgroundColor: t.surfaceContainerLow,
+    borderRightWidth: 1, borderRightColor: `${t.outlineVariant}44`,
+    shadowColor: "#000", shadowOpacity: 0.5, shadowRadius: 20, elevation: 16,
+  },
+  userSection: {
+    paddingTop: 56, paddingHorizontal: 20, paddingBottom: 20,
+    backgroundColor: `${t.primary}11`,
+    borderBottomWidth: 1, borderBottomColor: `${t.outlineVariant}33`,
+  },
+  avatar: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: `${t.primary}33`,
+    alignItems: "center", justifyContent: "center", marginBottom: 10,
+  },
+  avatarText: { color: t.primary, fontSize: 22, fontWeight: "800" },
+  userName: { color: t.onSurface, fontWeight: "700", fontSize: 16 },
+  userEmail: { color: t.onSurfaceVariant, fontSize: 12, marginTop: 2 },
+  userPhone: { color: t.onSurfaceVariant, fontSize: 12, marginTop: 2 },
+  syncBtn: { flexDirection: "row", alignItems: "center", margin: 12, padding: 12, borderRadius: 14, borderWidth: 1, gap: 8 },
+  syncBtnOk: { backgroundColor: "#4ade8011", borderColor: "#4ade8044" },
+  syncBtnWarn: { backgroundColor: `${t.outlineVariant}22`, borderColor: `${t.outlineVariant}66` },
+  syncIcon: { fontSize: 14, color: t.onSurfaceVariant },
+  syncIconOk: { fontSize: 14, color: "#4ade80" },
+  syncLabelOk: { color: "#4ade80", fontSize: 12, fontWeight: "600", flex: 1 },
+  syncLabelWarn: { color: t.onSurfaceVariant, fontSize: 12, fontWeight: "600", flex: 1 },
+  divider: { height: 1, backgroundColor: `${t.outlineVariant}44`, marginHorizontal: 12, marginVertical: 4 },
+  navList: { flex: 1, paddingVertical: 4 },
+  navItem: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 14, paddingHorizontal: 20 },
+  navItemText: { color: t.onSurface, fontSize: 15, fontWeight: "600" },
+  navItemSub: { color: t.onSurfaceVariant, fontSize: 10, marginTop: 1 },
+  navSectionDivider: { height: 1, backgroundColor: `${t.outlineVariant}44`, marginHorizontal: 20, marginVertical: 6 },
+  signOutItem: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 16, paddingHorizontal: 20, marginBottom: 8 },
+  signOutText: { color: t.tertiary, fontSize: 15, fontWeight: "700" },
+  confirmSheet: { margin: 12, padding: 16, borderRadius: 16, backgroundColor: `${t.tertiary}11`, borderWidth: 1, borderColor: `${t.tertiary}44`, gap: 10 },
+  confirmTitle: { color: t.onSurface, fontWeight: "800", fontSize: 15, textAlign: "center" },
+  confirmBody: { color: t.onSurfaceVariant, fontSize: 12, textAlign: "center", lineHeight: 18 },
+  confirmDangerBtn: { backgroundColor: `${t.tertiary}22`, borderWidth: 1, borderColor: `${t.tertiary}66`, borderRadius: 12, paddingVertical: 12, alignItems: "center" },
+  confirmDangerText: { color: t.tertiary, fontWeight: "700", fontSize: 14 },
+  confirmCancelBtn: { alignItems: "center", paddingVertical: 8 },
+  confirmCancelText: { color: t.onSurfaceVariant, fontSize: 13 },
 });
 
 // ─── Main app ─────────────────────────────────────────────────────────────────
 
 function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+  const appTheme = useTheme();
+  const { isDark, toggleTheme } = useThemeToggle();
   const [superAdmin, setSuperAdmin] = useState(false);
   const [hasEmergencyContact, setHasEmergencyContact] = useState<boolean | null>(null);
   const [showEcSetup, setShowEcSetup] = useState(false);
-  const [alertBadge, setAlertBadge] = useState<number | undefined>(undefined);
+  const [alertBadge, setAlertBadge] = useState<string | number | undefined>(undefined);
+  const [guardVisible, setGuardVisible] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const guardActionRef = useRef<(() => void) | null>(null);
   const insets = useSafeAreaInsets();
+
+  // Wire drawer opener so the headerLeft button can trigger it from outside
+  useEffect(() => {
+    openDrawerRef.current = () => setDrawerOpen(true);
+    return () => { openDrawerRef.current = null; };
+  }, []);
+
+  const showSessionGuard = useCallback((navFn: () => void) => {
+    guardActionRef.current = navFn;
+    setGuardVisible(true);
+  }, []);
 
   const tabBarStyle = useMemo(() => {
     const bottom = Math.max(insets.bottom, 8);
@@ -193,7 +411,7 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
     }
 
     const totalBadge = activeCount + (pendingReqs.count ?? 0);
-    setAlertBadge(totalBadge > 0 ? totalBadge : undefined);
+    setAlertBadge(totalBadge > 0 ? "!" : undefined);
   };
 
   useEffect(() => {
@@ -210,7 +428,20 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
       if (!cancelled) {
         setHasEmergencyContact(Boolean(ec));
         if (!ec) setShowEcSetup(true);
+        if (ec) {
+          try {
+            getDatabase().runSync(
+              `INSERT OR REPLACE INTO emergency_contacts_local
+               (user_id, contact_name, contact_phone, contact_email, my_phone, pending_sync, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              session.user.id, ec.contact_name, ec.contact_phone ?? "", ec.contact_email ?? "", "", 0, new Date().toISOString(),
+            );
+          } catch { /* DB not ready */ }
+        }
       }
+
+      // Rehydrate sessions from Supabase into local SQLite (handles clear-data scenarios)
+      void rehydrateSessions(supabase, session.user.id);
 
       try {
         const { status } = await Notifications.requestPermissionsAsync();
@@ -232,57 +463,141 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.user.id, session.user.email]);
 
+  // Auto-sync EC from Supabase when connectivity is restored
+  useEffect(() => {
+    let wasOnline: boolean | null = null;
+    const unsub = NetInfo.addEventListener((state) => {
+      const isNowOnline = Boolean(state.isConnected && state.isInternetReachable !== false);
+      if (isNowOnline && wasOnline === false) {
+        void (async () => {
+          try {
+            const ec = await getEmergencyContact(supabase, session.user.id);
+            if (ec) {
+              getDatabase().runSync(
+                `INSERT OR REPLACE INTO emergency_contacts_local
+                 (user_id, contact_name, contact_phone, contact_email, my_phone, pending_sync, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                session.user.id, ec.contact_name, ec.contact_phone ?? "", ec.contact_email ?? "", "", 0, new Date().toISOString(),
+              );
+            }
+          } catch { /* silent */ }
+        })();
+      }
+      wasOnline = isNowOnline;
+    });
+    return () => unsub();
+  }, [session.user.id]);
+
+  const navTheme = useMemo(() => ({
+    ...NAV_DARK_THEME,
+    colors: {
+      ...NAV_DARK_THEME.colors,
+      background: appTheme.background,
+      card: appTheme.surfaceContainerLow,
+      primary: appTheme.primary,
+      text: appTheme.onSurface,
+      border: appTheme.outlineVariant,
+    },
+  }), [appTheme]);
+
   const sharedScreenOptions = useMemo(() => ({
     headerStyle: {
-      backgroundColor: theme.surfaceContainerLow,
+      backgroundColor: appTheme.surfaceContainerLow,
       shadowColor: "#000",
       shadowOpacity: 0.35,
       shadowRadius: 12,
       elevation: 8,
     },
-    headerTintColor: theme.onSurface,
+    headerTintColor: appTheme.onSurface,
     headerTitleStyle: { fontWeight: "800" as const, fontSize: 17 },
-    tabBarStyle,
+    tabBarStyle: {
+      ...tabBarStyle,
+      backgroundColor: appTheme.surfaceContainerLow,
+      borderTopColor: appTheme.navBorder,
+    },
     tabBarLabelStyle: { fontSize: 11, fontWeight: "600" as const },
-    tabBarActiveTintColor: theme.primary,
-    tabBarInactiveTintColor: theme.onSurfaceVariant,
-    headerRight: () => <HeaderMenu superAdmin={superAdmin} onSignOut={onSignOut} />,
-  }), [tabBarStyle, superAdmin, onSignOut]);
+    tabBarActiveTintColor: appTheme.primary,
+    tabBarInactiveTintColor: appTheme.onSurfaceVariant,
+    headerLeft: () => (
+      <Pressable
+        onPress={() => openDrawerRef.current?.()}
+        style={{ paddingHorizontal: 14, paddingVertical: 8 }}
+        hitSlop={8}
+      >
+        <MaterialIcons name="menu" size={24} color={appTheme.onSurface} />
+      </Pressable>
+    ),
+    headerRight: () => (
+      <Pressable
+        onPress={toggleTheme}
+        style={{ paddingHorizontal: 14, paddingVertical: 8 }}
+        hitSlop={8}
+      >
+        <MaterialIcons
+          name={isDark ? "light-mode" : "dark-mode"}
+          size={22}
+          color={appTheme.onSurface}
+        />
+      </Pressable>
+    ),
+  }), [tabBarStyle, appTheme, isDark, toggleTheme]);
+
+  void hasEmergencyContact; // suppress lint — read for side-effect (EC setup modal)
 
   return (
     <SessionProvider session={session}>
+      {/* ── Themed session guard modal ── */}
+      <ConfirmModal
+        visible={guardVisible}
+        icon="🚗"
+        title="Session Active"
+        body="You have an active driving session. Leaving will end it."
+        confirmLabel="End Session & Leave"
+        confirmDanger
+        cancelLabel="Keep Driving"
+        onConfirm={() => {
+          endSessionFn.current?.();
+          setGuardVisible(false);
+          guardActionRef.current?.();
+          guardActionRef.current = null;
+        }}
+        onCancel={() => {
+          setGuardVisible(false);
+          guardActionRef.current = null;
+        }}
+      />
+
+      {/* ── Left navigation drawer ── */}
+      <AppDrawer
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        session={session}
+        superAdmin={superAdmin}
+        onSignOut={onSignOut}
+        onGuard={showSessionGuard}
+      />
+
       <EmergencyContactSetupModal
         visible={showEcSetup}
         userId={session.user.id}
         onDone={() => { setShowEcSetup(false); setHasEmergencyContact(true); }}
         onSkip={() => setShowEcSetup(false)}
       />
-      <NavigationContainer theme={navTheme}>
+
+      <NavigationContainer ref={navigationRef} theme={navTheme as typeof NAV_DARK_THEME}>
         <Tab.Navigator
           screenOptions={sharedScreenOptions}
           screenListeners={({ navigation, route }) => ({
             tabPress: (e) => {
-              // If a session is active and the user taps a tab other than Drive,
-              // intercept and confirm before allowing navigation.
               if (route.name !== "Drive" && drivingSessionActive.current) {
                 e.preventDefault();
-                Alert.alert(
-                  "Session Active",
-                  "You have an active driving session. Do you want to leave?",
-                  [
-                    { text: "Keep Driving", style: "cancel" },
-                    { text: "End Session & Leave", style: "destructive", onPress: () => {
-                      endSessionFn.current?.();
-                      navigation.navigate(route.name as never);
-                    }},
-                  ],
-                );
+                showSessionGuard(() => navigation.navigate(route.name as never));
               }
             },
           })}
         >
 
-          {/* ── Visible tabs ── */}
+          {/* ── Visible tabs — order: Home · Analytics · Drive (center) · Alerts · History ── */}
           <Tab.Screen
             name="Home"
             options={{
@@ -294,20 +609,20 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
           </Tab.Screen>
 
           <Tab.Screen
+            name="Analytics"
+            component={AnalyticsScreen}
+            options={{
+              title: "Analytics",
+              tabBarIcon: ({ color, size }) => <MaterialIcons name="bar-chart" size={size} color={color} />,
+            }}
+          />
+
+          <Tab.Screen
             name="Drive"
             component={DriveScreen}
             options={{
               title: "Drive",
               tabBarIcon: ({ color, size }) => <MaterialIcons name="directions-car" size={size} color={color} />,
-            }}
-          />
-
-          <Tab.Screen
-            name="History"
-            component={HistoryScreen}
-            options={{
-              title: "History",
-              tabBarIcon: ({ color, size }) => <MaterialIcons name="history" size={size} color={color} />,
             }}
           />
 
@@ -323,25 +638,47 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
             {() => <EmergencyAlertMapScreen onActionDone={() => void refreshAlertBadge()} />}
           </Tab.Screen>
 
-          {/* ── Hidden tabs — accessible via burger menu, no tab bar slot ── */}
           <Tab.Screen
-            name="Profile"
+            name="History"
+            component={HistoryScreen}
             options={{
-              title: "Profile",
-              tabBarItemStyle: { display: "none" },
+              title: "History",
+              tabBarIcon: ({ color, size }) => <MaterialIcons name="history" size={size} color={color} />,
             }}
+          />
+
+          {/* ── Hidden tabs — drawer-only, no tab bar slot ── */}
+          <Tab.Screen
+            name="EmergencyContact"
+            options={{ title: "Emergency Contact", tabBarItemStyle: { display: "none" } }}
           >
-            {() => <ProfileScreen session={session} onSignOut={onSignOut} />}
+            {() => <EmergencyContactScreen />}
           </Tab.Screen>
+
+          <Tab.Screen
+            name="Account"
+            options={{ title: "Account", tabBarItemStyle: { display: "none" } }}
+          >
+            {() => <AccountScreen session={session} onSignOut={onSignOut} />}
+          </Tab.Screen>
+
+          <Tab.Screen
+            name="About"
+            component={AboutScreen}
+            options={{ title: "About", tabBarItemStyle: { display: "none" } }}
+          />
+
+          <Tab.Screen
+            name="Terms"
+            component={TermsScreen}
+            options={{ title: "Terms & Privacy", tabBarItemStyle: { display: "none" } }}
+          />
 
           {superAdmin && (
             <Tab.Screen
               name="Admin"
               component={AdminScreen}
-              options={{
-                title: "Admin Config",
-                tabBarItemStyle: { display: "none" },
-              }}
+              options={{ title: "Admin Config", tabBarItemStyle: { display: "none" } }}
             />
           )}
 
@@ -353,9 +690,28 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
 
 // ─── Root ────────────────────────────────────────────────────────────────────
 
-export default function App() {
+function ThemedStatusBar() {
+  const { isDark } = useThemeToggle();
+  return <StatusBar style={isDark ? "light" : "dark"} />;
+}
+
+function AppInner() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const t = useTheme();
+
+  useEffect(() => {
+    if (__DEV__) return;
+    void (async () => {
+      try {
+        const check = await Updates.checkForUpdateAsync();
+        if (check.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          await Updates.reloadAsync();
+        }
+      } catch { /* non-fatal */ }
+    })();
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -368,18 +724,26 @@ export default function App() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: t.background }}>
+        <ActivityIndicator color={t.primary} />
+      </View>
+    );
+  }
+
+  return session
+    ? <MainApp session={session} onSignOut={() => setSession(null)} />
+    : <LoginScreen onSignedIn={() => supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null))} />;
+}
+
+export default function App() {
   return (
     <SafeAreaProvider>
-      <StatusBar style="light" />
-      {loading ? (
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: theme.background }}>
-          <ActivityIndicator color={theme.primary} />
-        </View>
-      ) : session ? (
-        <MainApp session={session} onSignOut={() => setSession(null)} />
-      ) : (
-        <LoginScreen onSignedIn={() => supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null))} />
-      )}
+      <ThemeProvider>
+        <ThemedStatusBar />
+        <AppInner />
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }

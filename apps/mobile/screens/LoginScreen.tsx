@@ -1,67 +1,61 @@
-import { useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useMemo, useState } from "react";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { MaterialIcons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { supabase } from "../lib/supabase";
-import { theme } from "../theme";
+import { useTheme } from "../context/ThemeContext";
+import { TermsScreen } from "./TermsScreen";
+import type { Theme } from "../theme";
 
 type Props = { onSignedIn: () => void };
 
 export function LoginScreen({ onSignedIn }: Props) {
+  const t = useTheme();
+  const styles = useMemo(() => makeStyles(t), [t]);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [busy, setBusy] = useState(false);
+  const [errorText, setErrorText] = useState("");
+  const [infoText, setInfoText] = useState("");
+  const [showTerms, setShowTerms] = useState(false);
 
   async function signInWithGoogle() {
+    setErrorText("");
+    setInfoText("");
     setBusy(true);
     try {
-      // Always use the custom scheme so Supabase redirects back into the native app.
-      // Matches the scheme registered in app.config.ts and AndroidManifest.xml.
       const redirectTo = Linking.createURL("auth/callback", { scheme: "snoozeguard" });
-
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo, skipBrowserRedirect: true },
       });
       if (error || !data?.url) {
-        Alert.alert(
-          "Google sign-in failed",
-          error?.message ?? "Could not start Google sign-in. Check that the Google provider is enabled in Supabase.",
-        );
+        setErrorText(error?.message ?? "Could not start Google sign-in.");
         return;
       }
-
-      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo, {
-        showInRecents: true,
-      });
-
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo, { showInRecents: true });
       if (result.type === "cancel" || result.type === "dismiss") return;
-
       if (result.type === "success" && result.url) {
         const url = result.url;
         const parsed = Linking.parse(url);
-
-        // --- PKCE flow: authorization code in query params ---
-        const code =
-          typeof parsed.queryParams?.code === "string"
-            ? parsed.queryParams.code
-            : Array.isArray(parsed.queryParams?.code)
-              ? parsed.queryParams.code[0]
-              : undefined;
-
+        const code = typeof parsed.queryParams?.code === "string"
+          ? parsed.queryParams.code
+          : Array.isArray(parsed.queryParams?.code)
+            ? parsed.queryParams.code[0]
+            : undefined;
         if (code) {
           const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-          if (exchangeError) {
-            Alert.alert("Google sign-in failed", exchangeError.message);
-            return;
-          }
+          if (exchangeError) { setErrorText(exchangeError.message); return; }
           onSignedIn();
           return;
         }
-
-        // --- Implicit flow: tokens in URL hash fragment ---
-        // e.g. snoozeguard://auth/callback#access_token=...&refresh_token=...
         const hashIndex = url.indexOf("#");
         if (hashIndex !== -1) {
           const hash = url.slice(hashIndex + 1);
@@ -69,46 +63,48 @@ export function LoginScreen({ onSignedIn }: Props) {
           const accessToken = params["access_token"];
           const refreshToken = params["refresh_token"] ?? "";
           if (accessToken) {
-            const { error: sessionError } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-            if (sessionError) {
-              Alert.alert("Google sign-in failed", sessionError.message);
-              return;
-            }
+            const { error: sessionError } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+            if (sessionError) { setErrorText(sessionError.message); return; }
             onSignedIn();
             return;
           }
         }
-
-        // Neither code nor token found — show diagnostic
         const oauthError = parsed.queryParams?.error_description ?? parsed.queryParams?.error;
-        Alert.alert(
-          "Google sign-in failed",
-          typeof oauthError === "string"
-            ? oauthError
-            : `No auth data in callback.\n\nURL: ${url.slice(0, 120)}\n\nCheck:\n1. Google Cloud Console → Authorized redirect URIs includes https://cjxxdqyhqscfklktxohq.supabase.co/auth/v1/callback\n2. Supabase → Auth → Providers → Google is enabled with correct Client ID/Secret`,
-        );
+        setErrorText(typeof oauthError === "string" ? oauthError : "Google sign-in failed. Please try again.");
       }
     } catch (e) {
-      Alert.alert("Google sign-in failed", e instanceof Error ? e.message : "Unknown error");
+      setErrorText(e instanceof Error ? e.message : "Unknown error");
     } finally {
       setBusy(false);
     }
   }
 
   async function submit() {
+    setErrorText("");
+    setInfoText("");
+    if (mode === "signup") {
+      if (!displayName.trim()) { setErrorText("Please enter your display name."); return; }
+      if (password !== confirmPassword) { setErrorText("Passwords do not match."); return; }
+      if (password.length < 6) { setErrorText("Password must be at least 6 characters."); return; }
+    }
     setBusy(true);
     try {
       if (mode === "signin") {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) Alert.alert("Sign in failed", error.message);
+        if (error) setErrorText(error.message);
         else onSignedIn();
       } else {
-        const { error } = await supabase.auth.signUp({ email, password });
-        if (error) Alert.alert("Sign up failed", error.message);
-        else Alert.alert("Check email", "Confirm your address if required by project settings.");
+        const redirectTo = Linking.createURL("auth/callback", { scheme: "snoozeguard" });
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: redirectTo,
+            data: { full_name: displayName.trim() },
+          },
+        });
+        if (error) setErrorText(error.message);
+        else setInfoText("Account created! Check your email to confirm, then sign in.");
       }
     } finally {
       setBusy(false);
@@ -116,99 +112,163 @@ export function LoginScreen({ onSignedIn }: Props) {
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <View style={styles.card}>
         <Text style={styles.brand}>SNOOZEGUARD</Text>
-        <Text style={styles.title}>Welcome back</Text>
+        <Text style={styles.title}>{mode === "signin" ? "Welcome back" : "Create account"}</Text>
         <Text style={styles.sub}>Sign in with Google or email</Text>
-        <Pressable
-          style={[styles.google, busy && styles.disabled]}
-          disabled={busy}
-          onPress={() => void signInWithGoogle()}
-        >
-          <Text style={styles.googleText}>Continue with Google</Text>
+
+        <Pressable style={[styles.google, busy && styles.disabled]} disabled={busy} onPress={() => void signInWithGoogle()}>
+          {busy ? <ActivityIndicator color="#18181b" /> : (
+            <Text style={styles.googleText}>Continue with Google</Text>
+          )}
         </Pressable>
-        <Text style={styles.or}>or email</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          placeholderTextColor={theme.onSurfaceVariant}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          placeholderTextColor={theme.onSurfaceVariant}
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
+
+        <View style={styles.orRow}>
+          <View style={styles.orLine} />
+          <Text style={styles.orText}>or email</Text>
+          <View style={styles.orLine} />
+        </View>
+
+        {mode === "signup" && (
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Display name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Your name"
+              placeholderTextColor={t.onSurfaceVariant}
+              autoCapitalize="words"
+              value={displayName}
+              onChangeText={(v) => { setDisplayName(v); setErrorText(""); }}
+            />
+          </View>
+        )}
+
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Email address</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="you@example.com"
+            placeholderTextColor={t.onSurfaceVariant}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            value={email}
+            onChangeText={(v) => { setEmail(v); setErrorText(""); }}
+          />
+        </View>
+
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Password</Text>
+          <View style={styles.inputWrap}>
+            <TextInput
+              style={[styles.input, styles.inputWithEye]}
+              placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
+              placeholderTextColor={t.onSurfaceVariant}
+              secureTextEntry={!showPassword}
+              value={password}
+              onChangeText={(v) => { setPassword(v); setErrorText(""); }}
+            />
+            <Pressable style={styles.eyeAbsolute} onPress={() => setShowPassword(v => !v)}>
+              <MaterialIcons name={showPassword ? "visibility-off" : "visibility"} size={20} color={t.onSurfaceVariant} />
+            </Pressable>
+          </View>
+        </View>
+
+        {mode === "signup" && (
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Confirm password</Text>
+            <View style={styles.inputWrap}>
+              <TextInput
+                style={[styles.input, styles.inputWithEye]}
+                placeholder="Repeat your password"
+                placeholderTextColor={t.onSurfaceVariant}
+                secureTextEntry={!showConfirm}
+                value={confirmPassword}
+                onChangeText={(v) => { setConfirmPassword(v); setErrorText(""); }}
+              />
+              <Pressable style={styles.eyeAbsolute} onPress={() => setShowConfirm(v => !v)}>
+                <MaterialIcons name={showConfirm ? "visibility-off" : "visibility"} size={20} color={t.onSurfaceVariant} />
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
+        {infoText ? <Text style={styles.infoText}>{infoText}</Text> : null}
+
         <Pressable style={[styles.button, busy && styles.disabled]} onPress={() => void submit()} disabled={busy}>
-          <Text style={styles.buttonText}>{mode === "signin" ? "Sign in" : "Create account"}</Text>
+          {busy ? <ActivityIndicator color={t.onPrimary} /> : (
+            <Text style={styles.buttonText}>{mode === "signin" ? "Sign in" : "Create account"}</Text>
+          )}
         </Pressable>
-        <Pressable onPress={() => setMode(mode === "signin" ? "signup" : "signin")}>
-          <Text style={styles.link}>{mode === "signin" ? "Need an account?" : "Have an account?"}</Text>
+
+        <Pressable onPress={() => { setMode(mode === "signin" ? "signup" : "signin"); setErrorText(""); setInfoText(""); }}>
+          <Text style={styles.link}>{mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}</Text>
+        </Pressable>
+
+        <Pressable onPress={() => setShowTerms(true)} style={styles.termsBtn}>
+          <Text style={styles.termsText}>Terms of Service & Privacy Policy</Text>
         </Pressable>
       </View>
-    </View>
+
+      <Modal visible={showTerms} animationType="slide" onRequestClose={() => setShowTerms(false)}>
+        <View style={{ flex: 1, backgroundColor: t.background }}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => setShowTerms(false)} hitSlop={12} style={styles.modalClose}>
+              <MaterialIcons name="close" size={22} color={t.onSurface} />
+            </Pressable>
+          </View>
+          <TermsScreen />
+        </View>
+      </Modal>
+    </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-    backgroundColor: theme.background,
-  },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  scroll: { flex: 1, backgroundColor: t.background },
+  container: { flexGrow: 1, justifyContent: "center", padding: 24, paddingVertical: 40 },
   card: {
-    borderRadius: 24,
-    padding: 24,
-    backgroundColor: `${theme.surfaceContainerLow}ee`,
-    borderWidth: 1,
-    borderColor: `${theme.outlineVariant}44`,
+    borderRadius: 24, padding: 28,
+    backgroundColor: `${t.surfaceContainerLow}ee`,
+    borderWidth: 1, borderColor: `${t.outlineVariant}44`,
+    gap: 4,
   },
-  brand: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 3,
-    color: theme.primary,
-    textAlign: "center",
-  },
-  title: { marginTop: 12, fontSize: 24, fontWeight: "800", color: theme.onSurface, textAlign: "center" },
-  sub: { fontSize: 14, color: theme.onSurfaceVariant, textAlign: "center", marginBottom: 20 },
+  brand: { fontSize: 10, fontWeight: "800", letterSpacing: 3, color: t.primary, textAlign: "center" },
+  title: { marginTop: 10, fontSize: 26, fontWeight: "800", color: t.onSurface, textAlign: "center" },
+  sub: { fontSize: 14, color: t.onSurfaceVariant, textAlign: "center", marginBottom: 16 },
   google: {
-    backgroundColor: "#fff",
-    padding: 14,
-    borderRadius: 14,
-    marginBottom: 16,
+    backgroundColor: t.surfaceBright, paddingVertical: 16, borderRadius: 14,
+    alignItems: "center", minHeight: 52, justifyContent: "center", marginBottom: 8,
+    borderWidth: 1, borderColor: `${t.outlineVariant}66`,
   },
-  googleText: { color: "#18181b", textAlign: "center", fontWeight: "700" },
-  or: { color: theme.onSurfaceVariant, textAlign: "center", fontSize: 12, marginBottom: 12 },
+  googleText: { color: t.onSurface, fontWeight: "700", fontSize: 15 },
+  orRow: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 8 },
+  orLine: { flex: 1, height: 1, backgroundColor: `${t.outlineVariant}66` },
+  orText: { color: t.onSurfaceVariant, fontSize: 12 },
+  fieldGroup: { gap: 6, marginTop: 8 },
+  label: { color: t.onSurface, fontWeight: "700", fontSize: 14 },
+  inputWrap: { position: "relative" },
   input: {
-    borderWidth: 1,
-    borderColor: `${theme.outlineVariant}66`,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 12,
-    color: theme.onSurface,
-    backgroundColor: `${theme.background}99`,
+    borderWidth: 1, borderColor: `${t.outlineVariant}66`,
+    borderRadius: 14, paddingHorizontal: 16, paddingVertical: 15,
+    color: t.onSurface, backgroundColor: `${t.surfaceContainerHigh}cc`,
+    fontSize: 15,
   },
+  inputWithEye: { paddingRight: 48 },
+  eyeAbsolute: { position: "absolute", right: 14, top: 0, bottom: 0, justifyContent: "center", padding: 4 },
+  errorText: { color: t.tertiary, fontSize: 13, fontWeight: "600", textAlign: "center", marginTop: 6 },
+  infoText: { color: "#4ade80", fontSize: 13, fontWeight: "600", textAlign: "center", marginTop: 6 },
   button: {
-    backgroundColor: theme.primary,
-    padding: 16,
-    borderRadius: 16,
-    marginTop: 8,
-    shadowColor: theme.primary,
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 4,
+    backgroundColor: t.primary, paddingVertical: 17, borderRadius: 16, marginTop: 12,
+    shadowColor: t.primary, shadowOpacity: 0.25, shadowRadius: 12, elevation: 4,
+    alignItems: "center", minHeight: 54, justifyContent: "center",
   },
   disabled: { opacity: 0.5 },
-  buttonText: { color: theme.onPrimary, textAlign: "center", fontWeight: "800", fontSize: 16 },
-  link: { color: theme.onSurfaceVariant, textAlign: "center", marginTop: 16, textDecorationLine: "underline" },
-  dbg: { color: theme.onSurfaceVariant, textAlign: "center", fontSize: 9, marginTop: 4, opacity: 0.5 },
+  buttonText: { color: t.onPrimary, fontWeight: "800", fontSize: 16 },
+  link: { color: t.onSurfaceVariant, textAlign: "center", marginTop: 16, textDecorationLine: "underline", fontSize: 14 },
+  termsBtn: { alignItems: "center", marginTop: 20, paddingVertical: 8 },
+  termsText: { color: t.onSurfaceVariant, fontSize: 11, textDecorationLine: "underline", opacity: 0.7 },
+  modalHeader: { paddingTop: 48, paddingHorizontal: 20, paddingBottom: 8, flexDirection: "row", justifyContent: "flex-end" },
+  modalClose: { padding: 8, borderRadius: 20, backgroundColor: `${t.outlineVariant}33` },
 });

@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -11,7 +11,9 @@ import {
 } from "react-native";
 import { supabase } from "../lib/supabase";
 import { upsertEmergencyContact } from "../lib/emergencyNotify";
-import { theme } from "../theme";
+import { getDatabase } from "../db/database";
+import { useTheme } from "../context/ThemeContext";
+import type { Theme } from "../theme";
 
 type Props = {
   visible: boolean;
@@ -21,37 +23,55 @@ type Props = {
 };
 
 export function EmergencyContactSetupModal({ visible, userId, onDone, onSkip }: Props) {
+  const t = useTheme();
+  const styles = useMemo(() => makeStyles(t), [t]);
+  const [myPhone, setMyPhone] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const save = async () => {
+    setError("");
     if (!name.trim()) {
-      Alert.alert("Required", "Please enter the contact's name.");
+      setError("Please enter the emergency contact's name.");
       return;
     }
     if (!phone.trim() && !email.trim()) {
-      Alert.alert("Required", "Enter at least a phone number or email.");
+      setError("Enter at least a phone number or email for the emergency contact.");
       return;
     }
     setSaving(true);
-    const { error } = await upsertEmergencyContact(supabase, userId, {
-      contact_name: name.trim(),
-      contact_phone: phone.trim(),
-      contact_email: email.trim(),
-    });
+    const [ecRes] = await Promise.all([
+      upsertEmergencyContact(supabase, userId, {
+        contact_name: name.trim(),
+        contact_phone: phone.trim(),
+        contact_email: email.trim(),
+      }),
+      myPhone.trim()
+        ? supabase.from("profiles").update({ phone: myPhone.trim() }).eq("id", userId)
+        : Promise.resolve(),
+    ]);
     setSaving(false);
-    if (error) {
-      Alert.alert("Error", error);
+    if (ecRes.error) {
+      setError(ecRes.error);
     } else {
+      try {
+        getDatabase().runSync(
+          `INSERT OR REPLACE INTO emergency_contacts_local
+           (user_id, contact_name, contact_phone, contact_email, my_phone, pending_sync, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          userId, name.trim(), phone.trim(), email.trim(), myPhone.trim(), 0, new Date().toISOString(),
+        );
+      } catch { /* ignore */ }
       onDone();
     }
   };
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false}>
-      <View style={styles.root}>
+      <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <Text style={styles.title}>Emergency Contact</Text>
           <Text style={styles.subtitle}>
@@ -61,32 +81,48 @@ export function EmergencyContactSetupModal({ visible, userId, onDone, onSkip }: 
         </View>
 
         <View style={styles.form}>
+          <Text style={styles.formSectionLabel}>YOUR MOBILE NUMBER</Text>
+          <Text style={styles.formSectionHint}>
+            Your emergency contact will see this number so they can call you directly when an alert fires.
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={myPhone}
+            onChangeText={(v) => { setMyPhone(v); setError(""); }}
+            placeholder="+63 912 345 6789"
+            placeholderTextColor={t.onSurfaceVariant}
+            keyboardType="phone-pad"
+          />
+
+          <View style={styles.divider} />
+
+          <Text style={styles.formSectionLabel}>EMERGENCY CONTACT DETAILS</Text>
           <Text style={styles.label}>Full name *</Text>
           <TextInput
             style={styles.input}
             value={name}
-            onChangeText={setName}
+            onChangeText={(v) => { setName(v); setError(""); }}
             placeholder="e.g. Maria Santos"
-            placeholderTextColor={theme.onSurfaceVariant}
+            placeholderTextColor={t.onSurfaceVariant}
           />
 
-          <Text style={styles.label}>Mobile number</Text>
+          <Text style={styles.label}>Their mobile number</Text>
           <TextInput
             style={styles.input}
             value={phone}
-            onChangeText={setPhone}
+            onChangeText={(v) => { setPhone(v); setError(""); }}
             placeholder="+63 912 345 6789"
-            placeholderTextColor={theme.onSurfaceVariant}
+            placeholderTextColor={t.onSurfaceVariant}
             keyboardType="phone-pad"
           />
 
-          <Text style={styles.label}>Email address</Text>
+          <Text style={styles.label}>Their email address</Text>
           <TextInput
             style={styles.input}
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(v) => { setEmail(v); setError(""); }}
             placeholder="contact@email.com"
-            placeholderTextColor={theme.onSurfaceVariant}
+            placeholderTextColor={t.onSurfaceVariant}
             keyboardType="email-address"
             autoCapitalize="none"
           />
@@ -95,11 +131,13 @@ export function EmergencyContactSetupModal({ visible, userId, onDone, onSkip }: 
             If your emergency contact also uses SnoozeGuard, they'll receive an in-app alert
             showing your location on a map.
           </Text>
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
         </View>
 
         <Pressable style={styles.saveBtn} disabled={saving} onPress={() => void save()}>
           {saving ? (
-            <ActivityIndicator color={theme.onPrimary} />
+            <ActivityIndicator color={t.onPrimary} />
           ) : (
             <Text style={styles.saveBtnText}>Save & continue</Text>
           )}
@@ -108,63 +146,39 @@ export function EmergencyContactSetupModal({ visible, userId, onDone, onSkip }: 
         <Pressable style={styles.skipBtn} onPress={onSkip}>
           <Text style={styles.skipText}>Skip for now (you can add this in Profile)</Text>
         </Pressable>
-      </View>
+      </ScrollView>
     </Modal>
   );
 }
 
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: theme.background,
-    padding: 24,
-    justifyContent: "center",
-  },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.background },
+  content: { padding: 24, paddingBottom: 48 },
   header: { marginBottom: 24 },
-  title: { fontSize: 26, fontWeight: "800", color: theme.onSurface },
-  subtitle: {
-    marginTop: 8,
-    color: theme.onSurfaceVariant,
-    fontSize: 14,
-    lineHeight: 20,
-  },
+  title: { fontSize: 26, fontWeight: "800", color: t.onSurface },
+  subtitle: { marginTop: 8, color: t.onSurfaceVariant, fontSize: 14, lineHeight: 20 },
   form: {
-    backgroundColor: `${theme.surfaceContainerLow}ee`,
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: `${theme.outlineVariant}44`,
-    marginBottom: 20,
+    backgroundColor: `${t.surfaceContainerLow}ee`,
+    borderRadius: 20, padding: 16,
+    borderWidth: 1, borderColor: `${t.outlineVariant}44`,
+    marginBottom: 20, gap: 2,
   },
-  label: { color: theme.onSurface, fontWeight: "600", fontSize: 13, marginBottom: 6, marginTop: 8 },
+  formSectionLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 2, color: t.onSurfaceVariant, marginBottom: 4, marginTop: 8 },
+  formSectionHint: { color: t.onSurfaceVariant, fontSize: 12, lineHeight: 17, marginBottom: 8 },
+  divider: { height: 1, backgroundColor: `${t.outlineVariant}44`, marginVertical: 14 },
+  label: { color: t.onSurface, fontWeight: "600", fontSize: 13, marginBottom: 6, marginTop: 8 },
   input: {
-    borderWidth: 1,
-    borderColor: `${theme.outlineVariant}66`,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 4,
-    color: theme.onSurface,
-    backgroundColor: `${theme.background}99`,
-    fontSize: 15,
+    borderWidth: 1, borderColor: `${t.outlineVariant}66`,
+    borderRadius: 14, padding: 14, marginBottom: 4,
+    color: t.onSurface, backgroundColor: `${t.surfaceContainerHigh}cc`, fontSize: 15,
   },
-  tip: {
-    color: theme.onSurfaceVariant,
-    fontSize: 11,
-    lineHeight: 16,
-    fontStyle: "italic",
-    marginTop: 12,
-  },
+  tip: { color: t.onSurfaceVariant, fontSize: 11, lineHeight: 16, fontStyle: "italic", marginTop: 12 },
+  errorText: { color: t.tertiary, fontSize: 13, fontWeight: "600", marginTop: 10, textAlign: "center" },
   saveBtn: {
-    backgroundColor: theme.primary,
-    padding: 18,
-    borderRadius: 18,
-    alignItems: "center",
-    shadowColor: theme.primary,
-    shadowOpacity: 0.28,
-    shadowRadius: 14,
-    elevation: 6,
+    backgroundColor: t.primary, padding: 18, borderRadius: 18, alignItems: "center",
+    shadowColor: t.primary, shadowOpacity: 0.28, shadowRadius: 14, elevation: 6,
   },
-  saveBtnText: { color: theme.onPrimary, fontWeight: "800", fontSize: 16 },
+  saveBtnText: { color: t.onPrimary, fontWeight: "800", fontSize: 16 },
   skipBtn: { marginTop: 16, alignItems: "center", padding: 12 },
-  skipText: { color: theme.onSurfaceVariant, fontSize: 13, textDecorationLine: "underline" },
+  skipText: { color: t.onSurfaceVariant, fontSize: 13, textDecorationLine: "underline" },
 });

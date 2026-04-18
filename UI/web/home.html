@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SnoozeGuard | Fleet Home Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "outline": "#909097",
+                    "on-secondary-container": "#5b3800",
+                    "on-tertiary-container": "#eb4141",
+                    "on-primary-fixed-variant": "#004c69",
+                    "error": "#ffb4ab",
+                    "surface-bright": "#31394d",
+                    "background": "#0b1326",
+                    "surface-container-lowest": "#060e20",
+                    "surface-dim": "#0b1326",
+                    "surface-container-high": "#222a3d",
+                    "inverse-surface": "#dae2fd",
+                    "on-surface-variant": "#c6c6cd",
+                    "surface-container-low": "#131b2e",
+                    "secondary-fixed-dim": "#ffb95f",
+                    "tertiary": "#ffb3ad",
+                    "on-primary-container": "#008abb",
+                    "inverse-primary": "#00668a",
+                    "tertiary-container": "#390003",
+                    "on-tertiary-fixed-variant": "#930013",
+                    "on-tertiary-fixed": "#410004",
+                    "tertiary-fixed": "#ffdad7",
+                    "surface": "#0b1326",
+                    "on-primary": "#00354a",
+                    "on-primary-fixed": "#001e2c",
+                    "on-background": "#dae2fd",
+                    "secondary-fixed": "#ffddb8",
+                    "surface-tint": "#7bd0ff",
+                    "on-surface": "#dae2fd",
+                    "error-container": "#93000a",
+                    "on-error": "#690005",
+                    "surface-variant": "#2d3449",
+                    "surface-container-highest": "#2d3449",
+                    "outline-variant": "#45464d",
+                    "on-tertiary": "#68000a",
+                    "on-secondary": "#472a00",
+                    "on-error-container": "#ffdad6",
+                    "surface-container": "#171f33",
+                    "primary": "#7bd0ff",
+                    "primary-fixed-dim": "#7bd0ff",
+                    "inverse-on-surface": "#283044",
+                    "tertiary-fixed-dim": "#ffb3ad",
+                    "secondary": "#ffb95f",
+                    "primary-fixed": "#c4e7ff",
+                    "on-secondary-fixed": "#2a1700",
+                    "primary-container": "#001a27",
+                    "on-secondary-fixed-variant": "#653e00",
+                    "secondary-container": "#ee9800"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+              "10": "2.5rem",
+              "12": "3rem"
+            },
+            "fontFamily": {
+                    "headline": ["Manrope"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #0b1326;
+      }
+      .glass-card {
+        background: rgba(34, 42, 61, 0.8);
+        backdrop-filter: blur(32px);
+      }
+    </style>
+</head>
+<body class="text-on-background antialiased selection:bg-primary/30">
+<!-- SideNavBar Shell -->
+<aside class="h-screen w-64 fixed left-0 top-0 z-40 bg-[#0b1326] flex flex-col py-6 font-manrope tracking-tight">
+<div class="px-6 mb-10">
+<h1 class="text-2xl font-bold tracking-tighter text-[#7bd0ff]">SnoozeGuard</h1>
+<p class="text-xs text-slate-500 uppercase tracking-widest mt-1">Vigilant System</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="text-[#7bd0ff] font-bold bg-[#222a3d] rounded-lg mx-2 px-4 py-3 flex items-center gap-3 transition-all duration-300 scale-95" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="text-slate-400 font-medium hover:text-white hover:bg-[#222a3d] mx-2 px-4 py-3 flex items-center gap-3 transition-all duration-300" href="#">
+<span class="material-symbols-outlined">history</span>
+<span>Fatigue Logs</span>
+</a>
+<a class="text-slate-400 font-medium hover:text-white hover:bg-[#222a3d] mx-2 px-4 py-3 flex items-center gap-3 transition-all duration-300" href="#">
+<span class="material-symbols-outlined">group</span>
+<span>Fleet Profiles</span>
+</a>
+<a class="text-slate-400 font-medium hover:text-white hover:bg-[#222a3d] mx-2 px-4 py-3 flex items-center gap-3 transition-all duration-300" href="#">
+<span class="material-symbols-outlined">location_on</span>
+<span>Safety Zones</span>
+</a>
+<a class="text-slate-400 font-medium hover:text-white hover:bg-[#222a3d] mx-2 px-4 py-3 flex items-center gap-3 transition-all duration-300" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span>Settings</span>
+</a>
+</nav>
+<div class="px-4 mt-auto space-y-4">
+<button class="w-full bg-secondary-container text-on-secondary-fixed py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined">warning</span>
+<span>SOS Monitor</span>
+</button>
+<div class="border-t border-outline-variant/20 pt-4 space-y-1">
+<a class="text-slate-400 font-medium hover:text-white mx-2 px-4 py-2 flex items-center gap-3 transition-all" href="#">
+<span class="material-symbols-outlined">contact_support</span>
+<span>Support</span>
+</a>
+<a class="text-slate-400 font-medium hover:text-white mx-2 px-4 py-2 flex items-center gap-3 transition-all" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span>Logout</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- TopAppBar Shell -->
+<header class="fixed top-0 right-0 w-[calc(100%-16rem)] h-20 z-30 bg-[#0b1326]/80 backdrop-blur-xl flex justify-between items-center px-10 font-manrope">
+<div class="flex items-center gap-8">
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary">search</span>
+<input class="bg-surface-container-low border-none rounded-full py-2 pl-10 pr-6 text-sm w-64 focus:ring-1 focus:ring-primary placeholder:text-slate-500" placeholder="Search fleet data..." type="text"/>
+</div>
+<nav class="hidden md:flex gap-6 text-sm font-semibold">
+<a class="text-[#7bd0ff] border-b-2 border-[#7bd0ff] pb-1" href="#">Analytics</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Alerts</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Fleet</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="bg-primary/10 text-primary px-4 py-2 rounded-lg font-bold text-sm hover:bg-primary/20 transition-all border border-primary/20">
+                Safety Protocol
+            </button>
+<div class="flex gap-1">
+<button class="hover:bg-[#31394d]/50 rounded-full p-2 transition-all">
+<span class="material-symbols-outlined text-slate-300">notifications_active</span>
+</button>
+<button class="hover:bg-[#31394d]/50 rounded-full p-2 transition-all">
+<span class="material-symbols-outlined text-slate-300">help_outline</span>
+</button>
+</div>
+<div class="ml-4 flex items-center gap-3">
+<div class="text-right">
+<p class="text-sm font-bold leading-tight">Admin User</p>
+<p class="text-[10px] text-primary uppercase tracking-wider font-extrabold">Fleet Manager</p>
+</div>
+<img alt="Administrator Profile" class="w-10 h-10 rounded-full object-cover ring-2 ring-primary/20" data-alt="professional portrait of a middle-aged fleet administrator with a calm expression, soft office lighting, high-end photography" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBRfZceJN03y4rk4Qa03dr7xWDJ6zqq2B7AuUbURpcplk52NG6jp4VZuZBVYwZDfU7j5ma9RxR-A0TWxc1sQ5A8F_lIC8iLArvrp8QokQhU4kBLdqWOdp8jdIm43-xEpJQ6I3YH9Rl9YXcO_3iPrNA4BJuN1it7zHka38pJBUcM2eCDbXbYCtvn33jkogDovY82n2y3aDzduKDAyUsgJqlHrmtIqa8g1D1i1KisVv87enV6qfbh5ry24BmaimIL5TS0cKheGkVlfW4"/>
+</div>
+</div>
+</header>
+<!-- Main Canvas -->
+<main class="ml-64 pt-24 px-10 pb-12 min-h-screen">
+<!-- Welcome Hero & Quick Action -->
+<div class="flex justify-between items-end mb-12">
+<div>
+<h2 class="text-4xl font-headline font-extrabold tracking-tight text-white mb-2">Systems Online</h2>
+<p class="text-slate-400 font-body max-w-md">Real-time driver fatigue monitoring active for <span class="text-primary font-semibold">12 active vehicles</span>. Local database synced.</p>
+</div>
+<button class="group relative flex items-center gap-3 bg-gradient-to-r from-primary to-on-primary-container text-on-primary px-8 py-5 rounded-xl font-headline font-bold text-lg shadow-lg hover:shadow-primary/20 transition-all active:scale-95">
+<span class="material-symbols-outlined text-2xl" style="font-variation-settings: 'FILL' 1;">play_circle</span>
+<span>Start Driving Session</span>
+</button>
+</div>
+<!-- KPI Grid - Bento Style -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+<!-- Focus Score (Large Gauge Aesthetic) -->
+<div class="col-span-1 md:col-span-2 bg-surface-container-high p-8 rounded-xl flex flex-col justify-between relative overflow-hidden">
+<div class="flex justify-between items-start z-10">
+<div>
+<p class="text-slate-400 font-label text-sm uppercase tracking-widest flex items-center gap-2">
+                            Focus Score 
+                            <span class="material-symbols-outlined text-sm cursor-help opacity-50">info</span>
+</p>
+<h3 class="text-5xl font-headline font-black text-white mt-2">88<span class="text-2xl text-primary">/100</span></h3>
+</div>
+<span class="bg-primary/20 text-primary px-3 py-1 rounded-full text-xs font-bold uppercase tracking-tighter">Optimal</span>
+</div>
+<div class="mt-8 z-10">
+<div class="h-3 w-full bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-gradient-to-r from-primary to-on-primary-container w-[88%] rounded-full shadow-[0_0_15px_rgba(123,208,255,0.4)]"></div>
+</div>
+<p class="text-xs text-slate-500 mt-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-xs text-primary">trending_up</span>
+                        +4% from last session
+                    </p>
+</div>
+<!-- Abstract Texture Background -->
+<div class="absolute -right-10 -bottom-10 w-48 h-48 bg-primary/5 rounded-full blur-3xl"></div>
+</div>
+<!-- Drowsy Events -->
+<div class="bg-surface-container-low p-8 rounded-xl border-l-4 border-secondary flex flex-col justify-between">
+<div>
+<div class="flex justify-between items-start mb-2">
+<p class="text-slate-400 font-label text-sm uppercase tracking-widest">Drowsy Events</p>
+<span class="material-symbols-outlined text-secondary">visibility</span>
+</div>
+<h3 class="text-4xl font-headline font-bold text-white">04</h3>
+<div class="mt-2 flex gap-2 flex-wrap">
+<span class="text-[10px] bg-secondary/10 text-secondary-fixed px-2 py-0.5 rounded border border-secondary/20">2 YAWNS</span>
+<span class="text-[10px] bg-secondary/10 text-secondary-fixed px-2 py-0.5 rounded border border-secondary/20">1 NOD</span>
+<span class="text-[10px] bg-secondary/10 text-secondary-fixed px-2 py-0.5 rounded border border-secondary/20">1 TILT</span>
+</div>
+</div>
+<p class="text-[11px] text-slate-500 mt-4">ⓘ 15% lower than weekly average</p>
+</div>
+<!-- Total Sessions -->
+<div class="bg-surface-container-low p-8 rounded-xl flex flex-col justify-between">
+<div>
+<div class="flex justify-between items-start mb-2">
+<p class="text-slate-400 font-label text-sm uppercase tracking-widest">Total Sessions</p>
+<span class="material-symbols-outlined text-slate-400">route</span>
+</div>
+<h3 class="text-4xl font-headline font-bold text-white">142</h3>
+</div>
+<div class="mt-4 pt-4 border-t border-outline-variant/10">
+<p class="text-xs text-slate-500">Database: <span class="text-slate-300 font-mono">local_sqlite.db</span></p>
+</div>
+</div>
+</div>
+<!-- Secondary Row: Chart & Activity -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Session Activity Bar Chart Card -->
+<div class="col-span-1 md:col-span-2 bg-surface-container p-8 rounded-xl">
+<div class="flex justify-between items-center mb-10">
+<div>
+<h4 class="text-lg font-headline font-bold text-white">Session Activity</h4>
+<p class="text-sm text-slate-500">Frequency over last 30 days</p>
+</div>
+<div class="flex gap-2">
+<button class="bg-surface-container-high text-slate-300 px-3 py-1 rounded-md text-xs font-bold hover:text-white transition-all">Month</button>
+<button class="bg-surface-bright text-primary px-3 py-1 rounded-md text-xs font-bold">Week</button>
+</div>
+</div>
+<!-- Mock Bar Chart -->
+<div class="flex items-end justify-between h-48 gap-2">
+<div class="flex-1 bg-surface-container-high rounded-t-sm hover:bg-primary/40 transition-all h-[40%]"></div>
+<div class="flex-1 bg-surface-container-high rounded-t-sm hover:bg-primary/40 transition-all h-[60%]"></div>
+<div class="flex-1 bg-surface-container-high rounded-t-sm hover:bg-primary/40 transition-all h-[35%]"></div>
+<div class="flex-1 bg-surface-container-high rounded-t-sm hover:bg-primary/40 transition-all h-[75%]"></div>
+<div class="flex-1 bg-primary rounded-t-sm hover:bg-primary/40 transition-all h-[95%]"></div>
+<div class="flex-1 bg-surface-container-high rounded-t-sm hover:bg-primary/40 transition-all h-[55%]"></div>
+<div class="flex-1 bg-surface-container-high rounded-t-sm hover:bg-primary/40 transition-all h-[65%]"></div>
+<div class="flex-1 bg-surface-container-high rounded-t-sm hover:bg-primary/40 transition-all h-[45%]"></div>
+<div class="flex-1 bg-surface-container-high rounded-t-sm hover:bg-primary/40 transition-all h-[80%]"></div>
+<div class="flex-1 bg-surface-container-high rounded-t-sm hover:bg-primary/40 transition-all h-[30%]"></div>
+<div class="flex-1 bg-primary/60 rounded-t-sm hover:bg-primary/40 transition-all h-[50%]"></div>
+<div class="flex-1 bg-surface-container-high rounded-t-sm hover:bg-primary/40 transition-all h-[70%]"></div>
+</div>
+<div class="flex justify-between mt-4 text-[10px] text-slate-500 uppercase tracking-tighter">
+<span>Oct 01</span>
+<span>Oct 08</span>
+<span>Oct 15</span>
+<span>Oct 22</span>
+<span>Today</span>
+</div>
+</div>
+<!-- Total Drive Time Gauge / Card -->
+<div class="bg-surface-container-high p-8 rounded-xl flex flex-col justify-between">
+<div>
+<div class="flex justify-between items-start mb-6">
+<p class="text-slate-400 font-label text-sm uppercase tracking-widest">Total Drive Time</p>
+<span class="material-symbols-outlined text-primary">timer</span>
+</div>
+<div class="space-y-1">
+<h3 class="text-5xl font-headline font-black text-white">1,248</h3>
+<p class="text-primary font-bold text-lg">Hours Recorded</p>
+</div>
+</div>
+<div class="space-y-4">
+<div class="flex justify-between items-center text-xs">
+<span class="text-slate-400">Avg. Session Length</span>
+<span class="text-white font-bold">5.2 hrs</span>
+</div>
+<div class="flex justify-between items-center text-xs">
+<span class="text-slate-400">Night Operations</span>
+<span class="text-white font-bold">64%</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full">
+<div class="h-full bg-primary w-2/3 rounded-full"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Recent Logs Section -->
+<div class="mt-12 bg-surface-container-lowest p-8 rounded-2xl border border-outline-variant/10">
+<div class="flex justify-between items-center mb-8">
+<h4 class="text-xl font-headline font-bold text-white">Recent Fatigue Incidents</h4>
+<button class="text-primary text-sm font-bold flex items-center gap-1 hover:underline">
+                    View Complete Log
+                    <span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+</div>
+<div class="space-y-4">
+<!-- Log Item -->
+<div class="flex items-center justify-between p-5 bg-surface-container/30 rounded-xl hover:bg-surface-container/50 transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-error/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-error text-xl">event_busy</span>
+</div>
+<div>
+<p class="font-bold text-white">Critical Fatigue Alert <span class="text-slate-500 font-normal ml-2">#SG-9921</span></p>
+<p class="text-xs text-slate-400">Session: Route 42-X • Driver: Marcus J.</p>
+</div>
+</div>
+<div class="text-right">
+<p class="text-sm font-bold text-white">22 Oct 2023</p>
+<p class="text-xs text-slate-500">03:14 AM</p>
+</div>
+</div>
+<!-- Log Item -->
+<div class="flex items-center justify-between p-5 bg-surface-container/30 rounded-xl hover:bg-surface-container/50 transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-secondary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary text-xl">warning</span>
+</div>
+<div>
+<p class="font-bold text-white">Drowsiness Warning <span class="text-slate-500 font-normal ml-2">#SG-9918</span></p>
+<p class="text-xs text-slate-400">Session: Route 12-A • Driver: Elena S.</p>
+</div>
+</div>
+<div class="text-right">
+<p class="text-sm font-bold text-white">21 Oct 2023</p>
+<p class="text-xs text-slate-500">11:45 PM</p>
+</div>
+</div>
+<!-- Log Item -->
+<div class="flex items-center justify-between p-5 bg-surface-container/30 rounded-xl hover:bg-surface-container/50 transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-xl">verified</span>
+</div>
+<div>
+<p class="font-bold text-white">Clean Session Record <span class="text-slate-500 font-normal ml-2">#SG-9912</span></p>
+<p class="text-xs text-slate-400">Session: Local Transit • Driver: David K.</p>
+</div>
+</div>
+<div class="text-right">
+<p class="text-sm font-bold text-white">21 Oct 2023</p>
+<p class="text-xs text-slate-500">08:30 PM</p>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Floating Info Modal Layer (Concept) -->
+<div class="fixed bottom-8 right-8 z-50">
+<button class="bg-surface-bright p-4 rounded-full shadow-2xl text-primary flex items-center justify-center hover:scale-110 transition-transform border border-primary/20">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">support_agent</span>
+</button>
+</div>
+</body></html>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -10,7 +10,10 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useSession } from "../context/SessionContext";
+import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../lib/supabase";
+import { getDatabase } from "../db/database";
+import { isOnline } from "../sync/flush";
 import {
   acceptContactRequest,
   declineContactRequest,
@@ -18,7 +21,7 @@ import {
   getPendingRequests,
   type PendingRequest,
 } from "../lib/emergencyNotify";
-import { theme } from "../theme";
+import type { Theme } from "../theme";
 
 type AlertStatus = "active" | "alerted" | "dismissed";
 
@@ -36,7 +39,6 @@ type AlertEvent = {
 
 const HISTORY_HOURS = 24;
 
-/** Shows last 5 chars of the local part + full domain — e.g. "•••••oobar@gmail.com" */
 function maskEmail(email: string): string {
   const [local, domain] = email.split("@");
   if (!domain) return email;
@@ -47,83 +49,167 @@ function maskEmail(email: string): string {
 
 export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () => void }) {
   const session = useSession();
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
   const [pending, setPending] = useState<PendingRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<AlertEvent | null>(null);
+  const [isOffline, setIsOffline] = useState(false);
+  const loadingRef = useRef(false);
+
+  function readAlertsFromCache(): AlertEvent[] {
+    try {
+      return getDatabase().getAllSync<AlertEvent>(
+        `SELECT id, user_id, location_lat, location_lng, status, created_at,
+                acknowledged_at, driver_name, driver_phone
+         FROM emergency_alert_events_local
+         WHERE status = 'active'
+         ORDER BY created_at DESC`,
+      );
+    } catch { return []; }
+  }
+
+  function writeAlertsToCache(events: AlertEvent[]) {
+    try {
+      const db = getDatabase();
+      const now = new Date().toISOString();
+      for (const ev of events) {
+        db.runSync(
+          `INSERT OR REPLACE INTO emergency_alert_events_local
+           (id, user_id, location_lat, location_lng, status, created_at,
+            acknowledged_at, driver_name, driver_phone, cached_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ev.id, ev.user_id, ev.location_lat ?? null, ev.location_lng ?? null,
+          ev.status, ev.created_at, ev.acknowledged_at ?? null,
+          ev.driver_name ?? "Driver", ev.driver_phone ?? null, now,
+        );
+      }
+    } catch { /* ignore */ }
+  }
 
   const load = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     setLoading(true);
 
-    // Load pending contact requests (someone wants to add this user as emergency contact)
-    const requests = await getPendingRequests(supabase, session.user.id);
-    setPending(requests);
-
-    // Find accepted drivers where this user is emergency contact
-    const [byUserId, byEmail] = await Promise.all([
-      supabase
-        .from("emergency_contacts")
-        .select("user_id")
-        .eq("contact_user_id", session.user.id)
-        .eq("status", "accepted"),
-      supabase
-        .from("emergency_contacts")
-        .select("user_id")
-        .ilike("contact_email", session.user.email ?? "__no_email__")
-        .neq("status", "pending"),
-    ]);
-
-    const allDriverIds = Array.from(new Set([
-      ...(byUserId.data ?? []).map((c) => c.user_id as string),
-      ...(byEmail.data ?? []).map((c) => c.user_id as string),
-    ]));
-
-    if (allDriverIds.length === 0) {
-      setAlerts([]);
-      setLoading(false);
-      return;
+    // Show cached alerts immediately for offline-first display
+    const cached = readAlertsFromCache();
+    if (cached.length > 0) {
+      setAlerts(cached);
+      setSelected((prev) => prev ?? cached[0] ?? null);
     }
 
-    const since = new Date(Date.now() - HISTORY_HOURS * 60 * 60 * 1000).toISOString();
-    const { data: events } = await supabase
-      .from("emergency_alert_events")
-      .select("id, user_id, location_lat, location_lng, status, created_at, acknowledged_at")
-      .in("user_id", allDriverIds)
-      .in("status", ["active", "alerted"])
-      .gte("created_at", since)
-      .order("created_at", { ascending: false });
+    try {
+      const online = await isOnline();
+      setIsOffline(!online);
 
-    const enriched: AlertEvent[] = [];
-    for (const ev of events ?? []) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("full_name, phone")
-        .eq("id", ev.user_id)
-        .maybeSingle();
-      enriched.push({
-        ...(ev as AlertEvent),
-        driver_name: (profile as { full_name?: string; phone?: string } | null)?.full_name ?? "Driver",
-        driver_phone: (profile as { full_name?: string; phone?: string } | null)?.phone ?? undefined,
-      });
-    }
-
-    setAlerts(enriched);
-    const firstActive = enriched.find((a) => a.status === "active");
-    const autoSelect = firstActive ?? enriched[0] ?? null;
-    if (autoSelect && autoSelect.id !== selected?.id) {
-      setSelected(autoSelect);
-      if (autoSelect.status === "active") {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      if (!online) {
+        // Pending requests can't be fetched offline
+        if (cached.length === 0) setAlerts([]);
+        return;
       }
+
+      const requests = await getPendingRequests(supabase, session.user.id);
+      setPending(requests);
+
+      const [byUserId, byEmail] = await Promise.all([
+        supabase
+          .from("emergency_contacts")
+          .select("user_id")
+          .eq("contact_user_id", session.user.id)
+          .eq("status", "accepted"),
+        supabase
+          .from("emergency_contacts")
+          .select("user_id")
+          .ilike("contact_email", session.user.email ?? "__no_email__")
+          .neq("status", "pending"),
+      ]);
+
+      const allDriverIds = Array.from(new Set([
+        ...(byUserId.data ?? []).map((c) => c.user_id as string),
+        ...(byEmail.data ?? []).map((c) => c.user_id as string),
+      ]));
+
+      if (allDriverIds.length === 0) {
+        setAlerts([]);
+        return;
+      }
+
+      const since = new Date(Date.now() - HISTORY_HOURS * 60 * 60 * 1000).toISOString();
+      const { data: events } = await supabase
+        .from("emergency_alert_events")
+        .select("id, user_id, location_lat, location_lng, status, created_at, acknowledged_at")
+        .in("user_id", allDriverIds)
+        .eq("status", "active")
+        .gte("created_at", since)
+        .order("created_at", { ascending: false });
+
+      const seenDrivers = new Set<string>();
+      const deduped = (events ?? []).filter((ev) => {
+        if (seenDrivers.has(ev.user_id)) return false;
+        seenDrivers.add(ev.user_id);
+        return true;
+      });
+
+      const enriched: AlertEvent[] = [];
+      for (const ev of deduped) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("full_name, phone")
+          .eq("id", ev.user_id)
+          .maybeSingle();
+        enriched.push({
+          ...(ev as AlertEvent),
+          driver_name: (profile as { full_name?: string; phone?: string } | null)?.full_name ?? "Driver",
+          driver_phone: (profile as { full_name?: string; phone?: string } | null)?.phone ?? undefined,
+        });
+      }
+
+      // Update cache with fresh data
+      writeAlertsToCache(enriched);
+      setAlerts(enriched);
+
+      if (enriched.length > 0) {
+        const firstActive = enriched.find((a) => a.status === "active");
+        const autoSelect = firstActive ?? enriched[0];
+        setSelected((prev) => {
+          if (!prev || prev.id !== autoSelect.id) {
+            if (autoSelect.status === "active") {
+              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            }
+            return autoSelect;
+          }
+          return autoSelect;
+        });
+      } else {
+        setAlerts([]);
+        setSelected(null);
+      }
+    } catch { /* keep last known state */ }
+    finally {
+      setLoading(false);
+      loadingRef.current = false;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.user.id, session.user.email]);
 
-    setLoading(false);
-  }, [session.user.id, session.user.email, selected?.id]);
-
+  // Initial load + polling every 15s + realtime as bonus
   useEffect(() => {
     void load();
-    const interval = setInterval(() => void load(), 30_000);
-    return () => clearInterval(interval);
+
+    const interval = setInterval(() => { void load(); }, 15_000);
+
+    const channel = supabase
+      .channel("emergency-alerts-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "emergency_alert_events" }, () => void load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "emergency_contacts" }, () => void load())
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      void supabase.removeChannel(channel);
+    };
   }, [load]);
 
   if (loading) {
@@ -146,15 +232,18 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
           You'll see alerts here when a driver you're emergency contact for needs help.
           Contact requests from drivers also appear here.
         </Text>
-        <Pressable style={styles.refreshBtn} onPress={() => void load()}>
-          <Text style={styles.refreshText}>Refresh</Text>
-        </Pressable>
       </View>
     );
   }
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+
+      {isOffline && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineBannerText}>Offline — showing cached alerts</Text>
+        </View>
+      )}
 
       {/* ── Pending contact requests ── */}
       {pending.length > 0 && (
@@ -165,13 +254,9 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
               <View style={styles.requestInfo}>
                 <Text style={styles.requestName}>{req.driver_name}</Text>
                 {req.driver_email ? (
-                  <Text style={styles.requestEmail}>
-                    {maskEmail(req.driver_email)}
-                  </Text>
+                  <Text style={styles.requestEmail}>{maskEmail(req.driver_email)}</Text>
                 ) : null}
-                <Text style={styles.requestSub}>
-                  wants to add you as their emergency contact
-                </Text>
+                <Text style={styles.requestSub}>wants to add you as their emergency contact</Text>
               </View>
               <View style={styles.requestBtns}>
                 <Pressable
@@ -205,7 +290,6 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Emergency Alerts</Text>
 
-          {/* Driver chips if multiple */}
           {alerts.length > 1 && (
             <ScrollView
               horizontal
@@ -232,27 +316,44 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
             </ScrollView>
           )}
 
-          {/* Selected alert card */}
           {selected && (
             <View style={styles.card}>
-              {selected.status === "active" ? (
-                <View style={[styles.badge, styles.badgeActive]}>
-                  <Text style={[styles.badgeText, { color: theme.tertiary }]}>🚨  ACTIVE ALERT</Text>
-                </View>
-              ) : (
-                <View style={[styles.badge, styles.badgeAlerted]}>
-                  <Text style={[styles.badgeText, { color: "#4ade80" }]}>✓  DRIVER IS ALERT</Text>
-                </View>
-              )}
+              <View style={[styles.badge, styles.badgeActive]}>
+                <Text style={[styles.badgeText, { color: theme.tertiary }]}>🚨  DROWSINESS ALERT</Text>
+              </View>
 
               <Text style={styles.driverName}>{selected.driver_name ?? "Driver"}</Text>
-              <Text style={styles.timeText}>
-                Triggered at {new Date(selected.created_at).toLocaleTimeString()}
+              <Text style={styles.alertMessage}>
+                Critical drowsiness detected — pull over and rest immediately.
               </Text>
-              {selected.acknowledged_at && (
-                <Text style={styles.timeText}>
-                  Acknowledged at {new Date(selected.acknowledged_at).toLocaleTimeString()}
-                </Text>
+              <Text style={styles.timeText}>
+                Triggered at {new Date(selected.created_at).toLocaleString()}
+              </Text>
+
+              {/* Call + SMS side by side */}
+              {selected.driver_phone ? (
+                <View style={styles.contactRow}>
+                  <Pressable
+                    style={styles.callBtn}
+                    onPress={() => void Linking.openURL(`tel:${selected.driver_phone}`)}
+                  >
+                    <Text style={styles.callBtnText}>📞  Call</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.smsBtn}
+                    onPress={() =>
+                      void Linking.openURL(
+                        `sms:${selected.driver_phone}&body=Got your SnoozeGuard alert — are you okay?`,
+                      )
+                    }
+                  >
+                    <Text style={styles.smsBtnText}>💬  SMS</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={styles.noPhoneNote}>
+                  <Text style={styles.noPhoneText}>No phone number on file for this driver</Text>
+                </View>
               )}
 
               {selected.location_lat && selected.location_lng ? (
@@ -279,45 +380,16 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
                 </View>
               )}
 
-              <View style={styles.actionRow}>
-                {selected.driver_phone && (
-                  <>
-                    <Pressable
-                      style={[styles.actionBtn, styles.callBtn]}
-                      onPress={() => void Linking.openURL(`tel:${selected.driver_phone}`)}
-                    >
-                      <Text style={styles.actionBtnText}>📞 Call</Text>
-                    </Pressable>
-                    <Pressable
-                      style={[styles.actionBtn, styles.smsBtn]}
-                      onPress={() =>
-                        void Linking.openURL(
-                          `sms:${selected.driver_phone}&body=Got your SnoozeGuard alert — are you okay?`,
-                        )
-                      }
-                    >
-                      <Text style={styles.actionBtnText}>💬 SMS</Text>
-                    </Pressable>
-                  </>
-                )}
-              </View>
-
-              {selected.status === "active" ? (
-                <Pressable
-                  style={styles.resolveBtn}
-                  onPress={async () => {
-                    await dismissEmergencyAlert(supabase, selected.id);
-                    void load();
-                    onActionDone?.();
-                  }}
-                >
-                  <Text style={styles.resolveText}>Mark as resolved</Text>
-                </Pressable>
-              ) : (
-                <Pressable style={styles.refreshSmall} onPress={() => void load()}>
-                  <Text style={styles.refreshSmallText}>Refresh</Text>
-                </Pressable>
-              )}
+              <Pressable
+                style={styles.resolveBtn}
+                onPress={async () => {
+                  await dismissEmergencyAlert(supabase, selected.id);
+                  void load();
+                  onActionDone?.();
+                }}
+              >
+                <Text style={styles.resolveText}>Mark as resolved</Text>
+              </Pressable>
             </View>
           )}
         </View>
@@ -326,73 +398,79 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: theme.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.background },
   content: { padding: 16, gap: 16, paddingBottom: 32 },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32, backgroundColor: theme.background },
-  loadingText: { color: theme.onSurfaceVariant, marginTop: 12 },
+  offlineBanner: {
+    backgroundColor: `${t.secondary}22`, borderRadius: 12,
+    padding: 10, borderWidth: 1, borderColor: `${t.secondary}55`, alignItems: "center",
+  },
+  offlineBannerText: { color: t.secondary, fontWeight: "700", fontSize: 12 },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32, backgroundColor: t.background },
+  loadingText: { color: t.onSurfaceVariant, marginTop: 12 },
   emptyIcon: { fontSize: 44, color: "#4ade80", marginBottom: 12 },
-  emptyTitle: { fontSize: 18, fontWeight: "700", color: theme.onSurface, marginBottom: 8 },
-  emptyHint: { color: theme.onSurfaceVariant, textAlign: "center", fontSize: 13, lineHeight: 20 },
-  refreshBtn: { marginTop: 20, paddingVertical: 12, paddingHorizontal: 24, backgroundColor: theme.surfaceContainerLow, borderRadius: 14 },
-  refreshText: { color: theme.onSurface, fontWeight: "600" },
+  emptyTitle: { fontSize: 18, fontWeight: "700", color: t.onSurface, marginBottom: 8 },
+  emptyHint: { color: t.onSurfaceVariant, textAlign: "center", fontSize: 13, lineHeight: 20 },
 
   section: { gap: 10 },
-  sectionTitle: { fontSize: 12, fontWeight: "700", color: theme.onSurfaceVariant, letterSpacing: 1, textTransform: "uppercase" },
+  sectionTitle: { fontSize: 12, fontWeight: "700", color: t.onSurfaceVariant, letterSpacing: 1, textTransform: "uppercase" },
 
-  // Pending request cards
   requestCard: {
-    backgroundColor: theme.surfaceContainerLow,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: `${theme.primary}33`,
-    gap: 12,
+    backgroundColor: t.surfaceContainerLow,
+    borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: `${t.primary}33`, gap: 12,
   },
   requestInfo: { gap: 2 },
-  requestName: { fontSize: 16, fontWeight: "700", color: theme.onSurface },
-  requestEmail: { fontSize: 12, color: theme.primary, fontFamily: "monospace", marginTop: 1 },
-  requestSub: { fontSize: 13, color: theme.onSurfaceVariant, marginTop: 2 },
+  requestName: { fontSize: 16, fontWeight: "700", color: t.onSurface },
+  requestEmail: { fontSize: 12, color: t.primary, fontFamily: "monospace", marginTop: 1 },
+  requestSub: { fontSize: 13, color: t.onSurfaceVariant, marginTop: 2 },
   requestBtns: { flexDirection: "row", gap: 10 },
   reqBtn: { flex: 1, paddingVertical: 11, borderRadius: 12, alignItems: "center", borderWidth: 1 },
-  acceptBtn: { backgroundColor: `${theme.primary}22`, borderColor: `${theme.primary}66` },
-  acceptBtnText: { color: theme.primary, fontWeight: "700", fontSize: 14 },
-  declineBtn: { backgroundColor: `${theme.tertiary}11`, borderColor: `${theme.tertiary}44` },
-  declineBtnText: { color: theme.onSurfaceVariant, fontWeight: "600", fontSize: 14 },
+  acceptBtn: { backgroundColor: `${t.primary}22`, borderColor: `${t.primary}66` },
+  acceptBtnText: { color: t.primary, fontWeight: "700", fontSize: 14 },
+  declineBtn: { backgroundColor: `${t.tertiary}11`, borderColor: `${t.tertiary}44` },
+  declineBtnText: { color: t.onSurfaceVariant, fontWeight: "600", fontSize: 14 },
 
-  // Chip row
   chipRow: { maxHeight: 68 },
   chipContent: { gap: 8, paddingBottom: 4 },
-  chip: { backgroundColor: theme.surfaceContainerLow, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: `${theme.outlineVariant}55` },
-  chipSelected: { borderColor: theme.tertiary },
+  chip: { backgroundColor: t.surfaceContainerLow, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: `${t.outlineVariant}55` },
+  chipSelected: { borderColor: t.tertiary },
   chipAlerted: { borderColor: "#4ade8088" },
-  chipName: { color: theme.onSurface, fontSize: 13, fontWeight: "700" },
-  chipStatus: { color: theme.onSurfaceVariant, fontSize: 11, marginTop: 2 },
+  chipName: { color: t.onSurface, fontSize: 13, fontWeight: "700" },
+  chipStatus: { color: t.onSurfaceVariant, fontSize: 11, marginTop: 2 },
 
-  // Alert card
-  card: { backgroundColor: theme.surfaceContainerLow, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: `${theme.outlineVariant}33`, gap: 10 },
+  card: { backgroundColor: t.surfaceContainerLow, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: `${t.outlineVariant}33`, gap: 10 },
   badge: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5, alignSelf: "flex-start", borderWidth: 1 },
   badgeText: { fontWeight: "800", fontSize: 12, letterSpacing: 0.8 },
-  badgeActive: { backgroundColor: `${theme.tertiary}18`, borderColor: `${theme.tertiary}55` },
-  badgeAlerted: { backgroundColor: "#4ade8018", borderColor: "#4ade8055" },
-  driverName: { fontSize: 26, fontWeight: "800", color: theme.onSurface },
-  timeText: { color: theme.onSurfaceVariant, fontSize: 12 },
+  badgeActive: { backgroundColor: `${t.tertiary}18`, borderColor: `${t.tertiary}55` },
+  driverName: { fontSize: 26, fontWeight: "800", color: t.onSurface },
+  alertMessage: { color: t.tertiary, fontSize: 13, fontWeight: "600", lineHeight: 20 },
+  timeText: { color: t.onSurfaceVariant, fontSize: 12 },
 
-  locationBlock: { backgroundColor: `${theme.background}99`, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: `${theme.outlineVariant}33`, gap: 6 },
-  locationLabel: { color: theme.onSurfaceVariant, fontSize: 10, fontWeight: "700", letterSpacing: 1 },
-  coords: { color: theme.onSurface, fontSize: 13, fontFamily: "monospace" },
-  noLocationText: { color: theme.onSurfaceVariant, fontSize: 13 },
-  mapsBtn: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 12, alignItems: "center", marginTop: 4 },
-  mapsBtnText: { color: theme.onPrimary, fontWeight: "700", fontSize: 14 },
+  locationBlock: { backgroundColor: `${t.background}99`, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: `${t.outlineVariant}33`, gap: 6 },
+  locationLabel: { color: t.onSurfaceVariant, fontSize: 10, fontWeight: "700", letterSpacing: 1 },
+  coords: { color: t.onSurface, fontSize: 13, fontFamily: "monospace" },
+  noLocationText: { color: t.onSurfaceVariant, fontSize: 13 },
+  mapsBtn: { backgroundColor: t.primary, borderRadius: 12, paddingVertical: 12, alignItems: "center", marginTop: 4 },
+  mapsBtnText: { color: t.onPrimary, fontWeight: "700", fontSize: 14 },
 
-  actionRow: { flexDirection: "row", gap: 8 },
-  actionBtn: { flex: 1, padding: 13, borderRadius: 14, alignItems: "center", borderWidth: 1 },
-  callBtn: { backgroundColor: "#4ade8022", borderColor: "#4ade8066" },
-  smsBtn: { backgroundColor: `${theme.primary}22`, borderColor: `${theme.primary}66` },
-  actionBtnText: { color: theme.onSurface, fontWeight: "700", fontSize: 13 },
+  contactRow: { flexDirection: "row", gap: 10 },
+  callBtn: {
+    flex: 1, backgroundColor: "#4ade8022", borderWidth: 1, borderColor: "#4ade8066",
+    borderRadius: 14, paddingVertical: 13, alignItems: "center",
+  },
+  callBtnText: { color: "#4ade80", fontWeight: "800", fontSize: 14 },
+  smsBtn: {
+    flex: 1, backgroundColor: `${t.primary}22`, borderWidth: 1, borderColor: `${t.primary}66`,
+    borderRadius: 14, paddingVertical: 13, alignItems: "center",
+  },
+  smsBtnText: { color: t.primary, fontWeight: "800", fontSize: 14 },
+  noPhoneNote: {
+    backgroundColor: `${t.outlineVariant}22`, borderRadius: 12,
+    paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: `${t.outlineVariant}44`,
+  },
+  noPhoneText: { color: t.onSurfaceVariant, fontSize: 13, textAlign: "center" },
 
   resolveBtn: { alignItems: "center", paddingVertical: 10 },
-  resolveText: { color: theme.tertiary, fontSize: 13, textDecorationLine: "underline" },
-  refreshSmall: { alignItems: "center", paddingVertical: 10 },
-  refreshSmallText: { color: theme.onSurfaceVariant, fontSize: 12, textDecorationLine: "underline" },
+  resolveText: { color: t.tertiary, fontSize: 13, textDecorationLine: "underline" },
 });

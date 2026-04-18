@@ -31,6 +31,53 @@ export function getDatabase(): SQLite.SQLiteDatabase {
       );
       CREATE INDEX IF NOT EXISTS idx_telemetry_pending ON session_telemetry_local (remote_synced, local_session_id);
     `);
+    // Additive migration: add head_tilt_delta if not present
+    try {
+      db.execSync("ALTER TABLE session_telemetry_local ADD COLUMN head_tilt_delta INTEGER NOT NULL DEFAULT 0");
+    } catch { /* column already exists */ }
+    // Offline cache tables
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS emergency_contacts_local (
+        user_id TEXT PRIMARY KEY,
+        contact_name TEXT NOT NULL DEFAULT '',
+        contact_phone TEXT NOT NULL DEFAULT '',
+        contact_email TEXT NOT NULL DEFAULT '',
+        my_phone TEXT NOT NULL DEFAULT '',
+        pending_sync INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT ''
+      );
+      CREATE TABLE IF NOT EXISTS emergency_alert_events_local (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        location_lat REAL,
+        location_lng REAL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        acknowledged_at TEXT,
+        driver_name TEXT NOT NULL DEFAULT 'Driver',
+        driver_phone TEXT,
+        cached_at TEXT NOT NULL
+      );
+    `);
+    // Key-value preferences store
+    db.execSync("CREATE TABLE IF NOT EXISTS user_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
   }
   return db;
+}
+
+export function getPref(key: string): string | null {
+  try {
+    const row = getDatabase().getFirstSync<{ value: string }>(
+      "SELECT value FROM user_preferences WHERE key = ?", key,
+    );
+    return row?.value ?? null;
+  } catch { return null; }
+}
+
+export function setPref(key: string, value: string): void {
+  try {
+    getDatabase().runSync(
+      "INSERT OR REPLACE INTO user_preferences (key, value) VALUES (?, ?)", key, value,
+    );
+  } catch { /* ignore */ }
 }

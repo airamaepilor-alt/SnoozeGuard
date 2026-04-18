@@ -1,11 +1,20 @@
 {
   "android": {
-    "package": "com.jamesducusin090500.snoozeguard"
+    "package": "com.jamesducusin090500.snoozeguard",
+    "runtimeVersion": "1.0.0"
   },
   "extra": {
     "eas": {
       "projectId": "c7088437-d807-453f-88e4-fe6e57f588f4"
     }
   },
-  "owner": "snoozeguard-org"
+  "owner": "snoozeguard-org",
+  "updates": {
+    "url": "https://u.expo.dev/c7088437-d807-453f-88e4-fe6e57f588f4"
+  },
+  "ios": {
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
+  }
 }

@@ -11,11 +11,11 @@ export type AlertLevelConfig = {
 export type AlertMap = Record<string, AlertLevelConfig>;
 
 export const DEFAULT_ALERT_MAP: AlertMap = {
-  "6":  { label: "Mild fatigue",        actions: ["voice"],                                    yawn_count: 3,  head_count: 20  },
-  "7":  { label: "Moderate fatigue",    actions: ["voice", "vibration"],                       yawn_count: 5,  head_count: 35  },
-  "8":  { label: "High fatigue",        actions: ["alarm", "vibration"],                       yawn_count: 8,  head_count: 55  },
-  "9":  { label: "Severe — pull over",  actions: ["alarm", "iot_led"],                yawn_count: 12, head_count: 80  },
-  "10": { label: "Critical — stop now", actions: ["alarm", "iot_led", "iot_buzzer"], yawn_count: 18, head_count: 110 },
+  "6":  { label: "Mild fatigue",        actions: ["voice"],                                           yawn_count: 3,  head_count: 20  },
+  "7":  { label: "Moderate fatigue",    actions: ["voice", "vibration"],                              yawn_count: 5,  head_count: 35  },
+  "8":  { label: "High fatigue",        actions: ["vibration", "voice"],                              yawn_count: 8,  head_count: 55  },
+  "9":  { label: "Severe — pull over",  actions: ["iot_led", "voice"],                                yawn_count: 12, head_count: 80  },
+  "10": { label: "Critical — stop now", actions: ["iot_led", "iot_buzzer", "voice"],                  yawn_count: 18, head_count: 110 },
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -53,7 +53,7 @@ export function computeLevelFromAlertMap(
   suddenBrake: boolean,
   alertMap: AlertMap,
 ): number {
-  if (suddenBrake) return 9;
+  // sudden brake is handled as a special alert — does not affect drowsiness level
   const levels = Object.keys(alertMap)
     .map(Number)
     .filter((n) => !Number.isNaN(n))

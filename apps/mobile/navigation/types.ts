@@ -1,8 +1,12 @@
 export type MainTabParamList = {
   Home: undefined;
   Drive: undefined;
-  History: undefined;
-  Profile: undefined;
   Alerts: undefined;
+  History: undefined;
+  Analytics: undefined;
+  EmergencyContact: undefined;
+  Account: undefined;
+  About: undefined;
   Admin: undefined;
+  Terms: undefined;
 };

@@ -204,23 +204,40 @@ export async function captureLocation(): Promise<LocationSnapshot | null> {
   }
 }
 
-// ─── SMS via TextBelt (free tier) ────────────────────────────────────────────
+// ─── SMS via Supabase Edge Function ──────────────────────────────────────────
 
-async function sendAutoSms(phone: string, driverName: string, location: LocationSnapshot | null): Promise<void> {
-  if (!phone?.trim()) return;
-  const mapsLink = location
-    ? `https://maps.google.com/?q=${location.lat.toFixed(6)},${location.lng.toFixed(6)}`
-    : null;
-  const message = mapsLink
-    ? `Hi, this is an automated message from SnoozeGuard. ${driverName} may need a quick check-in while driving. Last known location: ${mapsLink} — Please reach out when you can.`
-    : `Hi, this is an automated message from SnoozeGuard. ${driverName} may need a quick check-in while driving. Please reach out when you can.`;
+const SMS_FUNCTION_SECRET = "sg-sms-2026";
+
+async function sendAutoSms(
+  supabase: SupabaseClient,
+  phone: string,
+  driverName: string,
+  location: LocationSnapshot | null,
+): Promise<void> {
+  if (!phone?.trim()) {
+    console.log("[SMS] Skipped — phone is empty");
+    return;
+  }
+  console.log("[SMS] Invoking dynamic-worker for phone:", phone.trim().slice(0, 6) + "***");
   try {
-    await fetch("https://textbelt.com/text", {
+    const res = await fetch("https://cjxxdqyhqscfklktxohq.supabase.co/functions/v1/dynamic-worker", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone: phone.trim(), message, key: "textbelt" }),
+      headers: {
+        "Content-Type": "application/json",
+        "x-snoozeguard-secret": SMS_FUNCTION_SECRET,
+      },
+      body: JSON.stringify({
+        phone: phone.trim(),
+        driverName,
+        lat: location?.lat ?? null,
+        lng: location?.lng ?? null,
+      }),
     });
-  } catch { /* non-fatal */ }
+    const text = await res.text();
+    console.log("[SMS] Status:", res.status, "Response:", text.slice(0, 200));
+  } catch (e) {
+    console.log("[SMS] Exception:", String(e));
+  }
 }
 
 // ─── Emergency alert ─────────────────────────────────────────────────────────
@@ -230,8 +247,11 @@ export async function triggerEmergencyAlert(
   userId: string,
   driverName: string,
   sessionId: string | null,
+  smsEnabled?: boolean,
 ): Promise<{ alertId: string | null; location: LocationSnapshot | null }> {
+  console.log("[Alert] triggerEmergencyAlert — smsEnabled:", smsEnabled, "userId:", userId);
   const location = await captureLocation();
+  console.log("[Alert] Location captured:", location ? `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}` : "null");
 
   const { data } = await supabase
     .from("emergency_alert_events")
@@ -249,19 +269,25 @@ export async function triggerEmergencyAlert(
 
   // Only notify if emergency contact has accepted
   const ec = await getEmergencyContact(supabase, userId);
-  if (!ec || ec.status !== "accepted") return { alertId, location };
+  console.log("[Alert] EC found:", ec ? `${ec.contact_name} status=${ec.status} phone=${ec.contact_phone ? "yes" : "no"} userId=${ec.contact_user_id ? "yes" : "no"}` : "null");
+  if (!ec || ec.status !== "accepted") {
+    console.log("[Alert] Skipping notifications — EC missing or not accepted");
+    return { alertId, location };
+  }
 
   const pushBody = location
     ? `${driverName} needs a check-in. Location: ${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`
     : `${driverName} triggered a drowsiness alert — please check in.`;
 
   // Push notification if contact is registered
+  console.log("[Alert] Push check — contact_user_id:", ec.contact_user_id ? "yes" : "no (not a SnoozeGuard user)");
   if (ec.contact_user_id) {
     const { data: tokenRow } = await supabase
       .from("push_tokens")
       .select("expo_push_token")
       .eq("user_id", ec.contact_user_id)
       .maybeSingle();
+    console.log("[Alert] Push token found:", tokenRow?.expo_push_token ? "yes" : "no");
 
     if (tokenRow?.expo_push_token) {
       await fetch("https://exp.host/--/api/v2/push/send", {
@@ -279,9 +305,12 @@ export async function triggerEmergencyAlert(
     }
   }
 
-  // SMS to phone number (free TextBelt, always send regardless of app registration)
-  if (ec.contact_phone) {
-    await sendAutoSms(ec.contact_phone, driverName, location);
+  // SMS via Edge Function — send regardless of whether contact is in the app
+  console.log("[Alert] SMS check — smsEnabled:", smsEnabled, "contact_phone:", ec.contact_phone ? "yes" : "no");
+  if (smsEnabled && ec.contact_phone) {
+    await sendAutoSms(supabase, ec.contact_phone, driverName, location);
+  } else {
+    console.log("[Alert] SMS skipped —", !smsEnabled ? "smsEnabled is false (toggle off in admin)" : "no contact phone");
   }
 
   return { alertId, location };

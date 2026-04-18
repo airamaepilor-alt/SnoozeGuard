@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SnoozeGuard | Emergency Alerts Hub</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary-fixed": "#c4e7ff",
+                        "error": "#ffb4ab",
+                        "background": "#0b1326",
+                        "surface-container-low": "#131b2e",
+                        "on-surface": "#dae2fd",
+                        "on-tertiary-fixed": "#410004",
+                        "on-error": "#690005",
+                        "inverse-surface": "#dae2fd",
+                        "surface-variant": "#2d3449",
+                        "on-secondary-container": "#5b3800",
+                        "surface-container-highest": "#2d3449",
+                        "on-primary-container": "#008abb",
+                        "secondary-fixed": "#ffddb8",
+                        "on-background": "#dae2fd",
+                        "outline": "#909097",
+                        "on-tertiary-container": "#eb4141",
+                        "surface-dim": "#0b1326",
+                        "on-tertiary": "#68000a",
+                        "error-container": "#93000a",
+                        "surface-bright": "#31394d",
+                        "surface-tint": "#7bd0ff",
+                        "on-primary-fixed-variant": "#004c69",
+                        "on-primary": "#00354a",
+                        "secondary-fixed-dim": "#ffb95f",
+                        "outline-variant": "#45464d",
+                        "secondary-container": "#ee9800",
+                        "tertiary": "#ffb3ad",
+                        "on-secondary": "#472a00",
+                        "tertiary-fixed-dim": "#ffb3ad",
+                        "on-tertiary-fixed-variant": "#930013",
+                        "tertiary-fixed": "#ffdad7",
+                        "primary-container": "#001a27",
+                        "secondary": "#ffb95f",
+                        "on-error-container": "#ffdad6",
+                        "surface-container-high": "#222a3d",
+                        "primary-fixed-dim": "#7bd0ff",
+                        "inverse-on-surface": "#283044",
+                        "surface-container": "#171f33",
+                        "on-primary-fixed": "#001e2c",
+                        "on-surface-variant": "#c6c6cd",
+                        "on-secondary-fixed": "#2a1700",
+                        "surface-container-lowest": "#060e20",
+                        "tertiary-container": "#390003",
+                        "primary": "#7bd0ff",
+                        "on-secondary-fixed-variant": "#653e00",
+                        "surface": "#0b1326",
+                        "inverse-primary": "#00668a"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    fontFamily: {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3 { font-family: 'Manrope', sans-serif; }
+    </style>
+</head>
+<body class="bg-background text-on-surface min-h-screen overflow-hidden flex flex-col">
+<!-- TopNavBar -->
+<header class="bg-[#0b1326]/80 backdrop-blur-xl font-manrope font-bold tracking-tight docked full-width top-0 sticky z-50 shadow-[0_20px_40px_rgba(123,208,255,0.08)]">
+<div class="flex justify-between items-center px-8 py-4 w-full max-w-[1920px] mx-auto">
+<div class="flex items-center space-x-12">
+<span class="text-2xl font-black text-[#7bd0ff] tracking-tighter">SnoozeGuard</span>
+<nav class="hidden md:flex space-x-8 items-center text-sm">
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Dashboard</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Analytics</a>
+<a class="text-[#7bd0ff] border-b-2 border-[#7bd0ff] pb-1" href="#">Map</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">History</a>
+</nav>
+</div>
+<div class="flex items-center space-x-6">
+<div class="flex items-center space-x-4">
+<button class="p-2 text-slate-400 hover:bg-[#31394d]/50 transition-all duration-300 rounded-full active:scale-95">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 text-slate-400 hover:bg-[#31394d]/50 transition-all duration-300 rounded-full active:scale-95">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</div>
+<div class="h-8 w-[1px] bg-[#131b2e] opacity-20"></div>
+<button class="bg-error-container text-on-error-container px-6 py-2 rounded-xl text-xs font-black tracking-widest active:scale-95 duration-150">
+                    EMERGENCY SOS
+                </button>
+</div>
+</div>
+<div class="bg-[#131b2e] h-[1px] w-full opacity-20"></div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- SideNavBar (Hidden on map-focused view but conceptually present) -->
+<aside class="bg-[#131b2e] h-screen w-72 flex flex-col fixed left-0 top-0 z-40 hidden xl:flex border-r border-outline-variant/10">
+<div class="flex flex-col h-full py-8 space-y-2">
+<div class="px-8 mb-8">
+<p class="text-[10px] uppercase tracking-[0.2em] text-on-surface-variant font-bold">Safety Admin</p>
+<p class="text-xs text-slate-500">Sector 7G Monitor</p>
+</div>
+<nav class="flex-1 space-y-1">
+<div class="hover:bg-[#222a3d]/50 rounded-r-full mr-4 transition-all duration-200 ease-in-out">
+<a class="text-slate-400 px-6 py-3 flex items-center space-x-4" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-inter text-sm font-medium">Overview</span>
+</a>
+</div>
+<div class="bg-[#222a3d] text-[#7bd0ff] rounded-r-full mr-4 px-6 py-3 font-bold flex items-center space-x-4 transition-all duration-200 ease-in-out">
+<span class="material-symbols-outlined" data-icon="videocam">videocam</span>
+<span class="font-inter text-sm font-medium">Live Feed</span>
+</div>
+<div class="hover:bg-[#222a3d]/50 rounded-r-full mr-4 transition-all duration-200 ease-in-out">
+<a class="text-slate-400 px-6 py-3 flex items-center space-x-4" href="#">
+<span class="material-symbols-outlined" data-icon="bar_chart">bar_chart</span>
+<span class="font-inter text-sm font-medium">Driver Analytics</span>
+</a>
+</div>
+<div class="hover:bg-[#222a3d]/50 rounded-r-full mr-4 transition-all duration-200 ease-in-out">
+<a class="text-slate-400 px-6 py-3 flex items-center space-x-4" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="font-inter text-sm font-medium">System Logs</span>
+</a>
+</div>
+</nav>
+<div class="px-6 mt-auto space-y-4">
+<button class="w-full bg-surface-bright text-primary py-3 rounded-xl font-bold text-sm active:scale-95 transition-transform">
+                        Generate Report
+                    </button>
+<div class="pt-4 space-y-2 border-t border-outline-variant/10">
+<a class="text-slate-400 py-2 flex items-center space-x-4 hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span class="text-sm">Help Center</span>
+</a>
+<a class="text-slate-400 py-2 flex items-center space-x-4 hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="logout">logout</span>
+<span class="text-sm">Log Out</span>
+</a>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="flex-1 xl:ml-72 relative flex overflow-hidden">
+<!-- System Status Banner (Floating) -->
+<div class="absolute top-6 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center space-y-2 pointer-events-none">
+<div class="bg-surface-container-high/90 backdrop-blur-xl border border-outline-variant/10 px-4 py-2 rounded-full flex items-center space-x-3 shadow-2xl pointer-events-auto">
+<div class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+</div>
+<span class="text-[10px] font-bold tracking-widest text-on-surface-variant uppercase">Polling Data: 15s remaining</span>
+</div>
+</div>
+<!-- Active Alerts Map (Large Interactive Area) -->
+<section class="flex-1 relative bg-surface-container-lowest">
+<div class="absolute inset-0 z-0">
+<img class="w-full h-full object-cover opacity-40 grayscale contrast-125" data-alt="Dark stylized tactical map of a metropolitan city with neon blue navigation paths and glowing data points" data-location="Chicago" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDSnZZx8qBNOHTVBZ8qfjXtOBtLX7NM_wXeOg7AnPdKQ2pzpfvuINsOLtjb4E5rZMv32N43nqlL6u7P24RZO66mwxvFbkO42Ku_QPD0eM9xt8exRjC1-I3OJwg_GERuJVGL_BtaIB542H8mYiysJZTorcge4Ke-hPykeuggSoDVKfdb0QB8PxO-UpHJTiw_KGT-QNed43KEI9w31aXRFOuEsCAyP97oWxodkAGdsGZTuJVMJMBSnyeHWKjDe7IPXY_aXbK3qIOI6Ds"/>
+<!-- Map Overlay Gradients -->
+<div class="absolute inset-0 bg-gradient-to-t from-background via-transparent to-background/50"></div>
+<div class="absolute inset-0 bg-gradient-to-r from-background/80 via-transparent to-transparent"></div>
+</div>
+<!-- Custom Map Markers (Simulated) -->
+<div class="absolute top-[35%] left-[45%] z-10 group cursor-pointer">
+<div class="relative flex flex-col items-center">
+<div class="bg-error p-3 rounded-full shadow-[0_0_30px_rgba(255,180,171,0.5)] active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-on-error text-xl" data-icon="warning" style="font-variation-settings: 'FILL' 1;">warning</span>
+</div>
+<div class="mt-2 bg-surface-container-highest/90 backdrop-blur-md px-3 py-1 rounded-lg border border-error/30 text-[10px] font-bold text-error whitespace-nowrap">
+                            CRITICAL: Marcus W.
+                        </div>
+</div>
+</div>
+<div class="absolute top-[60%] left-[25%] z-10 group cursor-pointer">
+<div class="relative flex flex-col items-center">
+<div class="bg-secondary p-2 rounded-full shadow-[0_0_20px_rgba(255,185,95,0.4)]">
+<span class="material-symbols-outlined text-on-secondary text-sm" data-icon="person_pin" style="font-variation-settings: 'FILL' 1;">person_pin</span>
+</div>
+<div class="mt-2 bg-surface-container-highest/80 backdrop-blur-sm px-2 py-1 rounded-lg border border-secondary/20 text-[10px] font-bold text-secondary whitespace-nowrap">
+                            ALERTED: Sarah J.
+                        </div>
+</div>
+</div>
+<div class="absolute top-[20%] left-[65%] z-10 group cursor-pointer">
+<div class="relative flex flex-col items-center">
+<div class="bg-primary/20 border border-primary/50 p-2 rounded-full">
+<span class="material-symbols-outlined text-primary text-sm" data-icon="check_circle">check_circle</span>
+</div>
+<div class="mt-2 bg-surface-container-highest/60 backdrop-blur-sm px-2 py-1 rounded-lg border border-primary/10 text-[10px] font-medium text-slate-400 whitespace-nowrap">
+                            RESOLVED: David K.
+                        </div>
+</div>
+</div>
+</section>
+<!-- Live Alert List Sidebar -->
+<section class="w-[420px] h-full bg-surface-container-low/95 backdrop-blur-2xl border-l border-outline-variant/10 z-30 flex flex-col">
+<div class="p-8 border-b border-outline-variant/5">
+<div class="flex justify-between items-end mb-2">
+<h2 class="text-2xl font-black tracking-tight text-white">Live Alerts</h2>
+<span class="bg-error/10 text-error px-2 py-1 rounded text-[10px] font-black uppercase tracking-tighter">4 Active</span>
+</div>
+<p class="text-sm text-on-surface-variant font-medium">Real-time fatigue monitoring</p>
+</div>
+<div class="flex-1 overflow-y-auto p-6 space-y-6">
+<!-- Alert Card (Critical State) -->
+<div class="bg-error-container/20 border-l-4 border-error rounded-xl p-5 space-y-4 shadow-lg hover:bg-error-container/30 transition-colors cursor-pointer group">
+<div class="flex justify-between items-start">
+<div class="flex items-center space-x-3">
+<div class="w-12 h-12 rounded-full overflow-hidden border-2 border-error">
+<img class="w-full h-full object-cover" data-alt="Portrait of a middle aged man with a beard looking focused, clean professional headshot" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCyy6Aciffm_qVqYNupqSrPhvbDtaiZmud9vl72BqYP8SYytd97zLXuRt494LFWttz44uvxaQ6NVww7bOUkt9ax_HhCuckAh-b6CG6wsYJoG_ABMoZG8DFCGfWJHo4PDfFAzRtRSnbsLNG9Ws2TlymfRLGIXs69lO6TTpQkXLOIT3f2oYn0W_CoaE3E-DaCjFbBgJCeZEwcdVqYNX3wv-Rv5h9tMnmwRNNQGU2M0t45hfzN9FNWGd19OE0qZnCIol49V7qfp9kJ9C4"/>
+</div>
+<div>
+<h3 class="font-bold text-error text-base">Marcus Wright</h3>
+<p class="text-[10px] font-medium text-on-error-container/70 tracking-widest uppercase">ID: SG-992-04</p>
+</div>
+</div>
+<span class="text-[10px] font-black text-error animate-pulse">CRITICAL FATIGUE</span>
+</div>
+<div class="grid grid-cols-2 gap-4 text-[10px]">
+<div class="space-y-1">
+<p class="text-slate-500 uppercase tracking-widest">Location</p>
+<p class="text-on-surface font-mono">41.8781° N, 87.6298° W</p>
+</div>
+<div class="space-y-1">
+<p class="text-slate-500 uppercase tracking-widest">Session Time</p>
+<p class="text-on-surface font-mono">04:12:33</p>
+</div>
+</div>
+<!-- Action Panel -->
+<div class="grid grid-cols-2 gap-3 pt-2">
+<button class="flex items-center justify-center space-x-2 bg-error text-on-error py-2.5 rounded-lg font-bold text-xs active:scale-95 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="call" style="font-variation-settings: 'FILL' 1;">call</span>
+<span>CALL DRIVER</span>
+</button>
+<button class="flex items-center justify-center space-x-2 bg-surface-bright text-on-surface py-2.5 rounded-lg font-bold text-xs border border-error/20 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="chat">chat</span>
+<span>SEND SMS</span>
+</button>
+</div>
+</div>
+<!-- Alert Card (Warning State) -->
+<div class="bg-surface-container-high rounded-xl p-5 space-y-4 hover:bg-surface-bright transition-colors cursor-pointer border border-outline-variant/5">
+<div class="flex justify-between items-start">
+<div class="flex items-center space-x-3">
+<div class="w-12 h-12 rounded-full overflow-hidden border-2 border-secondary">
+<img class="w-full h-full object-cover" data-alt="Portrait of a young professional woman with glasses, smiling slightly, soft lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCQqN5FOh1MApFH7MZxG9bNl0Gh4KJOFcs0pLq3BrQOjlVLTtb9QHqKmZCe5-SKE2-7e7iotz-beGN1izkPwl2gwFrin1-72tKK_jBzw6VifkXnXpEWlae8t_7xfVLsyw5NLVDj_JFFWr_80VSpvk19uO6QzqTN96xZKbc7F315puWir_s7FdfdDedHJqc8iOFh5A_uKim9hh0q7XqFvE6bbBRWrkswJVxZw3Y8iaYlamdulmvEaQyJC4ZbH3f0tInSu5-A0K5b5mg"/>
+</div>
+<div>
+<h3 class="font-bold text-white text-base">Sarah Jenkins</h3>
+<p class="text-[10px] font-medium text-slate-500 tracking-widest uppercase">ID: SG-104-12</p>
+</div>
+</div>
+<span class="text-[10px] font-black text-secondary">MODERATE RISK</span>
+</div>
+<div class="grid grid-cols-2 gap-4 text-[10px]">
+<div class="space-y-1">
+<p class="text-slate-500 uppercase tracking-widest">Location</p>
+<p class="text-on-surface font-mono">41.8333° N, 87.6000° W</p>
+</div>
+<div class="space-y-1">
+<p class="text-slate-500 uppercase tracking-widest">Session Time</p>
+<p class="text-on-surface font-mono">01:45:10</p>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-3 pt-2">
+<button class="flex items-center justify-center space-x-2 bg-secondary text-on-secondary py-2.5 rounded-lg font-bold text-xs active:scale-95 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="call" style="font-variation-settings: 'FILL' 1;">call</span>
+<span>CONTACT</span>
+</button>
+<button class="flex items-center justify-center space-x-2 bg-surface-container-highest text-on-surface py-2.5 rounded-lg font-bold text-xs border border-outline-variant/10 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="notifications_active">notifications_active</span>
+<span>NUDGE</span>
+</button>
+</div>
+</div>
+<!-- Alert Card (Inactive/Resolved) -->
+<div class="bg-surface-container-high/40 rounded-xl p-5 space-y-4 opacity-60 grayscale-[0.5]">
+<div class="flex justify-between items-start">
+<div class="flex items-center space-x-3">
+<div class="w-12 h-12 rounded-full overflow-hidden border border-slate-700">
+<img class="w-full h-full object-cover" data-alt="Portrait of a young man with short hair, casual wear, neutral expression" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBeeAu4OuNNqElQFnwJHz2C6gBxjf9246tqYzeH-kvVH9bLqcNlLsOpFvj3UteL-f4BR0ZEzwueerLYFwJnrZW-wLSE0h7iPTEGt9teEnLxBLJ8PfQybju8ChzYV6fdxeMay6aQvIP9HfIko1U51ckvCjKXU1LQlQZUPma88qkKQovUjcv78CLZpHbboerr2_hT0T0xHMX_2JU-pxNJ8GqErZBLYA2uRz3JrpQ1EPFY_8dkrOdqlKZy859uUL7T13FtI0hkeQ4iml0"/>
+</div>
+<div>
+<h3 class="font-bold text-slate-300 text-base">David Kim</h3>
+<p class="text-[10px] font-medium text-slate-500 tracking-widest uppercase">ID: SG-881-22</p>
+</div>
+</div>
+<span class="text-[10px] font-black text-primary">RESOLVED</span>
+</div>
+</div>
+</div>
+<!-- Footer Quick Controls -->
+<div class="p-6 bg-surface-container-low border-t border-outline-variant/10">
+<div class="flex items-center justify-between text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.2em] mb-4">
+<span>Fleet Overview</span>
+<span>Sector 7G</span>
+</div>
+<div class="grid grid-cols-3 gap-2">
+<div class="bg-surface-container-high p-3 rounded-lg flex flex-col items-center">
+<span class="text-lg font-black text-primary">124</span>
+<span class="text-[8px] text-slate-500 uppercase">Active</span>
+</div>
+<div class="bg-surface-container-high p-3 rounded-lg flex flex-col items-center border border-error/20">
+<span class="text-lg font-black text-error">04</span>
+<span class="text-[8px] text-slate-500 uppercase">Alerts</span>
+</div>
+<div class="bg-surface-container-high p-3 rounded-lg flex flex-col items-center">
+<span class="text-lg font-black text-secondary">09</span>
+<span class="text-[8px] text-slate-500 uppercase">Warnings</span>
+</div>
+</div>
+</div>
+</section>
+</main>
+</div>
+<!-- Offline Notification Banner (Hidden by default, used for state demonstration) -->
+<div class="fixed bottom-0 left-0 right-0 z-[100] bg-tertiary-container text-on-tertiary-container py-3 px-8 flex items-center justify-between transform translate-y-full transition-transform duration-500" id="offline-banner">
+<div class="flex items-center space-x-4">
+<span class="material-symbols-outlined" data-icon="wifi_off">wifi_off</span>
+<span class="text-sm font-bold uppercase tracking-widest">System Offline: Attempting Reconnection...</span>
+</div>
+<button class="bg-tertiary text-on-tertiary px-4 py-1 rounded-full text-[10px] font-black">RETRY NOW</button>
+</div>
+</body></html>

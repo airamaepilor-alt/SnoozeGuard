@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -7,13 +7,13 @@ import {
   Text,
   View,
 } from "react-native";
+import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSession } from "../context/SessionContext";
+import { useTheme } from "../context/ThemeContext";
 import { getDatabase } from "../db/database";
-import { theme } from "../theme";
-
-// Local SQLite is always the ground truth for counts — Supabase sync may lag.
-// We query the local DB directly so yawn/head/brake totals are always accurate.
+import { DateRangePicker } from "../components/DateRangePicker";
+import type { Theme } from "../theme";
 
 type LocalSession = {
   id: string;
@@ -25,18 +25,42 @@ type LocalSession = {
   yawn_sum: number;
   head_sum: number;
   brake_count: number;
+  tilt_count: number;
 };
 
 const PAGE = 20;
 
+function toDateStr(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function fmtRange(from: string, to: string): string {
+  const f = new Date(from + "T00:00:00");
+  const t = new Date(to + "T00:00:00");
+  const fmtOpts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+  const fmtFull: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric" };
+  if (f.getFullYear() === t.getFullYear()) {
+    return `${f.toLocaleDateString("en", fmtOpts)} – ${t.toLocaleDateString("en", fmtFull)}`;
+  }
+  return `${f.toLocaleDateString("en", fmtFull)} – ${t.toLocaleDateString("en", fmtFull)}`;
+}
+
 export function HistoryScreen() {
   const session = useSession();
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   const user = session.user;
   const [sessions, setSessions] = useState<LocalSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const offsetRef = useRef(0);
+
+  const defaultFrom = toDateStr(new Date(Date.now() - 30 * 86400 * 1000));
+  const defaultTo = toDateStr(new Date());
+  const [fromDate, setFromDate] = useState(defaultFrom);
+  const [toDate, setToDate] = useState(defaultTo);
+  const [showPicker, setShowPicker] = useState(false);
 
   const loadPage = useCallback(
     (reset: boolean) => {
@@ -49,10 +73,11 @@ export function HistoryScreen() {
       }
 
       const offset = reset ? 0 : offsetRef.current;
+      const since = `${fromDate}T00:00:00.000Z`;
+      const until = `${toDate}T23:59:59.999Z`;
 
       try {
         const db = getDatabase();
-        // Single query: join sessions with telemetry, aggregate counts per session
         const rows = db.getAllSync<{
           id: string;
           started_at: string;
@@ -63,6 +88,7 @@ export function HistoryScreen() {
           yawn_sum: number;
           head_sum: number;
           brake_count: number;
+          tilt_count: number;
         }>(
           `SELECT
              s.id,
@@ -73,16 +99,17 @@ export function HistoryScreen() {
              AVG(t.drowsiness_level)            AS avg_drowsiness,
              COALESCE(SUM(t.yawn_count_delta), 0)         AS yawn_sum,
              COALESCE(SUM(t.head_event_count_delta), 0)   AS head_sum,
-             COALESCE(SUM(CASE WHEN t.sudden_brake = 1 THEN 1 ELSE 0 END), 0) AS brake_count
+             COALESCE(SUM(CASE WHEN t.sudden_brake = 1 THEN 1 ELSE 0 END), 0) AS brake_count,
+             COALESCE(SUM(t.head_tilt_delta), 0) AS tilt_count
            FROM driving_sessions_local s
            LEFT JOIN session_telemetry_local t ON t.local_session_id = s.id
            WHERE s.user_id = ?
+             AND s.started_at >= ?
+             AND s.started_at <= ?
            GROUP BY s.id
            ORDER BY s.started_at DESC
            LIMIT ? OFFSET ?`,
-          user.id,
-          PAGE,
-          offset,
+          user.id, since, until, PAGE, offset,
         );
 
         const next: LocalSession[] = rows.map((r) => ({
@@ -95,6 +122,7 @@ export function HistoryScreen() {
           yawn_sum: Number(r.yawn_sum),
           head_sum: Number(r.head_sum),
           brake_count: Number(r.brake_count),
+          tilt_count: Number(r.tilt_count),
         }));
 
         if (reset) setSessions(next);
@@ -107,15 +135,37 @@ export function HistoryScreen() {
         setLoadingMore(false);
       }
     },
-    [user.id],
+    [user.id, fromDate, toDate],
   );
 
-  // Reload every time the user switches to this tab
   useFocusEffect(useCallback(() => { loadPage(true); }, [loadPage]));
 
   return (
     <View style={styles.root}>
-      <Text style={styles.title}>History</Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>History</Text>
+        <Pressable
+          style={styles.rangeBtn}
+          onPress={() => setShowPicker(true)}
+        >
+          <MaterialIcons name="date-range" size={16} color={theme.primary} />
+          <Text style={styles.rangeBtnText}>{fmtRange(fromDate, toDate)}</Text>
+          <MaterialIcons name="expand-more" size={16} color={theme.primary} />
+        </Pressable>
+      </View>
+
+      <DateRangePicker
+        visible={showPicker}
+        fromDate={fromDate}
+        toDate={toDate}
+        onApply={(f, t) => {
+          setFromDate(f);
+          setToDate(t);
+          setShowPicker(false);
+        }}
+        onClose={() => setShowPicker(false)}
+      />
+
       {loading ? (
         <ActivityIndicator color={theme.primary} style={{ marginTop: 24 }} />
       ) : (
@@ -123,16 +173,31 @@ export function HistoryScreen() {
           data={sessions}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.muted}>No sessions yet.</Text>}
+          ListEmptyComponent={<Text style={styles.muted}>No sessions in this date range.</Text>}
           renderItem={({ item: s }) => (
             <View style={styles.card}>
-              <Text style={styles.date}>{new Date(s.started_at).toLocaleString()}</Text>
+              <View style={styles.cardTop}>
+                <Text style={styles.date}>{new Date(s.started_at).toLocaleString()}</Text>
+                <View style={[
+                  styles.drowsyBadge,
+                  { backgroundColor: s.avg_drowsiness >= 8 ? `${theme.tertiary}22` : s.avg_drowsiness >= 6 ? `${theme.secondary}22` : "#4ade8022" },
+                ]}>
+                  <Text style={[
+                    styles.drowsyBadgeText,
+                    { color: s.avg_drowsiness >= 8 ? theme.tertiary : s.avg_drowsiness >= 6 ? theme.secondary : "#4ade80" },
+                  ]}>
+                    {s.avg_drowsiness.toFixed(1)}
+                  </Text>
+                </View>
+              </View>
               <Text style={styles.meta}>
-                {s.device_type} · {s.sample_count} samples · avg {Number(s.avg_drowsiness).toFixed(2)}
+                {s.device_type} · {s.sample_count} samples
               </Text>
               <Text style={styles.chips}>
-                YAWN +{s.yawn_sum} · HEAD +{s.head_sum}
-                {s.brake_count > 0 ? ` · BRAKE ×${s.brake_count}` : ""}
+                {s.yawn_sum > 0 ? `😮 ${s.yawn_sum} yawns  ` : ""}
+                {s.head_sum > 0 ? `😴 ${s.head_sum} nods  ` : ""}
+                {s.tilt_count > 0 ? `↗️ ${s.tilt_count} tilts  ` : ""}
+                {s.brake_count > 0 ? `🛑 ${s.brake_count} brakes` : ""}
               </Text>
             </View>
           )}
@@ -157,28 +222,42 @@ export function HistoryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: theme.background, paddingTop: 8, paddingHorizontal: 16 },
-  title: { fontSize: 22, fontWeight: "800", color: theme.onSurface },
-  list: { paddingBottom: 24, marginTop: 16 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.background, paddingTop: 8, paddingHorizontal: 16 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4, flexWrap: "wrap", gap: 8 },
+  title: { fontSize: 22, fontWeight: "800", color: t.onSurface },
+  rangeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: `${t.primary}66`,
+    backgroundColor: `${t.primary}10`,
+  },
+  rangeBtnText: { color: t.primary, fontWeight: "700", fontSize: 12 },
+  list: { paddingBottom: 24, marginTop: 12 },
   card: {
     borderWidth: 1,
-    borderColor: `${theme.outlineVariant}55`,
+    borderColor: `${t.outlineVariant}55`,
     borderRadius: 16,
     padding: 14,
     marginBottom: 12,
-    backgroundColor: `${theme.surfaceContainerLow}ee`,
+    backgroundColor: `${t.surfaceContainerLow}ee`,
   },
-  date: { color: theme.onSurface, fontWeight: "600" },
-  meta: { color: theme.onSurfaceVariant, fontSize: 12, marginTop: 4 },
-  chips: { color: theme.primary, fontSize: 11, marginTop: 8, fontWeight: "600" },
-  muted: { color: theme.onSurfaceVariant, marginTop: 24 },
+  cardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+  date: { color: t.onSurface, fontWeight: "600", fontSize: 13, flex: 1 },
+  drowsyBadge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20 },
+  drowsyBadgeText: { fontWeight: "800", fontSize: 12 },
+  meta: { color: t.onSurfaceVariant, fontSize: 12, marginTop: 2 },
+  chips: { color: t.onSurface, fontSize: 12, marginTop: 8, lineHeight: 18 },
+  muted: { color: t.onSurfaceVariant, marginTop: 24, textAlign: "center" },
   more: {
-    marginTop: 8,
-    padding: 14,
-    backgroundColor: theme.primary,
-    borderRadius: 16,
-    alignItems: "center",
+    marginTop: 8, padding: 14,
+    backgroundColor: t.primary,
+    borderRadius: 16, alignItems: "center",
   },
-  moreText: { color: theme.onPrimary, fontWeight: "800" },
+  moreText: { color: t.onPrimary, fontWeight: "800" },
 });

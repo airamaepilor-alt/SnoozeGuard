@@ -1,5 +1,4 @@
-/** Aligned with `UI/*.html` + `apps/web/tailwind.config.js` */
-export const theme = {
+export const darkTheme = {
   background: "#0b1326",
   surface: "#0b1326",
   surfaceContainer: "#171f33",
@@ -19,4 +18,26 @@ export const theme = {
   navBorder: "rgba(123, 208, 255, 0.22)",
 } as const;
 
-export type Theme = typeof theme;
+export const lightTheme = {
+  background: "#f4f7ff",
+  surface: "#f4f7ff",
+  surfaceContainer: "#e5eaf5",
+  surfaceContainerLow: "#edf0fa",
+  surfaceContainerHigh: "#dce2f0",
+  surfaceBright: "#ffffff",
+  primary: "#005b87",
+  onPrimary: "#ffffff",
+  primaryContainer: "#c8e6ff",
+  onPrimaryContainer: "#003a57",
+  secondary: "#8a5500",
+  tertiary: "#8c1d18",
+  onSurface: "#1a1d27",
+  onSurfaceVariant: "#44475a",
+  outlineVariant: "#bcc0ce",
+  error: "#ba1a1a",
+  navBorder: "rgba(0, 91, 135, 0.20)",
+} as const;
+
+/** Static dark theme kept for files not yet using ThemeContext */
+export const theme = darkTheme;
+export type Theme = typeof darkTheme;
