@@ -31,6 +31,7 @@ import { EmergencyContactSetupModal } from "./screens/EmergencyContactSetupModal
 import { getEmergencyContact, registerPushToken } from "./lib/emergencyNotify";
 import { getDatabase } from "./db/database";
 import { flushEndedSessions, flushPendingTelemetry, rehydrateSessions } from "./sync/flush";
+import { setPresenceIds } from "./lib/presenceStore";
 import { theme } from "./theme";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -489,6 +490,22 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.user.id, session.user.email]);
 
+  // Broadcast presence and sync onlineIds store for ConnectionTab
+  useEffect(() => {
+    const ch = supabase.channel("presence:drivers", {
+      config: { presence: { key: session.user.id } },
+    });
+    ch.on("presence", { event: "sync" }, () => {
+      setPresenceIds(new Set(Object.keys(ch.presenceState())));
+    });
+    ch.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await ch.track({ user_id: session.user.id, online_at: new Date().toISOString() });
+      }
+    });
+    return () => { void supabase.removeChannel(ch); };
+  }, [session.user.id]);
+
   // Auto-sync EC from Supabase when connectivity is restored
   useEffect(() => {
     let wasOnline: boolean | null = null;
@@ -685,7 +702,7 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
             name="Account"
             options={{ title: "Account", tabBarItemStyle: { display: "none" } }}
           >
-            {() => <AccountScreen session={session} onSignOut={onSignOut} />}
+            {() => <AccountScreen onSignOut={onSignOut} />}
           </Tab.Screen>
 
           <Tab.Screen

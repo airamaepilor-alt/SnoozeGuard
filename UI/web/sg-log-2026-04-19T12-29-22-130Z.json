@@ -1,0 +1,1234 @@
+[
+  {
+    "ts": "2026-04-19T12:07:49.290Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:07:49.291Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:07:49.291Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:07:49.513Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:08:07.291Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:08:07.291Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:08:07.291Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:08:07.490Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:08:54.286Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:08:54.287Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:08:54.287Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:08:54.727Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:45.692Z",
+    "level": "info",
+    "tag": "Dashboard",
+    "message": "effect fired",
+    "data": {
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e",
+      "online": true,
+      "filterDays": 30
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:45.693Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "flushing offline outbox"
+  },
+  {
+    "ts": "2026-04-19T12:20:45.694Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:45.694Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:45.694Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:45.698Z",
+    "level": "info",
+    "tag": "Dashboard",
+    "message": "effect fired",
+    "data": {
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e",
+      "online": true,
+      "filterDays": 30
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:45.698Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "flushing offline outbox"
+  },
+  {
+    "ts": "2026-04-19T12:20:45.698Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:45.698Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:45.698Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:45.718Z",
+    "level": "info",
+    "tag": "Dashboard",
+    "message": "effect fired",
+    "data": {
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e",
+      "online": true,
+      "filterDays": 30
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:45.719Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "flushing offline outbox"
+  },
+  {
+    "ts": "2026-04-19T12:20:45.719Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:45.719Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:45.719Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:45.726Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:45.726Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:45.726Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:46.035Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:46.072Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:46.072Z",
+    "level": "error",
+    "tag": "Dashboard",
+    "message": "chart sessions query failed",
+    "data": {
+      "message": "permission denied for table users"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:46.073Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:46.085Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:46.216Z",
+    "level": "error",
+    "tag": "Dashboard",
+    "message": "chart sessions query failed",
+    "data": {
+      "message": "permission denied for table users"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:46.280Z",
+    "level": "error",
+    "tag": "Dashboard",
+    "message": "chart sessions query failed",
+    "data": {
+      "message": "permission denied for table users"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.027Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alert_events: 0 rows"
+  },
+  {
+    "ts": "2026-04-19T12:20:47.196Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alert_events: 0 rows"
+  },
+  {
+    "ts": "2026-04-19T12:20:47.234Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alerts (7d): 0"
+  },
+  {
+    "ts": "2026-04-19T12:20:47.235Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "pending local telemetry: 0"
+  },
+  {
+    "ts": "2026-04-19T12:20:47.449Z",
+    "level": "info",
+    "tag": "Dashboard",
+    "message": "effect fired",
+    "data": {
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e",
+      "online": true,
+      "filterDays": 30
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.449Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "flushing offline outbox"
+  },
+  {
+    "ts": "2026-04-19T12:20:47.451Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.451Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:47.451Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.454Z",
+    "level": "info",
+    "tag": "Dashboard",
+    "message": "effect fired",
+    "data": {
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e",
+      "online": true,
+      "filterDays": 30
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.454Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "flushing offline outbox"
+  },
+  {
+    "ts": "2026-04-19T12:20:47.454Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.454Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:47.454Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.484Z",
+    "level": "info",
+    "tag": "Dashboard",
+    "message": "effect fired",
+    "data": {
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e",
+      "online": true,
+      "filterDays": 30
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.484Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "flushing offline outbox"
+  },
+  {
+    "ts": "2026-04-19T12:20:47.484Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.484Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:47.484Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.493Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.493Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:47.493Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.707Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.713Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.716Z",
+    "level": "error",
+    "tag": "Dashboard",
+    "message": "chart sessions query failed",
+    "data": {
+      "message": "permission denied for table users"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.735Z",
+    "level": "error",
+    "tag": "Dashboard",
+    "message": "chart sessions query failed",
+    "data": {
+      "message": "permission denied for table users"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.736Z",
+    "level": "error",
+    "tag": "Dashboard",
+    "message": "chart sessions query failed",
+    "data": {
+      "message": "permission denied for table users"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.743Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:47.743Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:48.174Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alert_events: 0 rows"
+  },
+  {
+    "ts": "2026-04-19T12:20:48.333Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alert_events: 0 rows"
+  },
+  {
+    "ts": "2026-04-19T12:20:48.374Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alerts (7d): 0"
+  },
+  {
+    "ts": "2026-04-19T12:20:48.375Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "pending local telemetry: 0"
+  },
+  {
+    "ts": "2026-04-19T12:20:48.572Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alerts (7d): 0"
+  },
+  {
+    "ts": "2026-04-19T12:20:48.573Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "pending local telemetry: 0"
+  },
+  {
+    "ts": "2026-04-19T12:20:48.633Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alert_events: 0 rows"
+  },
+  {
+    "ts": "2026-04-19T12:20:48.855Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alerts (7d): 0"
+  },
+  {
+    "ts": "2026-04-19T12:20:48.861Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "pending local telemetry: 0"
+  },
+  {
+    "ts": "2026-04-19T12:20:53.320Z",
+    "level": "info",
+    "tag": "Dashboard",
+    "message": "effect fired",
+    "data": {
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e",
+      "online": true,
+      "filterDays": 30
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.321Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "flushing offline outbox"
+  },
+  {
+    "ts": "2026-04-19T12:20:53.321Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.321Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:53.321Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.353Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.353Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:53.353Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.443Z",
+    "level": "info",
+    "tag": "Dashboard",
+    "message": "effect fired",
+    "data": {
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e",
+      "online": true,
+      "filterDays": 30
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.443Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "flushing offline outbox"
+  },
+  {
+    "ts": "2026-04-19T12:20:53.444Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.444Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:53.444Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.451Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.451Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:53.451Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.575Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.580Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.583Z",
+    "level": "error",
+    "tag": "Dashboard",
+    "message": "chart sessions query failed",
+    "data": {
+      "message": "permission denied for table users"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.687Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.693Z",
+    "level": "error",
+    "tag": "Dashboard",
+    "message": "chart sessions query failed",
+    "data": {
+      "message": "permission denied for table users"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.703Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:53.759Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alert_events: 0 rows"
+  },
+  {
+    "ts": "2026-04-19T12:20:53.903Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alert_events: 0 rows"
+  },
+  {
+    "ts": "2026-04-19T12:20:53.993Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alerts (7d): 0"
+  },
+  {
+    "ts": "2026-04-19T12:20:53.994Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "pending local telemetry: 0"
+  },
+  {
+    "ts": "2026-04-19T12:20:54.114Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alerts (7d): 0"
+  },
+  {
+    "ts": "2026-04-19T12:20:54.115Z",
+    "level": "info",
+    "tag": "Dashboard",
+    "message": "effect fired",
+    "data": {
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e",
+      "online": true,
+      "filterDays": 30
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:54.115Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "flushing offline outbox"
+  },
+  {
+    "ts": "2026-04-19T12:20:54.115Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:54.116Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:54.115Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:54.133Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "pending local telemetry: 0"
+  },
+  {
+    "ts": "2026-04-19T12:20:54.135Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:54.135Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:20:54.135Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:54.339Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:54.346Z",
+    "level": "error",
+    "tag": "Dashboard",
+    "message": "chart sessions query failed",
+    "data": {
+      "message": "permission denied for table users"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:54.346Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:20:54.495Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alert_events: 0 rows"
+  },
+  {
+    "ts": "2026-04-19T12:20:54.705Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alerts (7d): 0"
+  },
+  {
+    "ts": "2026-04-19T12:20:54.709Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "pending local telemetry: 0"
+  },
+  {
+    "ts": "2026-04-19T12:21:11.069Z",
+    "level": "info",
+    "tag": "Dashboard",
+    "message": "effect fired",
+    "data": {
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e",
+      "online": true,
+      "filterDays": 30
+    }
+  },
+  {
+    "ts": "2026-04-19T12:21:11.069Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "flushing offline outbox"
+  },
+  {
+    "ts": "2026-04-19T12:21:11.070Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:21:11.070Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:21:11.070Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:21:11.070Z",
+    "level": "info",
+    "tag": "Dashboard",
+    "message": "effect fired",
+    "data": {
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e",
+      "online": true,
+      "filterDays": 30
+    }
+  },
+  {
+    "ts": "2026-04-19T12:21:11.070Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "flushing offline outbox"
+  },
+  {
+    "ts": "2026-04-19T12:21:11.070Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:21:11.070Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:21:11.070Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:21:11.080Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:21:11.080Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:21:11.080Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:21:11.293Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:21:11.297Z",
+    "level": "error",
+    "tag": "Dashboard",
+    "message": "chart sessions query failed",
+    "data": {
+      "message": "permission denied for table users"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:21:11.308Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:21:11.312Z",
+    "level": "error",
+    "tag": "Dashboard",
+    "message": "chart sessions query failed",
+    "data": {
+      "message": "permission denied for table users"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:21:11.454Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:21:11.454Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alert_events: 0 rows"
+  },
+  {
+    "ts": "2026-04-19T12:21:11.613Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alert_events: 0 rows"
+  },
+  {
+    "ts": "2026-04-19T12:21:11.642Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alerts (7d): 0"
+  },
+  {
+    "ts": "2026-04-19T12:21:11.643Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "pending local telemetry: 0"
+  },
+  {
+    "ts": "2026-04-19T12:21:11.857Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alerts (7d): 0"
+  },
+  {
+    "ts": "2026-04-19T12:21:11.862Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "pending local telemetry: 0"
+  },
+  {
+    "ts": "2026-04-19T12:29:01.747Z",
+    "level": "info",
+    "tag": "Dashboard",
+    "message": "effect fired",
+    "data": {
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e",
+      "online": true,
+      "filterDays": 30
+    }
+  },
+  {
+    "ts": "2026-04-19T12:29:01.747Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "flushing offline outbox"
+  },
+  {
+    "ts": "2026-04-19T12:29:01.747Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:29:01.748Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:29:01.748Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:29:01.748Z",
+    "level": "info",
+    "tag": "Dashboard",
+    "message": "effect fired",
+    "data": {
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e",
+      "online": true,
+      "filterDays": 30
+    }
+  },
+  {
+    "ts": "2026-04-19T12:29:01.748Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "flushing offline outbox"
+  },
+  {
+    "ts": "2026-04-19T12:29:01.749Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:29:01.749Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:29:01.749Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:29:01.758Z",
+    "level": "info",
+    "tag": "loadStats",
+    "message": "start",
+    "data": {
+      "days": 30,
+      "uid": "007938f2-af3c-4d45-8b68-84e921ca7c4e"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:29:01.758Z",
+    "level": "debug",
+    "tag": "loadStats",
+    "message": "query window",
+    "data": {
+      "since": "2026-03-20T12:29:01.758Z"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:29:02.008Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:29:02.012Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:29:02.186Z",
+    "level": "error",
+    "tag": "Dashboard",
+    "message": "chart sessions query failed",
+    "data": {
+      "message": "permission denied for table users"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:29:02.187Z",
+    "level": "error",
+    "tag": "Dashboard",
+    "message": "chart sessions query failed",
+    "data": {
+      "message": "permission denied for table users"
+    }
+  },
+  {
+    "ts": "2026-04-19T12:29:02.236Z",
+    "level": "error",
+    "tag": "loadStats",
+    "message": "sessions query failed",
+    "data": {
+      "message": "permission denied for table users",
+      "code": "42501",
+      "details": null
+    }
+  },
+  {
+    "ts": "2026-04-19T12:29:02.463Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alert_events: 0 rows"
+  },
+  {
+    "ts": "2026-04-19T12:29:02.623Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alert_events: 0 rows"
+  },
+  {
+    "ts": "2026-04-19T12:29:02.673Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alerts (7d): 0"
+  },
+  {
+    "ts": "2026-04-19T12:29:02.674Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "pending local telemetry: 0"
+  },
+  {
+    "ts": "2026-04-19T12:29:02.894Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "alerts (7d): 0"
+  },
+  {
+    "ts": "2026-04-19T12:29:02.900Z",
+    "level": "debug",
+    "tag": "Dashboard",
+    "message": "pending local telemetry: 0"
+  }
+]

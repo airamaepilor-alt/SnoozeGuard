@@ -42,7 +42,7 @@ export async function flushPendingTelemetry(supabase: SupabaseClient, userId: st
     const remoteId = await ensureRemoteSession(supabase, userId, row.localSessionId);
     if (!remoteId || row.id === undefined) continue;
 
-    const { error } = await supabase.from("session_telemetry").insert({
+    const { error } = await supabase.from("session_telemetry").upsert({
       session_id: remoteId,
       recorded_at: row.recordedAt,
       drowsiness_level: row.drowsinessLevel,
@@ -50,7 +50,7 @@ export async function flushPendingTelemetry(supabase: SupabaseClient, userId: st
       head_event_count_delta: row.headEventCountDelta,
       sudden_brake: Boolean(row.suddenBrake),
       source: row.source,
-    });
+    }, { onConflict: "session_id,recorded_at", ignoreDuplicates: true });
 
     if (!error) {
       await offlineDb.sessionTelemetryLocal.update(row.id, { remoteSynced: 1 });

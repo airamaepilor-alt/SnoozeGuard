@@ -1,4 +1,4 @@
-import type { Session, User } from "@supabase/supabase-js";
+import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 
@@ -33,6 +33,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    async function upsertAndLoadProfile(user: User) {
+      await supabase.from("profiles").upsert({
+        id: user.id,
+        email: (user.user_metadata?.email as string) || user.email || null,
+        full_name: (user.user_metadata?.full_name as string) || (user.user_metadata?.name as string) || null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "id" });
+      await loadProfile(user.id);
+    }
+
     supabase.auth.getSession().then(({ data }) => {
       if (cancelled) return;
       setSession(data.session ?? null);
@@ -42,10 +52,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, next) => {
       setSession(next);
       if (next?.user) {
-        void loadProfile(next.user.id);
+        if (event === "SIGNED_IN") {
+          void upsertAndLoadProfile(next.user);
+        } else {
+          void loadProfile(next.user.id);
+        }
       } else {
         setProfile(null);
       }

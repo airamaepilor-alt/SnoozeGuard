@@ -106,8 +106,11 @@ function SidebarContent({
         <SideNavItem to="/" icon="dashboard" label="Dashboard" end onNavigate={onNavigate} />
         <SideNavItem to="/analytics" icon="bar_chart" label="Driver Analytics" onNavigate={onNavigate} />
         <SideNavItem to="/history" icon="history" label="Fatigue Logs" onNavigate={onNavigate} />
-        <SideNavItem to="/alerts" icon="crisis_alert" label="Alert Hub" onNavigate={onNavigate} />
-        <PlaceholderNavItem icon="location_on" label="Safety Zones" />
+        <SideNavItem to="/account" icon="manage_accounts" label="Account" onNavigate={onNavigate} />
+        <SideNavItem to="/guardians" icon="shield" label="Emergency Contact" onNavigate={onNavigate} />
+        <SideNavItem to="/about" icon="info" label="About" onNavigate={onNavigate} />
+        <SideNavItem to="/terms" icon="policy" label="Terms & Privacy" onNavigate={onNavigate} />
+        <SideNavItem to="/safety-protocol" icon="security" label="Safety Protocol" onNavigate={onNavigate} />
         {isAdmin ? (
           <SideNavItem to="/admin" icon="admin_panel_settings" label="Admin Console" onNavigate={onNavigate} />
         ) : (
@@ -161,8 +164,9 @@ export function AppShell() {
   const online = useOnlineStatus();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeAlertCount, setActiveAlertCount] = useState(0);
   const isAdmin = profile?.role === "super_admin";
-  const isFullscreen = location.pathname === "/alerts";
+  const isFullscreen = location.pathname === "/safety-protocol" || location.pathname === "/drive";
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -181,6 +185,80 @@ export function AppShell() {
     if (!user || !online) return;
     void flushOutbox(supabase, user.id);
   }, [user, online]);
+
+  // Fetch active alerts count
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const loadActiveAlerts = async () => {
+      try {
+        // Find drivers who have the current user as their emergency contact
+        const [byUserId, byEmail] = await Promise.all([
+          supabase
+            .from("emergency_contacts")
+            .select("user_id")
+            .eq("contact_user_id", user.id)
+            .eq("status", "accepted"),
+          supabase
+            .from("emergency_contacts")
+            .select("user_id")
+            .ilike("contact_email", user.email ?? "__no_email__")
+            .neq("status", "pending"),
+        ]);
+
+        const driverIds = Array.from(
+          new Set([
+            ...(byUserId.data ?? []).map((c) => c.user_id as string),
+            ...(byEmail.data ?? []).map((c) => c.user_id as string),
+          ]),
+        );
+
+        if (driverIds.length === 0) {
+          setActiveAlertCount(0);
+          return;
+        }
+
+        // Fetch ALL alert events for these drivers (last 24h)
+        const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+        const { data: events } = await supabase
+          .from("emergency_alert_events")
+          .select("user_id, status, created_at")
+          .in("user_id", driverIds)
+          .gte("created_at", since)
+          .order("created_at", { ascending: false });
+
+        // Dedupe: get most recent alert per driver
+        const seenDrivers = new Set<string>();
+        const mostRecentPerDriver = (events ?? []).filter((ev) => {
+          if (seenDrivers.has(ev.user_id)) return false;
+          seenDrivers.add(ev.user_id);
+          return true;
+        });
+
+        // Count only those with status === "active" (exact match, like AlertCard)
+        const activeCount = mostRecentPerDriver.filter((ev) => ev.status === "active").length;
+
+        setActiveAlertCount(activeCount);
+      } catch {
+        // Silent fail
+      }
+    };
+
+    void loadActiveAlerts();
+
+    const interval = setInterval(() => void loadActiveAlerts(), 15000); // Check every 15s
+    const channel = supabase
+      .channel("active-alerts-header")
+      .on("postgres_changes", { event: "*", schema: "public", table: "emergency_alert_events" }, () =>
+        void loadActiveAlerts(),
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      void supabase.removeChannel(channel);
+    };
+  }, [user?.id, user?.email]);
 
   const displayName: string =
     (user?.user_metadata?.full_name as string | undefined) ??
@@ -265,7 +343,6 @@ export function AppShell() {
             <TopNavLink to="/" label="Dashboard" end />
             <TopNavLink to="/analytics" label="Analytics" />
             <TopNavLink to="/history" label="History" />
-            <TopNavLink to="/alerts" label="Alerts" />
             <TopNavLink to="/drive" label="Drive" />
           </nav>
         </div>
@@ -273,9 +350,14 @@ export function AppShell() {
         {/* Right: actions + user */}
         <div className="flex items-center gap-2 lg:gap-4 shrink-0">
           {/* Safety Protocol — hidden on small screens */}
-          <button className="hidden sm:block bg-primary/10 text-primary px-3 lg:px-4 py-2 rounded-lg font-bold text-xs lg:text-sm hover:bg-primary/20 transition-all border border-primary/20 whitespace-nowrap">
+          <Link to="/safety-protocol" className="hidden sm:flex items-center gap-2 bg-primary/10 text-primary px-3 lg:px-4 py-2 rounded-lg font-bold text-xs lg:text-sm hover:bg-primary/20 transition-all border border-primary/20 whitespace-nowrap relative">
             Safety Protocol
-          </button>
+            {activeAlertCount > 0 && (
+              <span className="ml-1 flex items-center justify-center w-5 h-5 bg-error text-white rounded-full text-[10px] font-bold">
+                !
+              </span>
+            )}
+          </Link>
 
           {/* Theme toggle */}
           <button
@@ -293,7 +375,7 @@ export function AppShell() {
           </button>
 
           {/* User avatar */}
-          <div className="flex items-center gap-2 lg:gap-3 ml-1">
+          <Link to="/account" className="flex items-center gap-2 lg:gap-3 ml-1 hover:opacity-80 transition-opacity">
             <div className="hidden lg:block text-right">
               <p className="text-sm font-bold leading-tight text-on-surface">{displayName}</p>
               <p className="text-[10px] text-primary uppercase tracking-wider font-extrabold">{roleLabel}</p>
@@ -301,7 +383,7 @@ export function AppShell() {
             <div className="w-8 h-8 lg:w-10 lg:h-10 rounded-full bg-primary/20 ring-2 ring-primary/20 flex items-center justify-center font-bold text-primary text-xs lg:text-sm shrink-0">
               {initials}
             </div>
-          </div>
+          </Link>
         </div>
       </header>
 
@@ -322,7 +404,7 @@ export function AppShell() {
           { to: "/", icon: "dashboard", label: "Home", end: true },
           { to: "/history", icon: "history", label: "History" },
           { to: "/drive", icon: "directions_car", label: "Drive" },
-          { to: "/alerts", icon: "crisis_alert", label: "Alerts" },
+          { to: "/account", icon: "manage_accounts", label: "Account" },
         ].map(({ to, icon, label, end }) => (
           <NavLink
             key={to}

@@ -21,6 +21,7 @@ export function LoginScreen({ onSignedIn }: Props) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [agreeToTerms, setAgreeToTerms] = useState(true);
   const [busy, setBusy] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [infoText, setInfoText] = useState("");
@@ -53,6 +54,16 @@ export function LoginScreen({ onSignedIn }: Props) {
         if (code) {
           const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
           if (exchangeError) { setErrorText(exchangeError.message); return; }
+          // Populate profiles for Google signin
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user?.id) {
+            await supabase.from("profiles").upsert({
+              id: user.id,
+              email: (user.user_metadata?.email as string) || user.email || null,
+              full_name: (user.user_metadata?.full_name as string) || user.user_metadata?.name || null,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: "id" });
+          }
           onSignedIn();
           return;
         }
@@ -65,6 +76,16 @@ export function LoginScreen({ onSignedIn }: Props) {
           if (accessToken) {
             const { error: sessionError } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
             if (sessionError) { setErrorText(sessionError.message); return; }
+            // Populate profiles.email for Google signin
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user?.id) {
+              await supabase.from("profiles").upsert({
+                id: user.id,
+                email: (user.user_metadata?.email as string) || user.email || null,
+                full_name: (user.user_metadata?.full_name as string) || user.user_metadata?.name || null,
+                updated_at: new Date().toISOString(),
+              }, { onConflict: "id" });
+            }
             onSignedIn();
             return;
           }
@@ -86,7 +107,9 @@ export function LoginScreen({ onSignedIn }: Props) {
       if (!displayName.trim()) { setErrorText("Please enter your display name."); return; }
       if (password !== confirmPassword) { setErrorText("Passwords do not match."); return; }
       if (password.length < 6) { setErrorText("Password must be at least 6 characters."); return; }
+      if (!agreeToTerms) { setErrorText("Please agree to Terms of Service & Privacy Policy."); return; }
     }
+    if (mode === "signin" && !agreeToTerms) { setErrorText("Please agree to Terms of Service & Privacy Policy."); return; }
     setBusy(true);
     try {
       if (mode === "signin") {
@@ -95,16 +118,27 @@ export function LoginScreen({ onSignedIn }: Props) {
         else onSignedIn();
       } else {
         const redirectTo = Linking.createURL("auth/callback", { scheme: "snoozeguard" });
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
             emailRedirectTo: redirectTo,
-            data: { full_name: displayName.trim() },
+            data: { full_name: displayName.trim(), email: email.trim() },
           },
         });
         if (error) setErrorText(error.message);
-        else setInfoText("Account created! Check your email to confirm, then sign in.");
+        else {
+          // Populate profiles for new signup
+          if (data.user?.id) {
+            await supabase.from("profiles").upsert({
+              id: data.user.id,
+              email: (data.user.user_metadata?.email as string) || data.user.email || email,
+              full_name: (data.user.user_metadata?.full_name as string) || displayName.trim(),
+              updated_at: new Date().toISOString(),
+            }, { onConflict: "id" });
+          }
+          setInfoText("Account created! Check your email to confirm, then sign in.");
+        }
       }
     } finally {
       setBusy(false);
@@ -196,18 +230,28 @@ export function LoginScreen({ onSignedIn }: Props) {
         {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
         {infoText ? <Text style={styles.infoText}>{infoText}</Text> : null}
 
+        <Pressable style={styles.termsCheckRow} onPress={() => { setAgreeToTerms(v => !v); setErrorText(""); }}>
+          <View style={[styles.checkbox, agreeToTerms && styles.checkboxChecked]}>
+            {agreeToTerms && (
+              <MaterialIcons name="check" size={16} color={t.onPrimary} />
+            )}
+          </View>
+          <Text style={styles.termsCheckText}>
+            I have read and agree to{" "}
+            <Text style={{ color: t.primary, fontWeight: "700" }} onPress={() => setShowTerms(true)}>
+              Terms of Service & Privacy Policy
+            </Text>
+          </Text>
+        </Pressable>
+
         <Pressable style={[styles.button, busy && styles.disabled]} onPress={() => void submit()} disabled={busy}>
           {busy ? <ActivityIndicator color={t.onPrimary} /> : (
             <Text style={styles.buttonText}>{mode === "signin" ? "Sign in" : "Create account"}</Text>
           )}
         </Pressable>
 
-        <Pressable onPress={() => { setMode(mode === "signin" ? "signup" : "signin"); setErrorText(""); setInfoText(""); }}>
+        <Pressable onPress={() => { setMode(mode === "signin" ? "signup" : "signin"); setErrorText(""); setInfoText(""); setAgreeToTerms(mode === "signin"); }}>
           <Text style={styles.link}>{mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}</Text>
-        </Pressable>
-
-        <Pressable onPress={() => setShowTerms(true)} style={styles.termsBtn}>
-          <Text style={styles.termsText}>Terms of Service & Privacy Policy</Text>
         </Pressable>
       </View>
 
@@ -269,6 +313,19 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   link: { color: t.onSurfaceVariant, textAlign: "center", marginTop: 16, textDecorationLine: "underline", fontSize: 14 },
   termsBtn: { alignItems: "center", marginTop: 20, paddingVertical: 8 },
   termsText: { color: t.onSurfaceVariant, fontSize: 11, textDecorationLine: "underline", opacity: 0.7 },
+  termsCheckRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginTop: 12, marginBottom: 8 },
+  checkbox: {
+    width: 20, height: 20, borderRadius: 4,
+    borderWidth: 2, borderColor: t.outlineVariant,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "transparent",
+    marginTop: 2,
+  },
+  checkboxChecked: {
+    backgroundColor: t.primary,
+    borderColor: t.primary,
+  },
+  termsCheckText: { flex: 1, fontSize: 13, color: t.onSurfaceVariant, lineHeight: 18 },
   modalHeader: { paddingTop: 48, paddingHorizontal: 20, paddingBottom: 8, flexDirection: "row", justifyContent: "flex-end" },
   modalClose: { padding: 8, borderRadius: 20, backgroundColor: `${t.outlineVariant}33` },
 });

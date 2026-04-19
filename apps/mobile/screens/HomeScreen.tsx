@@ -23,6 +23,10 @@ type DashboardMetrics = {
   focus_score: number | null;
   peak_hour: number | null;
   safest_hour: number | null;
+  yawn_sum: number;
+  head_sum: number;
+  tilt_sum: number;
+  brake_sum: number;
 };
 
 type TooltipKey = "focus" | "sessions" | "drivetime" | "avgsession" | "drowsyevents" | null;
@@ -160,18 +164,25 @@ export function HomeScreen({ session }: Props) {
 
       const avgDriveSeconds = rows.length > 0 ? Math.round(totalDriveSeconds / rows.length) : 0;
       const focusScore = Math.max(0, Math.round(100 - avgDrowsiness * 10));
-      const drowsyEvents = rows.reduce((acc, r) => acc + r.yawn_sum + r.head_sum + r.tilt_sum, 0);
+      const yawnSum  = rows.reduce((acc, r) => acc + r.yawn_sum, 0);
+      const headSum  = rows.reduce((acc, r) => acc + r.head_sum, 0);
+      const tiltSum  = rows.reduce((acc, r) => acc + r.tilt_sum, 0);
+      const brakeSum = rows.reduce((acc, r) => acc + r.brake_sum, 0);
 
       setMetrics({
         ok: true,
         session_count_total: rows.length,
         avg_drowsiness: avgDrowsiness,
         avg_drive_seconds: avgDriveSeconds,
-        drowsy_events: drowsyEvents,
+        drowsy_events: yawnSum + headSum + tiltSum + brakeSum,
         total_drive_seconds: Math.round(totalDriveSeconds),
         focus_score: focusScore,
         peak_hour: null,
         safest_hour: null,
+        yawn_sum: yawnSum,
+        head_sum: headSum,
+        tilt_sum: tiltSum,
+        brake_sum: brakeSum,
       });
     } catch {
       // DB not ready yet
@@ -290,7 +301,33 @@ export function HomeScreen({ session }: Props) {
             </Pressable>
           </View>
           <Text style={styles.tileStat}>{loading ? "…" : metrics?.drowsy_events ?? 0}</Text>
-          <Text style={styles.tileUnit}>yawns + nods + tilts</Text>
+          <View style={styles.badgeRow}>
+            {(metrics?.yawn_sum ?? 0) > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{metrics!.yawn_sum} YAWN{metrics!.yawn_sum !== 1 ? "S" : ""}</Text>
+              </View>
+            )}
+            {(metrics?.head_sum ?? 0) > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{metrics!.head_sum} NOD{metrics!.head_sum !== 1 ? "S" : ""}</Text>
+              </View>
+            )}
+            {(metrics?.tilt_sum ?? 0) > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{metrics!.tilt_sum} TILT{metrics!.tilt_sum !== 1 ? "S" : ""}</Text>
+              </View>
+            )}
+            {(metrics?.brake_sum ?? 0) > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{metrics!.brake_sum} BRAKE{metrics!.brake_sum !== 1 ? "S" : ""}</Text>
+              </View>
+            )}
+            {!loading && (metrics?.drowsy_events ?? 0) === 0 && (
+              <View style={[styles.badge, styles.badgeSafe]}>
+                <Text style={[styles.badgeText, styles.badgeTextSafe]}>ALL CLEAR</Text>
+              </View>
+            )}
+          </View>
         </View>
       </View>
 
@@ -342,6 +379,11 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   tileLabel: { fontSize: 9, fontWeight: "700", color: t.onSurfaceVariant, letterSpacing: 1 },
   tileStat: { fontSize: 22, fontWeight: "800", color: t.onSurface },
   tileUnit: { marginTop: 2, fontSize: 10, color: t.onSurfaceVariant },
+  badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 },
+  badge: { paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: `${t.secondary}44`, backgroundColor: `${t.secondary}18` },
+  badgeText: { fontSize: 8, fontWeight: "700", color: t.secondary },
+  badgeSafe: { borderColor: `${t.primary}44`, backgroundColor: `${t.primary}18` },
+  badgeTextSafe: { color: t.primary },
   insightCard: {
     marginTop: 12, padding: 14, borderRadius: 16,
     backgroundColor: `${t.surfaceContainer}88`,

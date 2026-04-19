@@ -46,11 +46,12 @@ export async function flushPendingTelemetry(supabase: SupabaseClient, userId: st
     drowsiness_level: number;
     yawn_count_delta: number;
     head_event_count_delta: number;
+    head_tilt_delta: number;
     sudden_brake: number;
     source: string;
   }>(
     `SELECT t.id, t.local_session_id, t.recorded_at, t.drowsiness_level, t.yawn_count_delta,
-            t.head_event_count_delta, t.sudden_brake, t.source
+            t.head_event_count_delta, t.head_tilt_delta, t.sudden_brake, t.source
      FROM session_telemetry_local t
      JOIN driving_sessions_local s ON s.id = t.local_session_id
      WHERE t.remote_synced = 0 AND s.user_id = ?`,
@@ -62,15 +63,16 @@ export async function flushPendingTelemetry(supabase: SupabaseClient, userId: st
     const remoteId = await ensureRemoteSession(supabase, userId, row.local_session_id);
     if (!remoteId) continue;
 
-    const { error } = await supabase.from("session_telemetry").insert({
+    const { error } = await supabase.from("session_telemetry").upsert({
       session_id: remoteId,
       recorded_at: row.recorded_at,
       drowsiness_level: row.drowsiness_level,
       yawn_count_delta: row.yawn_count_delta,
       head_event_count_delta: row.head_event_count_delta,
+      head_tilt_delta: row.head_tilt_delta,
       sudden_brake: Boolean(row.sudden_brake),
       source: row.source,
-    });
+    }, { onConflict: "session_id,recorded_at", ignoreDuplicates: true });
     if (!error) {
       db.runSync("UPDATE session_telemetry_local SET remote_synced = 1 WHERE id = ?", row.id);
       pushed += 1;
@@ -130,22 +132,23 @@ export async function rehydrateSessions(supabase: SupabaseClient, userId: string
     // Fetch and insert telemetry for this session
     const { data: trows } = await supabase
       .from("session_telemetry")
-      .select("recorded_at, drowsiness_level, yawn_count_delta, head_event_count_delta, sudden_brake, source")
+      .select("recorded_at, drowsiness_level, yawn_count_delta, head_event_count_delta, head_tilt_delta, sudden_brake, source")
       .eq("session_id", rs.id)
       .order("recorded_at", { ascending: true });
 
     if (trows?.length) {
-      for (const t of trows as { recorded_at: string; drowsiness_level: number; yawn_count_delta: number; head_event_count_delta: number; sudden_brake: boolean; source: string }[]) {
+      for (const t of trows as { recorded_at: string; drowsiness_level: number; yawn_count_delta: number; head_event_count_delta: number; head_tilt_delta: number; sudden_brake: boolean; source: string }[]) {
         db.runSync(
-          `INSERT INTO session_telemetry_local
+          `INSERT OR IGNORE INTO session_telemetry_local
              (local_session_id, recorded_at, drowsiness_level, yawn_count_delta,
-              head_event_count_delta, sudden_brake, source, remote_synced)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+              head_event_count_delta, head_tilt_delta, sudden_brake, source, remote_synced)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
           rs.id,
           t.recorded_at,
           t.drowsiness_level,
           t.yawn_count_delta,
           t.head_event_count_delta,
+          t.head_tilt_delta ?? 0,
           t.sudden_brake ? 1 : 0,
           t.source ?? "mobile",
         );

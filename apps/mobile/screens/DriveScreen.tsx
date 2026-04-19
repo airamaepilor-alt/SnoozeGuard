@@ -38,7 +38,7 @@ import {
   ensureModelPath,
   type MPResultsBundle,
 } from "../ml/faceDetection";
-import { flushEndedSessions, flushPendingTelemetry, isOnline } from "../sync/flush";
+import { ensureRemoteSession, flushEndedSessions, flushPendingTelemetry, isOnline } from "../sync/flush";
 import type { Theme } from "../theme";
 
 type AdminRuntime = {
@@ -452,6 +452,7 @@ export function DriveScreen() {
         id, user.id, startedAt,
       );
       setLocalSessionId(id);
+      void ensureRemoteSession(supabase, user.id, id);
       sessionActiveRef.current = true;
       drivingSessionActive.current = true;
       lastAlertRef.current = null;

@@ -33,11 +33,19 @@ type AlertEvent = {
   status: AlertStatus;
   created_at: string;
   acknowledged_at?: string | null;
+  dismissed_at?: string | null;
   driver_name?: string;
   driver_phone?: string;
 };
 
-const HISTORY_HOURS = 24;
+const HISTORY_HOURS = 48; // fetch wider window; client-side filters to 24h-from-resolution
+const VISIBLE_HOURS = 24; // how long after dismissal/resolution an alert stays visible
+
+function isAlertVisible(ev: AlertEvent): boolean {
+  if (ev.status === "active") return true;
+  const resolvedAt = ev.dismissed_at ?? ev.acknowledged_at ?? ev.created_at;
+  return Date.now() - new Date(resolvedAt).getTime() < VISIBLE_HOURS * 60 * 60 * 1000;
+}
 
 function maskEmail(email: string): string {
   const [local, domain] = email.split("@");
@@ -60,13 +68,16 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
 
   function readAlertsFromCache(): AlertEvent[] {
     try {
-      return getDatabase().getAllSync<AlertEvent>(
+      const since = new Date(Date.now() - HISTORY_HOURS * 60 * 60 * 1000).toISOString();
+      const rows = getDatabase().getAllSync<AlertEvent>(
         `SELECT id, user_id, location_lat, location_lng, status, created_at,
-                acknowledged_at, driver_name, driver_phone
+                acknowledged_at, dismissed_at, driver_name, driver_phone
          FROM emergency_alert_events_local
-         WHERE status = 'active'
+         WHERE status = 'active' OR created_at >= ?
          ORDER BY created_at DESC`,
+        since,
       );
+      return rows.filter(isAlertVisible);
     } catch { return []; }
   }
 
@@ -78,10 +89,11 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
         db.runSync(
           `INSERT OR REPLACE INTO emergency_alert_events_local
            (id, user_id, location_lat, location_lng, status, created_at,
-            acknowledged_at, driver_name, driver_phone, cached_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            acknowledged_at, dismissed_at, driver_name, driver_phone, cached_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           ev.id, ev.user_id, ev.location_lat ?? null, ev.location_lng ?? null,
           ev.status, ev.created_at, ev.acknowledged_at ?? null,
+          ev.dismissed_at ?? null,
           ev.driver_name ?? "Driver", ev.driver_phone ?? null, now,
         );
       }
@@ -139,18 +151,18 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
       const since = new Date(Date.now() - HISTORY_HOURS * 60 * 60 * 1000).toISOString();
       const { data: events } = await supabase
         .from("emergency_alert_events")
-        .select("id, user_id, location_lat, location_lng, status, created_at, acknowledged_at")
+        .select("id, user_id, location_lat, location_lng, status, created_at, acknowledged_at, dismissed_at")
         .in("user_id", allDriverIds)
-        .eq("status", "active")
         .gte("created_at", since)
         .order("created_at", { ascending: false });
 
+      // One entry per driver (most recent), then filter by 24h visibility window
       const seenDrivers = new Set<string>();
       const deduped = (events ?? []).filter((ev) => {
         if (seenDrivers.has(ev.user_id)) return false;
         seenDrivers.add(ev.user_id);
         return true;
-      });
+      }).filter((ev) => isAlertVisible(ev as AlertEvent));
 
       const enriched: AlertEvent[] = [];
       for (const ev of deduped) {
@@ -170,6 +182,8 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
       writeAlertsToCache(enriched);
       setAlerts(enriched);
 
+      const hasActive = enriched.some((a) => a.status === "active");
+
       if (enriched.length > 0) {
         const firstActive = enriched.find((a) => a.status === "active");
         const autoSelect = firstActive ?? enriched[0];
@@ -186,6 +200,9 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
         setAlerts([]);
         setSelected(null);
       }
+
+      // If no active alerts remain, refresh the tab badge so "!" clears immediately
+      if (!hasActive) onActionDone?.();
     } catch { /* keep last known state */ }
     finally {
       setLoading(false);
@@ -227,9 +244,9 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
     return (
       <View style={styles.center}>
         <Text style={styles.emptyIcon}>✓</Text>
-        <Text style={styles.emptyTitle}>No active alerts</Text>
+        <Text style={styles.emptyTitle}>No alerts</Text>
         <Text style={styles.emptyHint}>
-          You'll see alerts here when a driver you're emergency contact for needs help.
+          You'll see alerts here when a driver you're emergency contact for needs help. Resolved alerts appear for 24 hours after dismissal.
           Contact requests from drivers also appear here.
         </Text>
       </View>
@@ -309,7 +326,7 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
                 >
                   <Text style={styles.chipName}>{a.driver_name}</Text>
                   <Text style={styles.chipStatus}>
-                    {a.status === "active" ? "🚨 Active" : "✓ Alert"}
+                    {a.status === "active" ? "🚨 Active" : a.status === "alerted" ? "🔔 Alerted" : "✓ Resolved"}
                   </Text>
                 </Pressable>
               ))}
@@ -319,7 +336,9 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
           {selected && (
             <View style={styles.card}>
               <View style={[styles.badge, styles.badgeActive]}>
-                <Text style={[styles.badgeText, { color: theme.tertiary }]}>🚨  DROWSINESS ALERT</Text>
+                <Text style={[styles.badgeText, { color: selected.status === "active" ? theme.tertiary : theme.onSurfaceVariant }]}>
+                  {selected.status === "active" ? "🚨  DROWSINESS ALERT" : selected.status === "alerted" ? "🔔  ALERTED" : "✓  RESOLVED"}
+                </Text>
               </View>
 
               <Text style={styles.driverName}>{selected.driver_name ?? "Driver"}</Text>

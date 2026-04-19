@@ -24,9 +24,12 @@ export function AccountScreen({ onSignOut }: { onSignOut: () => void }) {
     (user.identities ?? []).some((id: { provider: string }) => id.provider === "google");
 
   const [displayName, setDisplayName] = useState(user.user_metadata?.full_name ?? "");
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -42,21 +45,40 @@ export function AccountScreen({ onSignOut }: { onSignOut: () => void }) {
       setErrorMsg("Password must be at least 6 characters.");
       return;
     }
+    if (newPassword && !isGoogle && !currentPassword) {
+      setErrorMsg("Current password is required to set a new password.");
+      return;
+    }
     setSaving(true);
     try {
       const updates: Record<string, unknown> = {};
       if (displayName.trim()) updates.data = { full_name: displayName.trim() };
       if (newPassword) updates.password = newPassword;
 
-      const { error } = await supabase.auth.updateUser(updates as Parameters<typeof supabase.auth.updateUser>[0]);
-      if (error) {
-        setErrorMsg(error.message);
-      } else {
-        setSavedMsg("✓ Account updated successfully");
-        setNewPassword("");
-        setConfirmPassword("");
-        setTimeout(() => setSavedMsg(""), 3000);
+      const { error: authError } = await supabase.auth.updateUser(
+        updates as Parameters<typeof supabase.auth.updateUser>[0],
+      );
+      if (authError) {
+        setErrorMsg(authError.message);
+        return;
       }
+
+      if (displayName.trim()) {
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({ full_name: displayName.trim() })
+          .eq("id", user.id);
+        if (profileError) {
+          setErrorMsg(profileError.message);
+          return;
+        }
+      }
+
+      setSavedMsg("✓ Account updated successfully");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setTimeout(() => setSavedMsg(""), 3000);
     } finally {
       setSaving(false);
     }
@@ -105,30 +127,54 @@ export function AccountScreen({ onSignOut }: { onSignOut: () => void }) {
           </Text>
         )}
 
+        {!isGoogle && (
+          <>
+            <Text style={styles.label}>Current password</Text>
+            <View style={styles.passwordInputWrap}>
+              <TextInput
+                style={[styles.input, styles.passwordInput]}
+                value={currentPassword}
+                onChangeText={(v) => { setCurrentPassword(v); setErrorMsg(""); }}
+                placeholder="Enter your current password"
+                placeholderTextColor={theme.onSurfaceVariant}
+                secureTextEntry={!showCurrentPassword}
+              />
+              <Pressable style={styles.eyeBtn} onPress={() => setShowCurrentPassword(v => !v)}>
+                <MaterialIcons name={showCurrentPassword ? "visibility-off" : "visibility"} size={20} color={theme.onSurfaceVariant} />
+              </Pressable>
+            </View>
+          </>
+        )}
+
         <Text style={styles.label}>New password</Text>
-        <View style={styles.passwordRow}>
+        <View style={styles.passwordInputWrap}>
           <TextInput
             style={[styles.input, styles.passwordInput]}
             value={newPassword}
             onChangeText={(v) => { setNewPassword(v); setErrorMsg(""); }}
             placeholder="At least 6 characters"
             placeholderTextColor={theme.onSurfaceVariant}
-            secureTextEntry={!showPassword}
+            secureTextEntry={!showNewPassword}
           />
-          <Pressable style={styles.eyeBtn} onPress={() => setShowPassword(v => !v)}>
-            <MaterialIcons name={showPassword ? "visibility-off" : "visibility"} size={20} color={theme.onSurfaceVariant} />
+          <Pressable style={styles.eyeBtn} onPress={() => setShowNewPassword(v => !v)}>
+            <MaterialIcons name={showNewPassword ? "visibility-off" : "visibility"} size={20} color={theme.onSurfaceVariant} />
           </Pressable>
         </View>
 
         <Text style={styles.label}>Confirm password</Text>
-        <TextInput
-          style={styles.input}
-          value={confirmPassword}
-          onChangeText={(v) => { setConfirmPassword(v); setErrorMsg(""); }}
-          placeholder="Re-enter password"
-          placeholderTextColor={theme.onSurfaceVariant}
-          secureTextEntry={!showPassword}
-        />
+        <View style={styles.passwordInputWrap}>
+          <TextInput
+            style={[styles.input, styles.passwordInput]}
+            value={confirmPassword}
+            onChangeText={(v) => { setConfirmPassword(v); setErrorMsg(""); }}
+            placeholder="Re-enter password"
+            placeholderTextColor={theme.onSurfaceVariant}
+            secureTextEntry={!showConfirmPassword}
+          />
+          <Pressable style={styles.eyeBtn} onPress={() => setShowConfirmPassword(v => !v)}>
+            <MaterialIcons name={showConfirmPassword ? "visibility-off" : "visibility"} size={20} color={theme.onSurfaceVariant} />
+          </Pressable>
+        </View>
       </View>
 
       {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
@@ -184,9 +230,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     borderRadius: 14, padding: 12, marginBottom: 4,
     color: t.onSurface, backgroundColor: t.surfaceContainerHigh, fontSize: 15, flex: 1,
   },
-  passwordRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
-  passwordInput: { marginBottom: 0 },
-  eyeBtn: { padding: 10 },
+  passwordInputWrap: { flexDirection: "row", alignItems: "center", gap: 0, marginBottom: 12, position: "relative" },
+  passwordInput: { marginBottom: 0, paddingRight: 48 },
+  eyeBtn: { position: "absolute", right: 12, padding: 8 },
   errorText: { color: t.tertiary, fontSize: 13, fontWeight: "600", marginBottom: 10, textAlign: "center" },
   successText: { color: "#4ade80", fontSize: 13, fontWeight: "600", marginBottom: 10, textAlign: "center" },
   saveBtn: {

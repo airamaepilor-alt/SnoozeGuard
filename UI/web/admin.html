@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SnoozeGuard Admin - Configuration</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "primary-container": "#001a27",
+            "tertiary-fixed": "#ffdad7",
+            "on-tertiary-fixed-variant": "#930013",
+            "on-secondary-fixed": "#2a1700",
+            "on-background": "#dae2fd",
+            "inverse-primary": "#00668a",
+            "surface": "#0b1326",
+            "surface-container-high": "#222a3d",
+            "primary-fixed": "#c4e7ff",
+            "on-secondary-fixed-variant": "#653e00",
+            "on-primary-fixed": "#001e2c",
+            "tertiary": "#ffb3ad",
+            "surface-container": "#171f33",
+            "outline-variant": "#45464d",
+            "inverse-on-surface": "#283044",
+            "on-tertiary-container": "#eb4141",
+            "tertiary-container": "#390003",
+            "primary-fixed-dim": "#7bd0ff",
+            "secondary-fixed": "#ffddb8",
+            "background": "#0b1326",
+            "surface-container-low": "#131b2e",
+            "surface-container-highest": "#2d3449",
+            "surface-bright": "#31394d",
+            "on-primary-container": "#008abb",
+            "on-primary": "#00354a",
+            "surface-variant": "#2d3449",
+            "error": "#ffb4ab",
+            "outline": "#909097",
+            "secondary-container": "#ee9800",
+            "primary": "#7bd0ff",
+            "on-primary-fixed-variant": "#004c69",
+            "on-surface": "#dae2fd",
+            "inverse-surface": "#dae2fd",
+            "error-container": "#93000a",
+            "surface-dim": "#0b1326",
+            "secondary": "#ffb95f",
+            "on-tertiary": "#68000a",
+            "on-tertiary-fixed": "#410004",
+            "on-secondary-container": "#5b3800",
+            "on-error-container": "#ffdad6",
+            "tertiary-fixed-dim": "#ffb3ad",
+            "surface-container-lowest": "#060e20",
+            "on-surface-variant": "#c6c6cd",
+            "surface-tint": "#7bd0ff",
+            "secondary-fixed-dim": "#ffb95f",
+            "on-secondary": "#472a00",
+            "on-error": "#690005"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "fontFamily": {
+            "headline": ["Manrope"],
+            "body": ["Inter"],
+            "label": ["Inter"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    body { font-family: 'Inter', sans-serif; }
+    h1, h2, h3 { font-family: 'Manrope', sans-serif; }
+    .glass-effect {
+      backdrop-filter: blur(32px);
+      background: rgba(45, 52, 73, 0.8);
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-background min-h-screen overflow-x-hidden">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-[#0b1326] dark:bg-[#0b1326]">
+<div class="flex justify-between items-center h-16 px-8 w-full">
+<div class="text-xl font-black text-[#7bd0ff] tracking-widest uppercase font-manrope">
+        SnoozeGuard Admin
+      </div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-4 text-slate-400">
+<span class="material-symbols-outlined cursor-pointer hover:bg-[#222a3d] p-2 rounded-full transition-colors duration-300">dark_mode</span>
+<span class="material-symbols-outlined cursor-pointer hover:bg-[#222a3d] p-2 rounded-full transition-colors duration-300">notifications</span>
+<span class="material-symbols-outlined cursor-pointer hover:bg-[#222a3d] p-2 rounded-full transition-colors duration-300">account_circle</span>
+</div>
+</div>
+</div>
+<div class="bg-[#131b2e] h-[1px] w-full block"></div>
+</header>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-16 h-screen w-64 bg-[#131b2e] dark:bg-[#131b2e] shadow-[40px_0_40px_-20px_rgba(11,19,38,0.5)]">
+<nav class="flex flex-col h-full py-8 font-manrope font-semibold text-sm">
+<div class="px-6 mb-10">
+<div class="text-[#7bd0ff] text-lg font-bold">System Admin</div>
+<div class="text-slate-500 text-xs uppercase tracking-widest flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span> Vigilant Mode Active
+        </div>
+</div>
+<div class="space-y-2">
+<a class="flex items-center gap-4 text-slate-400 px-6 py-4 hover:text-white hover:bg-[#222a3d]/50 transition-all Active:translate-x-1" href="#">
+<span class="material-symbols-outlined">dashboard</span> Dashboard
+        </a>
+<a class="flex items-center gap-4 text-slate-400 px-6 py-4 hover:text-white hover:bg-[#222a3d]/50 transition-all Active:translate-x-1" href="#">
+<span class="material-symbols-outlined">rule</span> Alert Mapping
+        </a>
+<a class="flex items-center gap-4 text-slate-400 px-6 py-4 hover:text-white hover:bg-[#222a3d]/50 transition-all Active:translate-x-1" href="#">
+<span class="material-symbols-outlined">sms</span> SMS Providers
+        </a>
+<a class="flex items-center gap-4 bg-[#222a3d] text-[#7bd0ff] border-r-4 border-[#7bd0ff] px-6 py-4 transition-all Active:translate-x-1" href="#">
+<span class="material-symbols-outlined">settings_input_component</span> System Thresholds
+        </a>
+<a class="flex items-center gap-4 text-slate-400 px-6 py-4 hover:text-white hover:bg-[#222a3d]/50 transition-all Active:translate-x-1" href="#">
+<span class="material-symbols-outlined">history</span> Log Viewer
+        </a>
+</div>
+<div class="mt-auto px-6 pb-20 space-y-4">
+<button class="w-full bg-[#7bd0ff] text-[#001e2c] py-3 rounded-xl font-bold uppercase tracking-tight hover:opacity-90 active:scale-95 transition-all">
+          Deploy Config
+        </button>
+<div class="space-y-1">
+<a class="flex items-center gap-4 text-slate-500 text-xs px-2 py-2 hover:text-[#7bd0ff]" href="#">
+<span class="material-symbols-outlined text-sm">menu_book</span> Documentation
+          </a>
+<a class="flex items-center gap-4 text-slate-500 text-xs px-2 py-2 hover:text-[#7bd0ff]" href="#">
+<span class="material-symbols-outlined text-sm">contact_support</span> Support
+          </a>
+</div>
+</div>
+</nav>
+</aside>
+<!-- Main Content Area -->
+<main class="ml-64 mt-16 p-10 max-w-7xl">
+<!-- Hero Header -->
+<div class="mb-12">
+<h1 class="text-4xl font-extrabold tracking-tight text-white mb-2">Configuration <span class="text-primary">Console</span></h1>
+<p class="text-on-surface-variant max-w-2xl">Modify global system behavior, alert thresholds, and integration parameters. All changes require a manual 'Deploy' to go live on sentinel devices.</p>
+</div>
+<div class="grid grid-cols-12 gap-8">
+<!-- Left Column: Global & Providers -->
+<div class="col-span-12 lg:col-span-4 space-y-8">
+<!-- Global System Thresholds -->
+<section class="bg-surface-container-low rounded-3xl p-8 transition-all hover:bg-surface-container">
+<div class="flex items-center gap-3 mb-8">
+<span class="material-symbols-outlined text-primary text-3xl">tune</span>
+<h2 class="text-xl font-bold text-white">System Thresholds</h2>
+</div>
+<div class="space-y-6">
+<div class="space-y-2">
+<label class="text-sm font-semibold text-on-surface-variant flex justify-between">
+                Trigger Level
+                <span class="text-primary">Default: 4</span>
+</label>
+<input class="w-full bg-surface-container-highest border-none rounded-xl text-white px-4 py-3 focus:ring-2 focus:ring-primary" type="number" value="4"/>
+<p class="text-[10px] text-slate-500 italic">Minimum cumulative fatigue score to initiate level 1 monitoring.</p>
+</div>
+<div class="space-y-2">
+<label class="text-sm font-semibold text-on-surface-variant flex justify-between">
+                Score Reset (Min)
+                <span class="text-primary">Default: 2</span>
+</label>
+<input class="w-full bg-surface-container-highest border-none rounded-xl text-white px-4 py-3 focus:ring-2 focus:ring-primary" type="number" value="2"/>
+<p class="text-[10px] text-slate-500 italic">Minutes of sustained alertness before session score resets.</p>
+</div>
+</div>
+</section>
+<!-- SMS Provider Settings -->
+<section class="bg-surface-container-low rounded-3xl p-8 transition-all hover:bg-surface-container">
+<div class="flex items-center gap-3 mb-8">
+<span class="material-symbols-outlined text-primary text-3xl">cell_tower</span>
+<h2 class="text-xl font-bold text-white">SMS Integration</h2>
+</div>
+<div class="space-y-6">
+<div class="space-y-2">
+<label class="text-sm font-semibold text-on-surface-variant">Provider</label>
+<select class="w-full bg-surface-container-highest border-none rounded-xl text-white px-4 py-3 focus:ring-2 focus:ring-primary appearance-none">
+<option>Semaphore</option>
+<option>Twilio</option>
+<option>TextBelt</option>
+</select>
+</div>
+<div class="space-y-2">
+<label class="text-sm font-semibold text-on-surface-variant">SMS API Key</label>
+<div class="relative">
+<input class="w-full bg-surface-container-highest border-none rounded-xl text-white px-4 py-3 focus:ring-2 focus:ring-primary pr-12" type="password" value="sk_test_4567890123456789"/>
+<span class="material-symbols-outlined absolute right-4 top-3 text-slate-500 cursor-pointer hover:text-white">visibility</span>
+</div>
+<p class="text-[10px] text-primary/60">Key is encrypted at rest using AES-256.</p>
+</div>
+</div>
+</section>
+<!-- Action Palette Legend -->
+<section class="bg-primary-container rounded-3xl p-8 border border-primary/10">
+<h3 class="text-sm font-bold text-[#7bd0ff] uppercase tracking-widest mb-6">Action Library</h3>
+<div class="flex flex-wrap gap-3">
+<div class="flex items-center gap-2 bg-[#00354a] px-3 py-2 rounded-lg text-xs font-bold text-white border border-[#008abb]/30">
+<span class="material-symbols-outlined text-sm">record_voice_over</span> voice
+            </div>
+<div class="flex items-center gap-2 bg-[#00354a] px-3 py-2 rounded-lg text-xs font-bold text-white border border-[#008abb]/30">
+<span class="material-symbols-outlined text-sm">vibration</span> vibration
+            </div>
+<div class="flex items-center gap-2 bg-[#00354a] px-3 py-2 rounded-lg text-xs font-bold text-white border border-[#008abb]/30">
+<span class="material-symbols-outlined text-sm">campaign</span> alarm
+            </div>
+<div class="flex items-center gap-2 bg-[#00354a] px-3 py-2 rounded-lg text-xs font-bold text-white border border-[#008abb]/30">
+<span class="material-symbols-outlined text-sm">lightbulb</span> iot_led
+            </div>
+<div class="flex items-center gap-2 bg-[#00354a] px-3 py-2 rounded-lg text-xs font-bold text-white border border-[#008abb]/30">
+<span class="material-symbols-outlined text-sm">settings_input_antenna</span> iot_buzzer
+            </div>
+</div>
+</section>
+</div>
+<!-- Right Column: Alert Mapping -->
+<div class="col-span-12 lg:col-span-8">
+<section class="bg-surface-container-low rounded-3xl p-8 min-h-full">
+<div class="flex items-center justify-between mb-8">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-3xl">notifications_active</span>
+<h2 class="text-xl font-bold text-white">Alert Mapping (Levels 6-10)</h2>
+</div>
+<span class="text-xs font-bold bg-tertiary-container text-tertiary px-3 py-1 rounded-full">Vigilant v1.4</span>
+</div>
+<!-- Mapping Grid -->
+<div class="space-y-4">
+<!-- Level 6 -->
+<div class="grid grid-cols-12 items-center bg-surface-container-high p-6 rounded-2xl hover:scale-[1.01] transition-transform border-l-4 border-emerald-500">
+<div class="col-span-2">
+<span class="text-2xl font-black text-emerald-500">LVL 6</span>
+<p class="text-[10px] text-on-surface-variant font-bold uppercase">Mild</p>
+</div>
+<div class="col-span-5 px-4 space-y-1">
+<div class="flex flex-wrap gap-2">
+<span class="text-[10px] font-bold bg-surface-container-highest px-2 py-1 rounded-md">Yawn Count: 3</span>
+<span class="text-[10px] font-bold bg-surface-container-highest px-2 py-1 rounded-md">Head Slump: 2</span>
+</div>
+<p class="text-xs text-slate-400">Early fatigue markers detected.</p>
+</div>
+<div class="col-span-4 flex gap-2">
+<span class="material-symbols-outlined text-primary text-lg" title="Voice">record_voice_over</span>
+</div>
+<div class="col-span-1 text-right">
+<span class="material-symbols-outlined text-slate-500 cursor-pointer hover:text-white">edit</span>
+</div>
+</div>
+<!-- Level 7 -->
+<div class="grid grid-cols-12 items-center bg-surface-container-high p-6 rounded-2xl hover:scale-[1.01] transition-transform border-l-4 border-yellow-500">
+<div class="col-span-2">
+<span class="text-2xl font-black text-yellow-500">LVL 7</span>
+<p class="text-[10px] text-on-surface-variant font-bold uppercase">Moderate</p>
+</div>
+<div class="col-span-5 px-4 space-y-1">
+<p class="text-xs text-slate-400">Repeated closing of eyes detected.</p>
+</div>
+<div class="col-span-4 flex gap-2">
+<span class="material-symbols-outlined text-primary text-lg" title="Voice">record_voice_over</span>
+<span class="material-symbols-outlined text-primary text-lg" title="Vibration">vibration</span>
+</div>
+<div class="col-span-1 text-right">
+<span class="material-symbols-outlined text-slate-500 cursor-pointer hover:text-white">edit</span>
+</div>
+</div>
+<!-- Level 8 -->
+<div class="grid grid-cols-12 items-center bg-surface-container-high p-6 rounded-2xl hover:scale-[1.01] transition-transform border-l-4 border-orange-500">
+<div class="col-span-2">
+<span class="text-2xl font-black text-orange-500">LVL 8</span>
+<p class="text-[10px] text-on-surface-variant font-bold uppercase">Severe</p>
+</div>
+<div class="col-span-5 px-4 space-y-1">
+<p class="text-xs text-slate-400">Inattentiveness for &gt; 3 seconds.</p>
+</div>
+<div class="col-span-4 flex gap-2">
+<span class="material-symbols-outlined text-primary text-lg" title="Alarm">campaign</span>
+<span class="material-symbols-outlined text-primary text-lg" title="Vibration">vibration</span>
+</div>
+<div class="col-span-1 text-right">
+<span class="material-symbols-outlined text-slate-500 cursor-pointer hover:text-white">edit</span>
+</div>
+</div>
+<!-- Level 9 -->
+<div class="grid grid-cols-12 items-center bg-surface-container-high p-6 rounded-2xl hover:scale-[1.01] transition-transform border-l-4 border-error">
+<div class="col-span-2">
+<span class="text-2xl font-black text-error">LVL 9</span>
+<p class="text-[10px] text-on-surface-variant font-bold uppercase">Severe pull-over</p>
+</div>
+<div class="col-span-5 px-4 space-y-1">
+<p class="text-xs text-slate-400">Micro-sleep event confirmed by IR.</p>
+</div>
+<div class="col-span-4 flex gap-2">
+<span class="material-symbols-outlined text-primary text-lg" title="Alarm">campaign</span>
+<span class="material-symbols-outlined text-primary text-lg" title="IoT LED">lightbulb</span>
+</div>
+<div class="col-span-1 text-right">
+<span class="material-symbols-outlined text-slate-500 cursor-pointer hover:text-white">edit</span>
+</div>
+</div>
+<!-- Level 10 -->
+<div class="grid grid-cols-12 items-center bg-surface-container-high p-6 rounded-2xl hover:scale-[1.01] transition-transform border-l-4 border-error relative overflow-hidden">
+<div class="absolute inset-0 bg-error/5"></div>
+<div class="col-span-2 relative">
+<span class="text-2xl font-black text-error">LVL 10</span>
+<p class="text-[10px] text-on-surface-variant font-bold uppercase">Critical stop</p>
+</div>
+<div class="col-span-5 px-4 space-y-1 relative">
+<p class="text-xs text-slate-400">Total system override. Device lockdown.</p>
+</div>
+<div class="col-span-4 flex gap-2 relative">
+<span class="material-symbols-outlined text-primary text-lg" title="Alarm">campaign</span>
+<span class="material-symbols-outlined text-primary text-lg" title="IoT LED">lightbulb</span>
+<span class="material-symbols-outlined text-primary text-lg" title="IoT Buzzer">settings_input_antenna</span>
+</div>
+<div class="col-span-1 text-right relative">
+<span class="material-symbols-outlined text-slate-500 cursor-pointer hover:text-white">edit</span>
+</div>
+</div>
+</div>
+<!-- Bottom Visual Map -->
+<div class="mt-8 relative h-48 rounded-2xl overflow-hidden group">
+<img alt="Night driving scene" class="w-full h-full object-cover opacity-40 group-hover:scale-110 transition-transform duration-700" data-alt="Interior of a modern high-tech vehicle at night with blue ambient dashboard lighting and digital interfaces visible on the console" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAC0GFt3uzAsbO3PTu_t8BRv5bnZloPxAViIVxrfjbcbxtiKpBQYF5alIv0RmdqsRRyOTNJJoKGanCsuYLfi5Dcj8U3xAlLhq8gh1jRIyhWlOtdQHDQyXQvbTicf_qWBXhT0TYUXa8X9SuLmDV2qYfvxCyoynVZ7iO5-a9dinzOM6LnxTPdoWnSkLv2kuonRO2CD0YMTLOX6_6ypAN5fuNndHLMTeoYrNpVCCiQ8tXY_7FSHBKPd_orWt3c1oCYtOOwlnvVxNZEbhI"/>
+<div class="absolute inset-0 bg-gradient-to-t from-surface-container-low to-transparent"></div>
+<div class="absolute bottom-6 left-6">
+<div class="flex items-center gap-2 mb-1">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="text-xs font-bold text-white uppercase tracking-tighter">Real-time Node Coverage</span>
+</div>
+<p class="text-[10px] text-slate-300">All alert thresholds synced with Sentinel Hardware Cluster.</p>
+</div>
+</div>
+</section>
+</div>
+</div>
+<!-- Footer Branding -->
+<footer class="mt-12 flex justify-between items-center opacity-60 px-2">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 bg-primary-container rounded-lg flex items-center justify-center text-[10px] font-black text-primary border border-primary/20">SG</div>
+<span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">SnoozeGuard Corp.</span>
+</div>
+<div class="w-px h-4 bg-slate-800"></div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-slate-400">school</span>
+<span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">Sentinel Academy</span>
+</div>
+</div>
+<div class="text-[10px] text-slate-500 font-medium">
+        Firmware v1.4.2-stable | © 2024 SnoozeGuard
+      </div>
+</footer>
+</main>
+<!-- Mobile Overlay Prevention (Simplified for Desktop-First Admin) -->
+<div class="md:hidden fixed inset-0 bg-surface z-[100] flex flex-col items-center justify-center p-8 text-center">
+<span class="material-symbols-outlined text-primary text-6xl mb-4">desktop_windows</span>
+<h2 class="text-xl font-bold text-white mb-2">Desktop Access Only</h2>
+<p class="text-on-surface-variant text-sm">The SnoozeGuard Configuration Console is optimized for high-density administrative workflows on desktop displays.</p>
+</div>
+</body></html>

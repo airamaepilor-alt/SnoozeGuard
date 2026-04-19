@@ -60,29 +60,53 @@ export function EmergencyContactSetupModal({ visible, userId, onDone, onSkip }: 
       return;
     }
     setSaving(true);
-    const [ecRes] = await Promise.all([
-      upsertEmergencyContact(supabase, userId, {
-        contact_name: name.trim(),
-        contact_phone: phone.trim(),
-        contact_email: email.trim(),
-      }),
-      myPhone.trim()
-        ? supabase.from("profiles").update({ phone: myPhone.trim() }).eq("id", userId)
-        : Promise.resolve(),
-    ]);
-    setSaving(false);
-    if (ecRes.error) {
-      setError(ecRes.error);
-    } else {
-      try {
-        getDatabase().runSync(
-          `INSERT OR REPLACE INTO emergency_contacts_local
-           (user_id, contact_name, contact_phone, contact_email, my_phone, pending_sync, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          userId, name.trim(), phone.trim(), email.trim(), myPhone.trim(), 0, new Date().toISOString(),
-        );
-      } catch { /* ignore */ }
-      onDone();
+
+    // Always write to SQLite first — works offline
+    try {
+      getDatabase().runSync(
+        `INSERT OR REPLACE INTO emergency_contacts_local
+         (user_id, contact_name, contact_phone, contact_email, my_phone, pending_sync, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        userId, name.trim(), phone.trim(), email.trim(), myPhone.trim(), 1, new Date().toISOString(),
+      );
+    } catch { /* ignore */ }
+
+    // Then try Supabase
+    try {
+      const online = await isOnline();
+      if (!online) {
+        setSaving(false);
+        onDone();
+        return;
+      }
+      const [ecRes] = await Promise.all([
+        upsertEmergencyContact(supabase, userId, {
+          contact_name: name.trim(),
+          contact_phone: phone.trim(),
+          contact_email: email.trim(),
+        }),
+        myPhone.trim()
+          ? supabase.from("profiles").update({ phone: myPhone.trim() }).eq("id", userId)
+          : Promise.resolve(),
+      ]);
+      setSaving(false);
+      if (ecRes.error) {
+        setError(ecRes.error);
+      } else {
+        // Mark as synced
+        try {
+          getDatabase().runSync(
+            `INSERT OR REPLACE INTO emergency_contacts_local
+             (user_id, contact_name, contact_phone, contact_email, my_phone, pending_sync, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            userId, name.trim(), phone.trim(), email.trim(), myPhone.trim(), 0, new Date().toISOString(),
+          );
+        } catch { /* ignore */ }
+        onDone();
+      }
+    } catch (e) {
+      setSaving(false);
+      setError("Saved locally. Will sync when online.");
     }
   };
 

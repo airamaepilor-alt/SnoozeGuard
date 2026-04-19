@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -6,37 +6,37 @@ import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { supabase } from "../lib/supabase";
 import { countPendingTelemetryForUser } from "../lib/offline/db";
 import { flushOutbox } from "../lib/offline/sync";
+import { logger } from "../lib/logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type DashboardRpcPayload = {
-  ok?: boolean;
-  reason?: string;
-  session_count_total?: number;
-  window_session_count?: number;
-  sample_count?: number;
-  avg_drowsiness?: number;
-  yawn_delta_sum?: number;
-  head_delta_sum?: number;
-  l6_count?: number;
-  l7_count?: number;
-  l8_count?: number;
-  newest_recorded_at?: string | null;
-  samples_7d_trail?: number;
-  total_drive_seconds?: number;
-  focus_score?: number | null;
-  peak_hour?: number | null;
-  safest_hour?: number | null;
-  histogram_hours?: unknown;
-  tz_offset_minutes_applied?: number | null;
+// Same filter options as mobile HomeScreen
+const FILTER_OPTIONS = [
+  { label: "1 Week", days: 7 },
+  { label: "1 Month", days: 30 },
+  { label: "3 Months", days: 90 },
+  { label: "All Time", days: 0 },
+] as const;
+
+type DashboardMetrics = {
+  sessionCount: number;
+  totalDriveSec: number;
+  avgDriveSec: number;
+  avgDrowsiness: number;
+  focusScore: number | null;
+  drowsyEvents: number;
+  yawnSum: number;
+  headSum: number;
+  tiltSum: number;
+  brakeSum: number;
 };
 
-type AlertEvent = {
+type SessionIncident = {
   id: string;
-  drowsiness_level: number;
-  alert_label: string | null;
-  source: string | null;
-  created_at: string;
+  started_at: string;
+  peak_drowsiness: number;
+  avg_drowsiness: number;
+  duration_sec: number;
 };
 
 type SessionDay = {
@@ -54,10 +54,12 @@ function firstName(u: User | null): string {
   return local ? local.charAt(0).toUpperCase() + local.slice(1) : "Driver";
 }
 
-function formatHoursLarge(totalSec: number): { value: string; unit: string } {
-  if (totalSec <= 0) return { value: "—", unit: "" };
-  const h = Math.floor(totalSec / 3600);
-  return { value: h.toLocaleString(), unit: "Hours Recorded" };
+function formatDriveTime(secs: number): string {
+  if (secs <= 0) return "—";
+  if (secs < 60) return `${secs}s`;
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 function scoreLabel(score: number | null): { text: string; color: string } {
@@ -67,12 +69,6 @@ function scoreLabel(score: number | null): { text: string; color: string } {
   return { text: "Critical", color: "text-error bg-error/20" };
 }
 
-function avgSessionMin(totalSec: number, count: number): string {
-  if (!count || totalSec <= 0) return "—";
-  const avg = totalSec / count / 60;
-  if (avg >= 60) return `${(avg / 60).toFixed(1)} hrs`;
-  return `${Math.round(avg)} min`;
-}
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -143,26 +139,21 @@ function SessionActivityChart({
   );
 }
 
-function IncidentRow({ event }: { event: AlertEvent }) {
-  const level = Number(event.drowsiness_level);
-  const isCritical = level >= 8;
-  const isWarning = level >= 6 && level < 8;
+function IncidentRow({ incident }: { incident: SessionIncident }) {
+  const peak = incident.peak_drowsiness;
+  const isCritical = peak >= 8;
+  const isWarning = peak >= 6 && peak < 8;
 
   const icon = isCritical ? "event_busy" : isWarning ? "warning" : "verified";
   const iconColor = isCritical ? "text-error" : isWarning ? "text-secondary" : "text-primary";
   const bgColor = isCritical ? "bg-error/10" : isWarning ? "bg-secondary/10" : "bg-primary/10";
+  const label = isCritical ? "Critical Fatigue Session" : isWarning ? "Elevated Drowsiness" : "Safe Session";
 
-  const label =
-    event.alert_label ??
-    (isCritical ? "Critical Fatigue Alert" : isWarning ? "Drowsiness Warning" : "Safe Session");
-  const date = new Date(event.created_at);
-  const dateStr = date.toLocaleDateString("en", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  const date = new Date(incident.started_at);
+  const dateStr = date.toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" });
   const timeStr = date.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" });
-  const shortId = `#SG-${event.id.slice(0, 4).toUpperCase()}`;
+  const shortId = `#SG-${incident.id.slice(0, 4).toUpperCase()}`;
+  const durationStr = formatDriveTime(incident.duration_sec);
 
   return (
     <div className="flex items-center justify-between p-5 bg-surface-container/30 rounded-xl hover:bg-surface-container/50 transition-colors">
@@ -181,7 +172,7 @@ function IncidentRow({ event }: { event: AlertEvent }) {
             <span className="text-on-surface-variant font-normal ml-1 text-sm">{shortId}</span>
           </p>
           <p className="text-xs text-on-surface-variant">
-            Level {level} · {event.source ?? "mobile"}
+            Peak {peak.toFixed(1)}/10 · avg {incident.avg_drowsiness.toFixed(1)}/10 · {durationStr}
           </p>
         </div>
       </div>
@@ -199,57 +190,177 @@ export function DashboardPage() {
   const { user } = useAuth();
   const online = useOnlineStatus();
 
-  const [rpcMetrics, setRpcMetrics] = useState<DashboardRpcPayload | null>(null);
-  const [sessionCountTotal, setSessionCountTotal] = useState<number | null>(null);
-  const [alertEvents, setAlertEvents] = useState<AlertEvent[]>([]);
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [sessionIncidents, setSessionIncidents] = useState<SessionIncident[]>([]);
   const [sessionsByDay, setSessionsByDay] = useState<SessionDay[]>([]);
   const [alerts7dCount, setAlerts7dCount] = useState<number | null>(null);
-  const [totalDriveSec, setTotalDriveSec] = useState(0);
   const [pendingLocal, setPendingLocal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [chartFilter, setChartFilter] = useState<"week" | "month">("week");
+  const [filterDays, setFilterDays] = useState(30); // default matches mobile
 
+  // Compute key stats from raw Supabase data using the exact same formula as mobile HomeScreen
+  const loadStats = useCallback(async (days: number, uid: string) => {
+    const TAG = "loadStats";
+    setLoading(true);
+    logger.info(TAG, "start", { days, uid });
+
+    const since = days > 0
+      ? new Date(Date.now() - days * 86400 * 1000).toISOString()
+      : null;
+    logger.debug(TAG, "query window", { since: since ?? "all-time" });
+
+    let sessQuery = supabase
+      .from("driving_sessions")
+      .select("id, started_at, ended_at")
+      .eq("user_id", uid)
+      .order("started_at", { ascending: false });
+    if (since) sessQuery = sessQuery.gte("started_at", since);
+    const { data: sessions, error: sessError } = await sessQuery;
+
+    if (sessError) {
+      logger.error(TAG, "sessions query failed", { message: sessError.message, code: sessError.code, details: sessError.details });
+      setMetrics(null);
+      setLoading(false);
+      return;
+    }
+
+    logger.info(TAG, `sessions returned: ${sessions?.length ?? 0}`, {
+      ids: sessions?.map((s) => s.id).slice(0, 10),
+      hasMore: (sessions?.length ?? 0) > 10,
+    });
+
+    if (!sessions || sessions.length === 0) {
+      logger.warn(TAG, "no sessions found — metrics set to null");
+      setMetrics(null);
+      setLoading(false);
+      return;
+    }
+
+    const sessionIds = sessions.map((s) => s.id as string);
+
+    const { data: telemetry, error: telError } = await supabase
+      .from("session_telemetry")
+      .select("session_id, drowsiness_level, yawn_count_delta, head_event_count_delta, head_tilt_delta, sudden_brake")
+      .in("session_id", sessionIds)
+      .limit(100000);
+
+    if (telError) {
+      logger.error(TAG, "telemetry query failed", { message: telError.message, code: telError.code, details: telError.details });
+      setLoading(false);
+      return;
+    }
+
+    logger.info(TAG, `telemetry rows returned: ${telemetry?.length ?? 0}`);
+
+    type TelRow = { session_id: string; drowsiness_level: number; yawn_count_delta: number; head_event_count_delta: number; head_tilt_delta: number; sudden_brake: boolean };
+    const telRows = (telemetry ?? []) as TelRow[];
+
+    // Group telemetry by session (mirrors mobile SQL: GROUP BY s.id)
+    const telBySess = new Map<string, TelRow[]>();
+    for (const row of telRows) {
+      const arr = telBySess.get(row.session_id) ?? [];
+      arr.push(row);
+      telBySess.set(row.session_id, arr);
+    }
+
+    const sessionsWithTelemetry = sessions.filter((s) => (telBySess.get(s.id as string) ?? []).length > 0).length;
+    logger.debug(TAG, "sessions with telemetry", {
+      total: sessions.length,
+      withTelemetry: sessionsWithTelemetry,
+      withoutTelemetry: sessions.length - sessionsWithTelemetry,
+    });
+
+    // avgDrowsiness = average of per-session averages
+    // Sessions with no telemetry contribute 0 (same as mobile LEFT JOIN → NULL → ?? 0)
+    const perSessionAvgs = sessions.map((s) => {
+      const rows = telBySess.get(s.id as string) ?? [];
+      return rows.length > 0
+        ? rows.reduce((sum, r) => sum + Number(r.drowsiness_level), 0) / rows.length
+        : 0;
+    });
+    const avgDrowsiness = perSessionAvgs.reduce((a, b) => a + b, 0) / perSessionAvgs.length;
+
+    logger.debug(TAG, "drowsiness calculation", {
+      perSessionAvgs: perSessionAvgs.map((v) => +v.toFixed(3)),
+      avgDrowsiness: +avgDrowsiness.toFixed(4),
+    });
+
+    // Focus score — identical to mobile: Math.max(0, Math.round(100 - avgDrowsiness * 10))
+    const focusScore = Math.max(0, Math.round(100 - avgDrowsiness * 10));
+    logger.info(TAG, `focusScore: ${focusScore}`, { avgDrowsiness: +avgDrowsiness.toFixed(4) });
+
+    // Total drive seconds — identical to mobile
+    const totalDriveSec = sessions.reduce((acc, s) => {
+      if (s.started_at && s.ended_at) {
+        acc += (new Date(s.ended_at as string).getTime() - new Date(s.started_at as string).getTime()) / 1000;
+      }
+      return acc;
+    }, 0);
+
+    const sessionsWithDuration = sessions.filter((s) => s.started_at && s.ended_at).length;
+    logger.debug(TAG, "drive time", {
+      totalDriveSec: +totalDriveSec.toFixed(1),
+      sessionsWithDuration,
+      sessionsWithoutEndedAt: sessions.length - sessionsWithDuration,
+    });
+
+    // Drowsy events: yawn + head_nod + tilt + brake (matches mobile exactly)
+    let yawnSum = 0, headSum = 0, tiltSum = 0, brakeSum = 0;
+    for (const row of telRows) {
+      yawnSum  += Number(row.yawn_count_delta) || 0;
+      headSum  += Number(row.head_event_count_delta) || 0;
+      tiltSum  += Number(row.head_tilt_delta) || 0;
+      brakeSum += row.sudden_brake ? 1 : 0;
+    }
+
+    logger.info(TAG, "drowsy events", { yawnSum, headSum, tiltSum, brakeSum, total: yawnSum + headSum + tiltSum + brakeSum });
+
+    const result: DashboardMetrics = {
+      sessionCount: sessions.length,
+      totalDriveSec: Math.round(totalDriveSec),
+      avgDriveSec: sessions.length > 0 ? Math.round(totalDriveSec / sessions.length) : 0,
+      avgDrowsiness,
+      focusScore,
+      drowsyEvents: yawnSum + headSum + tiltSum + brakeSum,
+      yawnSum,
+      headSum,
+      tiltSum,
+      brakeSum,
+    };
+
+    logger.info(TAG, "final metrics", result);
+    setMetrics(result);
+    setLoading(false);
+  }, []);
+
+  // Initial load + supplementary data (chart, incidents, badge counts)
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
 
     (async () => {
-      if (online) await flushOutbox(supabase, user.id);
+      logger.info("Dashboard", "effect fired", { uid: user.id, online, filterDays });
 
-      const tzOffset = -new Date().getTimezoneOffset();
-
-      // RPC for main metrics
-      const { data: rpcRaw } = await supabase.rpc("user_dashboard_metrics", {
-        p_session_limit: 40,
-        p_tz_offset_minutes: tzOffset,
-      });
-      const rpc = rpcRaw as DashboardRpcPayload | null;
-      const rpcOk = rpc?.ok === true;
-
-      if (!cancelled) {
-        if (rpcOk && rpc) {
-          setRpcMetrics(rpc);
-          setSessionCountTotal(rpc.session_count_total ?? null);
-          setTotalDriveSec(Number(rpc.total_drive_seconds) || 0);
-        }
+      if (online) {
+        logger.debug("Dashboard", "flushing offline outbox");
+        await flushOutbox(supabase, user.id);
       }
-
-      // Fallback session count
-      if (!rpcOk) {
-        const { count: sc } = await supabase
-          .from("driving_sessions")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id);
-        if (!cancelled) setSessionCountTotal(sc ?? null);
-      }
+      if (!cancelled) void loadStats(filterDays, user.id);
 
       // Sessions by day (last 30 days) for bar chart
       const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
-      const { data: sessionDates } = await supabase
+      const { data: sessionDates, error: chartErr } = await supabase
         .from("driving_sessions")
         .select("started_at")
         .eq("user_id", user.id)
         .gte("started_at", thirtyDaysAgo);
+
+      if (chartErr) {
+        logger.error("Dashboard", "chart sessions query failed", { message: chartErr.message });
+      } else {
+        logger.debug("Dashboard", `chart sessions: ${sessionDates?.length ?? 0} rows`);
+      }
 
       if (!cancelled && sessionDates) {
         const dayMap = new Map<string, number>();
@@ -261,54 +372,87 @@ export function DashboardPage() {
           const key = new Date(s.started_at as string).toISOString().slice(0, 10);
           dayMap.set(key, (dayMap.get(key) ?? 0) + 1);
         }
-        setSessionsByDay(
-          Array.from(dayMap.entries()).map(([date, count]) => ({ date, count })),
-        );
+        setSessionsByDay(Array.from(dayMap.entries()).map(([date, count]) => ({ date, count })));
       }
 
-      // Recent alert events for incidents list
-      const { data: eventsData } = await supabase
-        .from("alert_events")
-        .select("id, drowsiness_level, alert_label, source, created_at")
+      // Derive incidents from session_telemetry — last 30 days, top 5 by recency
+      const { data: incidentSessions, error: incidentSessErr } = await supabase
+        .from("driving_sessions")
+        .select("id, started_at, ended_at")
         .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(5);
-      if (!cancelled && eventsData) setAlertEvents(eventsData as AlertEvent[]);
+        .gte("started_at", thirtyDaysAgo)
+        .order("started_at", { ascending: false })
+        .limit(50);
 
-      // 7-day alert count
-      const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-      const { count: alertC } = await supabase
-        .from("alert_events")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id)
-        .gte("created_at", weekAgo);
-      if (!cancelled) setAlerts7dCount(alertC ?? 0);
+      if (incidentSessErr) {
+        logger.error("Dashboard", "incident sessions query failed", { message: incidentSessErr.message });
+      } else if (incidentSessions?.length) {
+        const incidentIds = incidentSessions.map((s) => s.id as string);
+        const { data: incidentTel, error: incidentTelErr } = await supabase
+          .from("session_telemetry")
+          .select("session_id, drowsiness_level")
+          .in("session_id", incidentIds);
 
-      if (!cancelled) {
-        setPendingLocal(await countPendingTelemetryForUser(user.id));
-        setLoading(false);
+        if (incidentTelErr) {
+          logger.error("Dashboard", "incident telemetry query failed", { message: incidentTelErr.message });
+        } else {
+          const telBySess = new Map<string, number[]>();
+          for (const t of incidentTel ?? []) {
+            const arr = telBySess.get(t.session_id) ?? [];
+            arr.push(Number(t.drowsiness_level));
+            telBySess.set(t.session_id, arr);
+          }
+
+          const weekAgoMs = Date.now() - 7 * 86400000;
+          let weekAlerts = 0;
+          const incidents: SessionIncident[] = [];
+
+          for (const s of incidentSessions) {
+            const levels = telBySess.get(s.id as string) ?? [];
+            if (levels.length === 0) continue;
+            const peak = Math.max(...levels);
+            const avg = levels.reduce((a, b) => a + b, 0) / levels.length;
+            const durationSec = s.started_at && s.ended_at
+              ? (new Date(s.ended_at as string).getTime() - new Date(s.started_at as string).getTime()) / 1000
+              : 0;
+            if (peak >= 6 && new Date(s.started_at as string).getTime() > weekAgoMs) weekAlerts++;
+            incidents.push({ id: s.id as string, started_at: s.started_at as string, peak_drowsiness: peak, avg_drowsiness: avg, duration_sec: Math.round(durationSec) });
+          }
+
+          logger.debug("Dashboard", `incidents derived: ${incidents.length}, alerts7d: ${weekAlerts}`);
+          if (!cancelled) setSessionIncidents(incidents.slice(0, 5));
+          if (!cancelled) setAlerts7dCount(weekAlerts);
+        }
+      } else {
+        if (!cancelled) setSessionIncidents([]);
+        if (!cancelled) setAlerts7dCount(0);
       }
+
+      const pending = await countPendingTelemetryForUser(user.id);
+      logger.debug("Dashboard", `pending local telemetry: ${pending}`);
+      if (!cancelled) setPendingLocal(pending);
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, online]);
 
-  const focusScore = useMemo(() => {
-    if (rpcMetrics?.focus_score != null) return Math.round(rpcMetrics.focus_score);
-    if (rpcMetrics?.avg_drowsiness != null && (rpcMetrics.sample_count ?? 0) > 0) {
-      return Math.max(0, Math.min(100, Math.round(100 - Number(rpcMetrics.avg_drowsiness) * 10)));
-    }
-    return null;
-  }, [rpcMetrics]);
+  // Re-fetch key stats when time filter changes
+  useEffect(() => {
+    if (!user) return;
+    void loadStats(filterDays, user.id);
+  }, [filterDays, user, loadStats]);
 
-  const yawns = Number(rpcMetrics?.yawn_delta_sum) || 0;
-  const headEvents = Number(rpcMetrics?.head_delta_sum) || 0;
-  const drowsyEvents = yawns + headEvents;
-  const scoreInfo = scoreLabel(focusScore);
-  const driveTime = formatHoursLarge(totalDriveSec);
-  const avgMin = avgSessionMin(totalDriveSec, sessionCountTotal ?? 0);
+  const focusScore = metrics?.focusScore ?? null;
+  const drowsyEvents = metrics?.drowsyEvents ?? 0;
+  const yawns = metrics?.yawnSum ?? 0;
+  const headEvents = metrics?.headSum ?? 0;
+  const tiltEvents = metrics?.tiltSum ?? 0;
+  const brakeEvents = metrics?.brakeSum ?? 0;
+
+  const scoreInfo = useMemo(() => scoreLabel(focusScore), [focusScore]);
+  const driveTimeStr = useMemo(() => formatDriveTime(metrics?.totalDriveSec ?? 0), [metrics]);
+  const avgSessionStr = useMemo(() => formatDriveTime(metrics?.avgDriveSec ?? 0), [metrics]);
   const name = firstName(user);
 
   return (
@@ -344,6 +488,23 @@ export function DashboardPage() {
         </Link>
       </div>
 
+      {/* ── Time filter pills — same options as mobile ── */}
+      <div className="flex gap-2 flex-wrap">
+        {FILTER_OPTIONS.map((opt) => (
+          <button
+            key={opt.days}
+            onClick={() => setFilterDays(opt.days)}
+            className={`px-4 py-1.5 rounded-full text-xs font-bold border transition-all ${
+              filterDays === opt.days
+                ? "bg-primary text-on-primary border-primary"
+                : "bg-transparent text-on-surface-variant border-outline-variant hover:border-on-surface-variant"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       {/* ── KPI Bento grid ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
         {/* Focus Score — spans 2 cols */}
@@ -376,7 +537,7 @@ export function DashboardPage() {
             </div>
             <p className="text-xs text-slate-500 mt-4 flex items-center gap-2">
               <span className="material-symbols-outlined text-xs text-primary">trending_up</span>
-              Based on avg drowsiness across your telemetry window
+              avg drowsiness {metrics ? Number(metrics.avgDrowsiness).toFixed(1) : "—"}/10 · {FILTER_OPTIONS.find((o) => o.days === filterDays)?.label ?? ""}
             </p>
           </div>
           {/* Background glow */}
@@ -411,7 +572,17 @@ export function DashboardPage() {
                   {headEvents} NOD{headEvents !== 1 ? "S" : ""}
                 </span>
               )}
-              {!loading && yawns === 0 && headEvents === 0 && (
+              {tiltEvents > 0 && (
+                <span className="text-[10px] bg-secondary/10 text-secondary px-2 py-0.5 rounded border border-secondary/20">
+                  {tiltEvents} TILT{tiltEvents !== 1 ? "S" : ""}
+                </span>
+              )}
+              {brakeEvents > 0 && (
+                <span className="text-[10px] bg-secondary/10 text-secondary px-2 py-0.5 rounded border border-secondary/20">
+                  {brakeEvents} BRAKE{brakeEvents !== 1 ? "S" : ""}
+                </span>
+              )}
+              {!loading && yawns === 0 && headEvents === 0 && tiltEvents === 0 && brakeEvents === 0 && (
                 <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded border border-primary/20">
                   ALL CLEAR
                 </span>
@@ -419,7 +590,7 @@ export function DashboardPage() {
             </div>
           </div>
           <p className="text-[11px] text-slate-500 mt-4">
-            ⓘ Yawns + head movements in your last 40 sessions
+            ⓘ Yawns + nods + tilts + brakes · {FILTER_OPTIONS.find((o) => o.days === filterDays)?.label ?? ""}
           </p>
         </div>
 
@@ -433,12 +604,12 @@ export function DashboardPage() {
               <span className="material-symbols-outlined text-on-surface-variant">route</span>
             </div>
             <h3 className="text-4xl font-headline font-bold text-on-surface">
-              {loading ? "…" : sessionCountTotal != null ? sessionCountTotal.toLocaleString() : "—"}
+              {loading ? "…" : metrics != null ? metrics.sessionCount.toLocaleString() : "—"}
             </h3>
           </div>
           <div className="mt-4 pt-4 border-t border-outline-variant/10">
             <p className="text-xs text-slate-500">
-              Alerts (7d):{" "}
+              High-risk sessions (7d):{" "}
               <span className="text-on-surface-variant font-semibold">
                 {alerts7dCount != null ? alerts7dCount : "—"}
               </span>
@@ -501,10 +672,10 @@ export function DashboardPage() {
             </div>
             <div className="space-y-1">
               <h3 className="text-5xl font-headline font-black text-on-surface">
-                {loading ? "…" : driveTime.value}
+                {loading ? "…" : driveTimeStr}
               </h3>
               <p className="text-primary font-headline font-bold text-lg">
-                {driveTime.unit || "Hours Recorded"}
+                {FILTER_OPTIONS.find((o) => o.days === filterDays)?.label ?? ""}
               </p>
             </div>
           </div>
@@ -512,13 +683,13 @@ export function DashboardPage() {
             <div className="flex justify-between items-center text-xs">
               <span className="text-slate-400">Avg. Session Length</span>
               <span className="text-on-surface font-bold">
-                {loading ? "…" : avgMin}
+                {loading ? "…" : avgSessionStr}
               </span>
             </div>
             <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-400">Telemetry Samples</span>
+              <span className="text-slate-400">Avg Drowsiness</span>
               <span className="text-on-surface font-bold">
-                {loading ? "…" : (rpcMetrics?.sample_count ?? "—")}
+                {loading ? "…" : metrics ? `${Number(metrics.avgDrowsiness).toFixed(1)} / 10` : "—"}
               </span>
             </div>
             <div className="w-full bg-surface-container h-1.5 rounded-full">
@@ -550,7 +721,7 @@ export function DashboardPage() {
 
         {loading ? (
           <p className="text-on-surface-variant text-sm">Loading…</p>
-        ) : alertEvents.length === 0 ? (
+        ) : sessionIncidents.length === 0 ? (
           <div className="flex items-center gap-4 p-5 bg-primary/5 rounded-xl border border-primary/10">
             <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
               <span
@@ -561,16 +732,27 @@ export function DashboardPage() {
               </span>
             </div>
             <p className="text-on-surface-variant text-sm">
-              No fatigue incidents recorded yet. Stay safe on the road!
+              No sessions with telemetry found in the last 30 days.
             </p>
           </div>
         ) : (
           <div className="space-y-3">
-            {alertEvents.map((ev) => (
-              <IncidentRow key={ev.id} event={ev} />
+            {sessionIncidents.map((incident) => (
+              <IncidentRow key={incident.id} incident={incident} />
             ))}
           </div>
         )}
+      </div>
+
+      {/* ── Debug log download ── */}
+      <div className="flex justify-end">
+        <button
+          onClick={() => logger.download()}
+          className="text-[10px] text-slate-600 hover:text-slate-400 flex items-center gap-1 transition-colors"
+        >
+          <span className="material-symbols-outlined text-xs">bug_report</span>
+          Download Diagnostic Log
+        </button>
       </div>
     </div>
   );

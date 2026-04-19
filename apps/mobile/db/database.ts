@@ -59,6 +59,10 @@ export function getDatabase(): SQLite.SQLiteDatabase {
         cached_at TEXT NOT NULL
       );
     `);
+    // Additive migration: add dismissed_at to alert events cache
+    try {
+      db.execSync("ALTER TABLE emergency_alert_events_local ADD COLUMN dismissed_at TEXT");
+    } catch { /* column already exists */ }
     // Key-value preferences store
     db.execSync("CREATE TABLE IF NOT EXISTS user_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
   }

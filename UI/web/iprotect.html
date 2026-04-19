@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Guardian Management</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;700;800&amp;family=Inter:wght@400;500;600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b1326;
+        }
+        .font-headline { font-family: 'Manrope', sans-serif; }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed-dim": "#ffb3ad",
+                        "surface-container-low": "#131b2e",
+                        "on-tertiary": "#68000a",
+                        "inverse-primary": "#00668a",
+                        "primary-fixed": "#c4e7ff",
+                        "primary-fixed-dim": "#7bd0ff",
+                        "inverse-on-surface": "#283044",
+                        "on-secondary": "#472a00",
+                        "surface-container": "#171f33",
+                        "on-tertiary-fixed-variant": "#930013",
+                        "secondary-fixed": "#ffddb8",
+                        "secondary-fixed-dim": "#ffb95f",
+                        "tertiary-container": "#390003",
+                        "secondary-container": "#ee9800",
+                        "secondary": "#ffb95f",
+                        "on-tertiary-fixed": "#410004",
+                        "inverse-surface": "#dae2fd",
+                        "on-tertiary-container": "#eb4141",
+                        "surface-tint": "#7bd0ff",
+                        "outline": "#909097",
+                        "on-secondary-container": "#5b3800",
+                        "tertiary": "#ffb3ad",
+                        "on-error-container": "#ffdad6",
+                        "background": "#0b1326",
+                        "on-primary-container": "#008abb",
+                        "on-surface-variant": "#c6c6cd",
+                        "on-secondary-fixed": "#2a1700",
+                        "surface-variant": "#2d3449",
+                        "surface-dim": "#0b1326",
+                        "outline-variant": "#45464d",
+                        "tertiary-fixed": "#ffdad7",
+                        "on-background": "#dae2fd",
+                        "on-surface": "#dae2fd",
+                        "surface-container-highest": "#2d3449",
+                        "on-primary-fixed": "#001e2c",
+                        "on-error": "#690005",
+                        "on-secondary-fixed-variant": "#653e00",
+                        "surface-bright": "#31394d",
+                        "on-primary-fixed-variant": "#004c69",
+                        "error-container": "#93000a",
+                        "surface": "#0b1326",
+                        "surface-container-lowest": "#060e20",
+                        "primary-container": "#001a27",
+                        "primary": "#7bd0ff",
+                        "error": "#ffb4ab",
+                        "on-primary": "#00354a",
+                        "surface-container-high": "#222a3d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface min-h-screen pb-32">
+<!-- TopAppBar from Shared Components JSON -->
+<header class="fixed top-0 w-full z-50 bg-[#0b1326] flex items-center justify-between px-6 h-16 w-full max-w-7xl mx-auto">
+<div class="flex items-center gap-4">
+<button class="text-[#7bd0ff] active:scale-95 duration-150">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<h1 class="font-['Manrope'] font-bold text-lg tracking-tight text-[#7bd0ff]">Guardians</h1>
+</div>
+<div class="flex items-center gap-3">
+<!-- Institutional Logos -->
+<div class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center overflow-hidden">
+<img class="w-5 h-5 opacity-70" data-alt="minimalist blue and silver university crest logo for academic institutional identification" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC5FXHO-XRpPNG9owF_FhcB8gtSY1D8dYMVN1f5Qq-VuMMFUR-MKJMYD9kRgbrMCqX8W-Kyn_PH7eF_eMSKywyfUr2K_Gd3fcE7LzW84bp-RcMXZUp63Yx7SvU2AnJD_c5MsiuivpWSR71SWZV6rxMjkMHwblL4Joiafrm-rYJPRv5DtZzs1sTyR1Dv1AMiyDAKx7XBiK6suOPEPGY7Vrn8EYaUo5V0-QnCTw_WEU-0SPMBaEbQxwU5MHvCE73OmZGSQg_qjUb1Pjs"/>
+</div>
+<div class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center overflow-hidden">
+<img class="w-5 h-5 opacity-70" data-alt="high-tech geometric organizational emblem in cyan and deep slate for professional security affiliation" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA71mEkF_OLQkGYpORDGkMKsNpBFn1fLN5eAt8az_sWfH65mkpt4J3XwJm6HaB8JAjOERB6RngnVyWlR5VhiT65_lJqOK81yDumD5Oh7KeM8u0uCE1ugPjvJz7DEFOuaO5rYEakYcSxSxiz_6Lp_jaML_MqvywrT3nnIDf8wv-ZcSvGLMHbR0LUsSw4T5YcLvNfh75Jr1-nqiZXiw9DOnRnzmYirvumT2AtTG4M3L7ccX0M8sh_as4nKV9sIOaBYag2etZxrhZPfzg"/>
+</div>
+</div>
+</header>
+<main class="pt-24 px-6 max-w-2xl mx-auto">
+<!-- Tab Navigation -->
+<div class="flex p-1 bg-surface-container-low rounded-xl mb-10">
+<button class="flex-1 py-3 text-center text-sm font-semibold rounded-lg text-on-surface-variant hover:text-on-surface transition-colors">
+                My Guardian
+            </button>
+<button class="flex-1 py-3 text-center text-sm font-semibold rounded-lg bg-surface-bright text-primary shadow-sm">
+                I Protect
+            </button>
+</div>
+<!-- Section Title & Narrative -->
+<div class="mb-8">
+<h2 class="text-display-sm font-headline font-extrabold text-on-surface mb-2 tracking-tight">Active Protection</h2>
+<p class="text-on-surface-variant text-sm leading-relaxed">You are currently designated as the emergency contact for the following drivers. You will be notified in the event of high fatigue alerts.</p>
+</div>
+<!-- List of Drivers -->
+<div class="space-y-4">
+<!-- Driver Card 1 -->
+<div class="bg-surface-container rounded-3xl p-6 relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-4">
+<span class="bg-primary/10 text-primary text-[10px] font-bold px-3 py-1 rounded-full tracking-widest uppercase">Vigilant</span>
+</div>
+<div class="flex items-center gap-5">
+<div class="w-14 h-14 rounded-2xl bg-surface-container-high overflow-hidden border border-outline-variant/15">
+<img class="w-full h-full object-cover" data-alt="portrait of a professional man in his thirties with a confident expression and neutral lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAZcvEPqRAEIlrLBee4uxoVM3ofYz8-6BFofdI_26eAAtA9fPDk10Fo6n_49G0-Aiow9ie_BVaQBw2-GcTh94Ibm-30yKTNSwzywj867swQ76rVL3C4dk6uSj7utRK9bB-_PbuJyvcoM7onbBydr09R6HM877WrxVSOiwB2jEV9fIHOuJicn_P3Nn6M-Dv-wn9ndD1r302hLdwwekg6poZLi-NzKdHCLn56fqOJz4jOX4MVNjGThLJMrBt6hyJAaTZCL2bX9ygJfNQ"/>
+</div>
+<div>
+<h3 class="font-headline font-bold text-lg text-on-surface">Marcus V. Sterling</h3>
+<p class="text-on-surface-variant text-sm font-medium">+1 (555) 012-9842</p>
+</div>
+</div>
+<div class="mt-6 flex gap-3">
+<button class="flex-1 flex items-center justify-center gap-2 bg-surface-bright py-3 rounded-xl text-sm font-bold text-primary active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[20px]">manage_accounts</span>
+                        Manage
+                    </button>
+<button class="flex-1 flex items-center justify-center gap-2 bg-error-container/20 py-3 rounded-xl text-sm font-bold text-tertiary active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[20px]">person_remove</span>
+                        Remove
+                    </button>
+</div>
+</div>
+<!-- Driver Card 2 -->
+<div class="bg-surface-container rounded-3xl p-6 relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-4">
+<span class="bg-primary/10 text-primary text-[10px] font-bold px-3 py-1 rounded-full tracking-widest uppercase">Vigilant</span>
+</div>
+<div class="flex items-center gap-5">
+<div class="w-14 h-14 rounded-2xl bg-surface-container-high overflow-hidden border border-outline-variant/15">
+<img class="w-full h-full object-cover" data-alt="professional woman looking forward with calm confidence in a corporate setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB6XVmbDt-y6w3QGQVThYNILluicX4jGP8qFAc5xrMx12ai9InV29_gQByPP8IdhR-KFc436LnLdmpAIRqmRpldDtoyxtDAvIV4I7ECoICVIynmN2k7FVl_n-Az8XFh3YRYunWX1FG_x87L5jY9xR63ujKd9FJzuCEYJgfOgy0uzpaFFS5bY5_h02MKzcCHCk3CpyY2Cuen9Dxgod2E5WiTp2Xb24PeDiP_XYyQENPANeLkByh_nhmcjkhCmCvLlTC0xfLFp0Sl2es"/>
+</div>
+<div>
+<h3 class="font-headline font-bold text-lg text-on-surface">Elena Rodriguez</h3>
+<p class="text-on-surface-variant text-sm font-medium">+1 (555) 873-1109</p>
+</div>
+</div>
+<div class="mt-6 flex gap-3">
+<button class="flex-1 flex items-center justify-center gap-2 bg-surface-bright py-3 rounded-xl text-sm font-bold text-primary active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[20px]">manage_accounts</span>
+                        Manage
+                    </button>
+<button class="flex-1 flex items-center justify-center gap-2 bg-error-container/20 py-3 rounded-xl text-sm font-bold text-tertiary active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[20px]">person_remove</span>
+                        Remove
+                    </button>
+</div>
+</div>
+<!-- Driver Card 3 -->
+<div class="bg-surface-container rounded-3xl p-6 relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-4">
+<span class="bg-secondary/10 text-secondary text-[10px] font-bold px-3 py-1 rounded-full tracking-widest uppercase">Standby</span>
+</div>
+<div class="flex items-center gap-5">
+<div class="w-14 h-14 rounded-2xl bg-surface-container-high overflow-hidden border border-outline-variant/15">
+<img class="w-full h-full object-cover" data-alt="casual young man smiling warmly in soft afternoon daylight" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBuoQeB8PqbvavwO9U4mM7X_PmjK1GhCOn6hH36AFJ4uP_SwC2ZPEGrj598sSFJmDK8iV5_P-NZYNv5X8KjPVhTMyjl8TvdJ8SpUgxqpPCK5yVXuhspTJFfF2pKNjWirSdNX2I2arxLoKnUwBMx1lnM17J7KwsYCeDCASwY22Q2VvefcPC8iHcYhTREpjVHk3oYdG5pKCPFnJjutJTK3gFhkNVdThFWsTWBEQ9iXGRauaeuInjfJqHGONSSIOtxq4eOlXqVvjsvkUA"/>
+</div>
+<div>
+<h3 class="font-headline font-bold text-lg text-on-surface">Jordan K. Miller</h3>
+<p class="text-on-surface-variant text-sm font-medium">+1 (555) 442-9011</p>
+</div>
+</div>
+<div class="mt-6 flex gap-3">
+<button class="flex-1 flex items-center justify-center gap-2 bg-surface-bright py-3 rounded-xl text-sm font-bold text-primary active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[20px]">manage_accounts</span>
+                        Manage
+                    </button>
+<button class="flex-1 flex items-center justify-center gap-2 bg-error-container/20 py-3 rounded-xl text-sm font-bold text-tertiary active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[20px]">person_remove</span>
+                        Remove
+                    </button>
+</div>
+</div>
+</div>
+<!-- Footer Institutional Area -->
+<footer class="mt-16 mb-8 text-center border-t border-outline-variant/10 pt-10">
+<p class="text-xs font-medium text-on-surface-variant/60 uppercase tracking-[0.2em] mb-6">Network Partners</p>
+<div class="flex justify-center items-center gap-10 opacity-40 grayscale">
+<img class="h-10" data-alt="institutional university logo silhouette" src="https://lh3.googleusercontent.com/aida-public/AB6AXuASD57xT9859Qxt-9a55wpQVdE8CWgrwc_9DD-jMAMvWtV3dIunxwxW-qptovg0An7we33TOCZF97NFmoWDBYCp_oZmq2ddyookV50DKTeibwZZHov_YxP38fgH5XVNbPDbPWzDc4Qi0MuR4XqTnD7b42DbOZd7xvk9yuRgjzJFISh9zXizTtsAarw1YywLH2jtNAr-fXl8GNbllIcRrRUoaBcZmrAphMKIWcqsS4ih2LP0bFge72bSuFzlRtXOE6xXxPKOMrlPFMg"/>
+<img class="h-10" data-alt="professional corporate organization emblem silhouette" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA65-O7cWD8lfve_3DQnaf6QZvtuaGj4z0lh1z3PDC2XrpNqABekm16OD44frMb6q2hHnZtyTnqass9YklZSFieKmR_6FPIV77bYzYqd7HxHk4JuGixaY_Rwyp4H_sCNQLCbAJ2jDp5rRg_2X1Vs9RDuBWBzT_Ub0cP_g794N6J9LmCs18ItTe8PZOFt7dw8SDSYCJoeC778xh8_YSVXiJ773ROVv9jfjPwutmg0-LCO2lbCv7RlP4hiGwF0AtgbRwRcpOBBv_WjPA"/>
+</div>
+<p class="mt-12 text-[10px] text-on-surface-variant/40 max-w-xs mx-auto">Guardians Emergency Contact Service is a registered safety protocol for authorized personnel only.</p>
+</footer>
+</main>
+<!-- BottomNavBar from Shared Components JSON -->
+<nav class="fixed bottom-0 left-0 w-full flex justify-around items-center px-4 pb-6 pt-3 bg-[#0b1326]/80 backdrop-blur-xl z-50 rounded-t-3xl shadow-[0_-20px_40px_rgba(123,208,255,0.08)] border-t border-[#31394d]/15">
+<a class="flex flex-col items-center justify-center text-[#31394d] px-4 py-1 hover:text-[#7bd0ff] transition-all active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-['Inter'] font-medium text-[10px] uppercase tracking-widest mt-1">Dashboard</span>
+</a>
+<a class="flex flex-col items-center justify-center text-[#7bd0ff] bg-[#131b2e] rounded-xl px-4 py-1 active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined">shield</span>
+<span class="font-['Inter'] font-medium text-[10px] uppercase tracking-widest mt-1">Guardians</span>
+</a>
+<a class="flex flex-col items-center justify-center text-[#31394d] px-4 py-1 hover:text-[#7bd0ff] transition-all active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined">history</span>
+<span class="font-['Inter'] font-medium text-[10px] uppercase tracking-widest mt-1">History</span>
+</a>
+<a class="flex flex-col items-center justify-center text-[#31394d] px-4 py-1 hover:text-[#7bd0ff] transition-all active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-['Inter'] font-medium text-[10px] uppercase tracking-widest mt-1">Settings</span>
+</a>
+</nav>
+</body></html>

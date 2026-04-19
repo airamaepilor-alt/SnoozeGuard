@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { supabase } from "../lib/supabase";
+import Map, { Marker } from "react-map-gl/mapbox";
+import mapboxgl from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -16,9 +19,18 @@ type AlertEvent = {
   status: AlertStatus;
   created_at: string;
   acknowledged_at: string | null;
+  dismissed_at: string | null;
   driver_name: string;
   driver_phone: string | null;
 };
+
+const VISIBLE_MS = 24 * 60 * 60 * 1000;
+
+function isAlertVisible(ev: AlertEvent): boolean {
+  if (ev.status === "active") return true;
+  const resolvedAt = ev.dismissed_at ?? ev.acknowledged_at ?? ev.created_at;
+  return Date.now() - new Date(resolvedAt).getTime() < VISIBLE_MS;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -51,57 +63,114 @@ function nameInitials(name: string): string {
     .toUpperCase();
 }
 
-// Deterministic pseudo-random position from alert id + index
-function markerPos(id: string, idx: number): { top: number; left: number } {
-  const h = id.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-  return {
-    top: 12 + ((h + idx * 37) % 58),
-    left: 8 + ((h * 3 + idx * 23) % 70),
-  };
+// ─── Marker UI Component ──────────────────────────────────────────────────
+
+function MarkerUI({ status }: { status: AlertStatus }) {
+  if (status === "active") {
+    return (
+      <div className="relative">
+        <div className="absolute inset-0 animate-ping bg-red-400 rounded-full opacity-75" />
+        <div className="w-3 h-3 bg-red-500 rounded-full shadow-[0_0_20px_rgba(255,0,0,0.8)]" />
+      </div>
+    );
+  }
+  if (status === "alerted") {
+    return (
+      <div className="w-3 h-3 bg-yellow-400 rounded-full shadow-[0_0_12px_rgba(255,200,0,0.7)]" />
+    );
+  }
+  return (
+    <div className="w-2 h-2 bg-blue-300 rounded-full opacity-50" />
+  );
 }
 
-// ─── Map Visualization ────────────────────────────────────────────────────────
+// ─── Map Visualization ────────────────────────────────────────────────────
 
 function MapVisualization({
   alerts,
   pollCountdown,
   online,
+  targetLocation,
 }: {
   alerts: AlertEvent[];
   pollCountdown: number;
   online: boolean;
+  targetLocation?: { lat: number; lng: number } | null;
 }) {
-  const markers = alerts.slice(0, 8).map((a, i) => ({
-    a,
-    ...(a.location_lat != null && a.location_lng != null
-      ? { top: 20, left: 30 } // lat/lng present but we use decorative layout
-      : markerPos(a.id, i)),
-  }));
+  // Find first active alert or use default Philippines coordinates
+  const firstActive = useMemo(() => alerts.find((a) => a.status === "active"), [alerts]);
+  const mapRef = useRef<any>(null);
+
+  // Fly to target location when it changes
+  useEffect(() => {
+    if (targetLocation && mapRef.current) {
+      mapRef.current.flyTo({
+        center: [targetLocation.lng, targetLocation.lat],
+        zoom: 15,
+        duration: 1500,
+      });
+    }
+  }, [targetLocation]);
 
   return (
-    <div className="flex-1 min-h-48 relative overflow-hidden bg-surface-container-lowest">
-      {/* Dot grid */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundImage: "radial-gradient(circle, rgba(123,208,255,0.07) 1px, transparent 1px)",
-          backgroundSize: "32px 32px",
+    <div className="h-80 sm:h-96 lg:h-full relative overflow-hidden">
+      {/* 🌍 REAL MAP */}
+      <Map
+        ref={mapRef}
+        mapLib={mapboxgl}
+        initialViewState={{
+          latitude: firstActive?.location_lat ?? 14.3,
+          longitude: firstActive?.location_lng ?? 121.1,
+          zoom: 12,
         }}
-      />
-      {/* Atmosphere gradients */}
-      <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-background/50 pointer-events-none" />
-      <div className="absolute inset-0 bg-gradient-to-r from-background/70 via-transparent to-transparent pointer-events-none" />
-      {/* Central glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[40vw] h-[40vw] max-w-lg max-h-lg bg-primary/5 rounded-full blur-[80px] pointer-events-none" />
+        mapStyle="mapbox://styles/mapbox/dark-v11"
+        mapboxAccessToken={import.meta.env.VITE_MAPBOX_TOKEN}
+        style={{ width: "100%", height: "100%" }}
+        onLoad={(event) => {
+          mapRef.current = event.target;
+        }}
+      >
+        {alerts.map((a) =>
+          a.location_lat != null && a.location_lng != null ? (
+            <Marker
+              key={a.id}
+              latitude={a.location_lat}
+              longitude={a.location_lng}
+            >
+              <div className="flex flex-col items-center">
+                <MarkerUI status={a.status} />
+                <div className="mt-1 px-2 py-1 bg-black/70 backdrop-blur text-[10px] rounded border border-white/10 whitespace-nowrap">
+                  {a.status.toUpperCase()}: {a.driver_name.split(" ")[0]}
+                </div>
+              </div>
+            </Marker>
+          ) : null
+        )}
+      </Map>
 
-      {/* Polling status pill */}
+      {/* ✨ Glow + premium overlays (KEEP YOUR STYLE) */}
+      <div className="absolute inset-0 pointer-events-none">
+        {/* center glow */}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,150,255,0.15),transparent_60%)]" />
+
+        {/* vignette */}
+        <div className="absolute inset-0 bg-[radial-gradient(circle,transparent_40%,rgba(0,0,0,0.8))]" />
+      </div>
+
+      {/* 🔄 Polling pill (unchanged) */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
         <div className="bg-surface-container-high/90 backdrop-blur-xl border border-outline-variant/10 px-4 py-2 rounded-full flex items-center gap-3 shadow-2xl">
           <div className="relative flex h-2 w-2 shrink-0">
             <span
-              className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${online ? "bg-primary" : "bg-secondary"}`}
+              className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                online ? "bg-primary" : "bg-secondary"
+              }`}
             />
-            <span className={`relative inline-flex rounded-full h-2 w-2 ${online ? "bg-primary" : "bg-secondary"}`} />
+            <span
+              className={`relative inline-flex rounded-full h-2 w-2 ${
+                online ? "bg-primary" : "bg-secondary"
+              }`}
+            />
           </div>
           <span className="text-[10px] font-bold tracking-widest text-on-surface-variant uppercase whitespace-nowrap">
             {online ? `Live · refreshes in ${pollCountdown}s` : "Offline · Last known data"}
@@ -109,54 +178,9 @@ function MapVisualization({
         </div>
       </div>
 
-      {/* Alert markers */}
-      {markers.map(({ a, top, left }, idx) => {
-        const isCritical = a.status === "active";
-        const isAlerted = a.status === "alerted";
-        return (
-          <div
-            key={a.id}
-            className="absolute z-10"
-            style={{ top: `${top + idx * 8}%`, left: `${left}%` }}
-          >
-            <div className="flex flex-col items-center">
-              <div
-                className={`p-2 sm:p-3 rounded-full transition-transform ${
-                  isCritical
-                    ? "bg-error shadow-[0_0_24px_rgba(255,180,171,0.5)]"
-                    : isAlerted
-                      ? "bg-secondary shadow-[0_0_16px_rgba(255,185,95,0.4)]"
-                      : "bg-primary/20 border border-primary/30"
-                }`}
-              >
-                <span
-                  className={`material-symbols-outlined text-base sm:text-xl ${
-                    isCritical ? "text-on-error" : isAlerted ? "text-on-secondary" : "text-primary"
-                  }`}
-                  style={{ fontVariationSettings: "'FILL' 1" }}
-                >
-                  {isCritical ? "warning" : isAlerted ? "person_pin" : "check_circle"}
-                </span>
-              </div>
-              <div
-                className={`mt-1 sm:mt-2 bg-surface-container-highest/90 backdrop-blur-md px-2 sm:px-3 py-1 rounded-lg text-[9px] sm:text-[10px] font-bold whitespace-nowrap border ${
-                  isCritical
-                    ? "text-error border-error/30"
-                    : isAlerted
-                      ? "text-secondary border-secondary/20"
-                      : "text-slate-400 border-primary/10"
-                }`}
-              >
-                {isCritical ? "CRITICAL" : isAlerted ? "ALERTED" : "RESOLVED"}: {a.driver_name.split(" ")[0]}
-              </div>
-            </div>
-          </div>
-        );
-      })}
-
       {/* Empty state */}
       {alerts.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
           <div className="text-center space-y-3">
             <span
               className="material-symbols-outlined text-primary text-5xl block"
@@ -178,13 +202,14 @@ function AlertCard({
   alert,
   onDismiss,
   dismissing,
+  onCenter,
 }: {
   alert: AlertEvent;
   onDismiss: (id: string) => void;
   dismissing: boolean;
+  onCenter?: (lat: number, lng: number) => void;
 }) {
   const isCritical = alert.status === "active";
-  const isAlerted = alert.status === "alerted";
   const isResolved = alert.status === "dismissed";
   const initials = nameInitials(alert.driver_name);
 
@@ -223,7 +248,7 @@ function AlertCard({
     >
       {/* Header */}
       <div className="flex justify-between items-start gap-2">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-1">
           <div
             className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-bold text-sm shrink-0 border-2 ${
               isCritical
@@ -233,7 +258,7 @@ function AlertCard({
           >
             {initials}
           </div>
-          <div>
+          <div className="flex-1">
             <h3
               className={`font-bold text-sm sm:text-base ${isCritical ? "text-error" : "text-on-surface"}`}
             >
@@ -246,7 +271,7 @@ function AlertCard({
             )}
           </div>
         </div>
-        <div className="text-right shrink-0">
+        <div className="text-right">
           <span
             className={`text-[10px] font-black uppercase block ${
               isCritical ? "text-error animate-pulse" : "text-secondary"
@@ -266,7 +291,16 @@ function AlertCard({
         </div>
         {alert.location_lat != null && alert.location_lng != null ? (
           <div className="space-y-1">
-            <p className="text-slate-500 uppercase tracking-widest">Location</p>
+            <div className="flex items-center gap-2">
+              <p className="text-slate-500 uppercase tracking-widest">Location</p>
+              <button
+                onClick={() => onCenter?.(alert.location_lat!, alert.location_lng!)}
+                className="p-1 hover:bg-surface-container-high rounded transition-colors"
+                title="Center on map"
+              >
+                <span className="material-symbols-outlined text-sm text-primary">location_on</span>
+              </button>
+            </div>
             <p className="text-on-surface font-mono text-[9px]">
               {alert.location_lat.toFixed(4)}° N, {Math.abs(alert.location_lng).toFixed(4)}°{" "}
               {alert.location_lng < 0 ? "W" : "E"}
@@ -351,6 +385,7 @@ export function AlertsPage() {
   const [dismissingId, setDismissingId] = useState<string | null>(null);
   const [pollCountdown, setPollCountdown] = useState(POLL_INTERVAL_SEC);
   const [noEcLinked, setNoEcLinked] = useState(false);
+  const [targetLocation, setTargetLocation] = useState<{ lat: number; lng: number } | null>(null);
   const loadingRef = useRef(false);
 
   // ── Derived stats ─────────────────────────────────────────────────────────
@@ -393,11 +428,12 @@ export function AlertsPage() {
       }
       setNoEcLinked(false);
 
-      // 2. Fetch emergency alert events from those drivers (last 24h)
-      const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+      // 2. Fetch emergency alert events from those drivers (48h window so recently-dismissed
+      //    alerts that were created near the boundary are included; client filters to 24h-from-resolution)
+      const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
       const { data: events } = await supabase
         .from("emergency_alert_events")
-        .select("id, user_id, location_lat, location_lng, status, created_at, acknowledged_at")
+        .select("id, user_id, location_lat, location_lng, status, created_at, acknowledged_at, dismissed_at")
         .in("user_id", driverIds)
         .gte("created_at", since)
         .order("created_at", { ascending: false });
@@ -408,13 +444,15 @@ export function AlertsPage() {
         return;
       }
 
-      // Dedupe: one entry per driver (most recent)
+      // Dedupe: one entry per driver (most recent), then apply 24h-from-resolution visibility filter
       const seenDrivers = new Set<string>();
-      const deduped = (events as AlertEvent[]).filter((ev) => {
-        if (seenDrivers.has(ev.user_id)) return false;
-        seenDrivers.add(ev.user_id);
-        return true;
-      });
+      const deduped = (events as AlertEvent[])
+        .filter((ev) => {
+          if (seenDrivers.has(ev.user_id)) return false;
+          seenDrivers.add(ev.user_id);
+          return true;
+        })
+        .filter(isAlertVisible);
 
       // 3. Enrich with driver profile (name + phone)
       const enriched: AlertEvent[] = await Promise.all(
@@ -492,7 +530,7 @@ export function AlertsPage() {
       .update({ status: "dismissed", dismissed_at: new Date().toISOString() })
       .eq("id", id);
     setAlerts((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: "dismissed" as AlertStatus } : a)),
+      prev.map((a) => (a.id === id ? { ...a, status: "dismissed" as AlertStatus, dismissed_at: new Date().toISOString() } : a)),
     );
     setDismissingId(null);
   };
@@ -500,19 +538,29 @@ export function AlertsPage() {
   const allVisible = [...activeAlerts, ...alertedAlerts, ...resolvedAlerts];
   const activeCount = activeAlerts.length;
 
+  // ── Center alert on map ────────────────────────────────────────────────
+  const handleCenterAlert = useCallback((lat: number, lng: number) => {
+    setTargetLocation({ lat, lng });
+  }, []);
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col lg:flex-row h-full overflow-hidden">
+    <div className="flex flex-col lg:flex-row h-full w-full overflow-hidden">
 
       {/* ── Map / Visualization panel ── */}
-      <MapVisualization
-        alerts={allVisible}
-        pollCountdown={pollCountdown}
-        online={online}
-      />
+      <div className="h-80 sm:h-96 lg:flex-1 lg:h-full">
+        <MapVisualization
+          alerts={allVisible}
+          pollCountdown={pollCountdown}
+          online={online}
+          targetLocation={targetLocation}
+        />
+      </div>
 
-      {/* ── Alert sidebar ── */}
-      <section className="w-full lg:w-96 xl:w-[420px] flex flex-col bg-surface-container-low/95 backdrop-blur-2xl border-t lg:border-t-0 lg:border-l border-outline-variant/10 flex-shrink-0 flex-1 lg:flex-none overflow-hidden">
+      {/* ── Alert sidebar and fleet overview container ── */}
+      <div className="flex flex-col lg:flex-none w-full lg:w-96 xl:w-[420px] min-h-0 lg:overflow-hidden overflow-y-auto">
+        {/* ── Alert sidebar ── */}
+        <section className="flex flex-col lg:flex-1 w-full bg-surface-container-low/95 backdrop-blur-2xl border-t lg:border-t-0 lg:border-l border-outline-variant/10 lg:min-h-0 lg:overflow-hidden">
 
         {/* Header */}
         <div className="p-5 sm:p-6 lg:p-8 border-b border-outline-variant/5 flex-shrink-0">
@@ -544,7 +592,7 @@ export function AlertsPage() {
         </div>
 
         {/* Alert list */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 lg:p-6 space-y-4 lg:space-y-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 lg:p-6 space-y-4 lg:space-y-5">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-on-surface-variant text-sm gap-2">
               <span className="material-symbols-outlined animate-spin text-primary">
@@ -599,13 +647,14 @@ export function AlertsPage() {
                 alert={a}
                 onDismiss={(id) => void handleDismiss(id)}
                 dismissing={dismissingId === a.id}
+                onCenter={handleCenterAlert}
               />
             ))
           )}
         </div>
 
-        {/* Footer stats */}
-        <div className="p-4 sm:p-5 lg:p-6 bg-surface-container-low border-t border-outline-variant/10 flex-shrink-0">
+        {/* Footer stats - only show on lg+ screens */}
+        <div className="hidden lg:flex lg:flex-col p-4 sm:p-5 lg:p-6 bg-surface-container-low border-t border-outline-variant/10 flex-shrink-0">
           <div className="flex items-center justify-between text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.2em] mb-3">
             <span>Fleet Overview</span>
             <button
@@ -670,6 +719,69 @@ export function AlertsPage() {
           </div>
         </div>
       </section>
+
+      {/* ── Mobile fleet overview footer (outside sidebar) ── */}
+      <div className="lg:hidden flex flex-col p-4 sm:p-5 bg-surface-container-low border-t border-outline-variant/10 flex-shrink-0">
+        <div className="flex items-center justify-between text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.2em] mb-3">
+          <span>Fleet Overview</span>
+          <button
+            onClick={() => void load()}
+            className="flex items-center gap-1 text-primary hover:text-on-surface transition-colors"
+            title="Refresh now"
+          >
+            <span className="material-symbols-outlined text-sm">refresh</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <div className="bg-surface-container-high p-2 rounded-xl flex flex-col items-center">
+            <span className="text-sm font-headline font-black text-primary">
+              {loading ? "…" : String(allVisible.length).padStart(2, "0")}
+            </span>
+            <span className="text-[7px] text-slate-500 uppercase tracking-wide mt-0.5">Total</span>
+          </div>
+          <div
+            className={`bg-surface-container-high p-2 rounded-xl flex flex-col items-center ${activeCount > 0 ? "border border-error/20" : ""}`}
+          >
+            <span
+              className={`text-sm font-headline font-black ${activeCount > 0 ? "text-error" : "text-on-surface-variant"}`}
+            >
+              {loading ? "…" : String(activeCount).padStart(2, "0")}
+            </span>
+            <span className="text-[7px] text-slate-500 uppercase tracking-wide mt-0.5">Active</span>
+          </div>
+          <div className="bg-surface-container-high p-2 rounded-xl flex flex-col items-center">
+            <span
+              className={`text-sm font-headline font-black ${resolvedAlerts.length > 0 ? "text-primary" : "text-on-surface-variant"}`}
+            >
+              {loading ? "…" : String(resolvedAlerts.length).padStart(2, "0")}
+            </span>
+            <span className="text-[7px] text-slate-500 uppercase tracking-wide mt-0.5">Resolved</span>
+          </div>
+        </div>
+
+        <div className="flex gap-1.5">
+          <Link
+            to="/history"
+            className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-surface-container-high text-on-surface-variant hover:text-on-surface text-[10px] font-bold rounded-lg transition-colors"
+          >
+            <span className="material-symbols-outlined text-xs">history</span>
+          </Link>
+          <Link
+            to="/analytics"
+            className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-surface-container-high text-on-surface-variant hover:text-on-surface text-[10px] font-bold rounded-lg transition-colors"
+          >
+            <span className="material-symbols-outlined text-xs">bar_chart</span>
+          </Link>
+          <Link
+            to="/drive"
+            className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 text-[10px] font-bold rounded-lg transition-colors"
+          >
+            <span className="material-symbols-outlined text-xs">directions_car</span>
+          </Link>
+        </div>
+      </div>
+      </div>
     </div>
   );
 }

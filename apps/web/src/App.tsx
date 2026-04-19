@@ -2,6 +2,10 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import { AboutPage } from "./pages/AboutPage";
+import { TermsPage } from "./pages/TermsPage";
+import { AccountPage } from "./pages/AccountPage";
+import { EmergencyContactPage } from "./pages/EmergencyContactPage";
 import { AdminPage } from "./pages/AdminPage";
 import { AlertsPage } from "./pages/AlertsPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
@@ -37,8 +41,12 @@ function AppRoutes() {
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="drive" element={<DrivePage />} />
         <Route path="history" element={<HistoryPage />} />
-        <Route path="alerts" element={<AlertsPage />} />
+        <Route path="safety-protocol" element={<AlertsPage />} />
         <Route path="admin" element={<AdminPage />} />
+        <Route path="account" element={<AccountPage />} />
+        <Route path="guardians" element={<EmergencyContactPage />} />
+        <Route path="about" element={<AboutPage />} />
+        <Route path="terms" element={<TermsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
