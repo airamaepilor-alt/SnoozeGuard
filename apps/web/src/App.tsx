@@ -12,7 +12,9 @@ import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DrivePage } from "./pages/DrivePage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { SessionDetailPage } from "./pages/SessionDetailPage";
 import { LoginPage } from "./pages/LoginPage";
+import { SimulationPage } from "./pages/SimulationPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth();
@@ -41,6 +43,7 @@ function AppRoutes() {
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="drive" element={<DrivePage />} />
         <Route path="history" element={<HistoryPage />} />
+        <Route path="history/:sessionId" element={<SessionDetailPage />} />
         <Route path="safety-protocol" element={<AlertsPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="account" element={<AccountPage />} />
@@ -48,6 +51,14 @@ function AppRoutes() {
         <Route path="about" element={<AboutPage />} />
         <Route path="terms" element={<TermsPage />} />
       </Route>
+      <Route
+        path="/simulation"
+        element={
+          <RequireAuth>
+            <SimulationPage />
+          </RequireAuth>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

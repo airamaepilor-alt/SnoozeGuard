@@ -11,6 +11,14 @@ import "mapbox-gl/dist/mapbox-gl.css";
 
 type AlertStatus = "active" | "alerted" | "dismissed";
 
+type PendingRequest = {
+  id: string;
+  user_id: string;
+  driver_name: string;
+  driver_email: string | null;
+  created_at: string;
+};
+
 type AlertEvent = {
   id: string;
   user_id: string;
@@ -192,6 +200,63 @@ function MapVisualization({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Pending Request Card ─────────────────────────────────────────────────────
+
+function maskEmail(email: string | null): string {
+  if (!email) return "";
+  const [local, domain] = email.split("@");
+  if (!domain || !local) return email;
+  return `${local.slice(0, 2)}***@${domain}`;
+}
+
+function PendingRequestCard({
+  req, accepting, declining, onAccept, onDecline,
+}: {
+  req: PendingRequest;
+  accepting: boolean;
+  declining: boolean;
+  onAccept: () => void;
+  onDecline: () => void;
+}) {
+  const initials = nameInitials(req.driver_name);
+  return (
+    <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 space-y-3">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center font-bold text-primary text-sm shrink-0">
+          {initials}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-on-surface text-sm leading-tight">{req.driver_name}</p>
+          {req.driver_email && (
+            <p className="text-[10px] text-on-surface-variant mt-0.5">{maskEmail(req.driver_email)}</p>
+          )}
+          <p className="text-[10px] text-on-surface-variant/60 mt-0.5">wants you as their emergency guardian</p>
+        </div>
+        <span className="text-[9px] font-bold tracking-widest text-primary/70 uppercase shrink-0">
+          {formatRelative(req.created_at)}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={onDecline} disabled={declining || accepting}
+          className="py-2 rounded-lg text-[11px] font-bold text-on-surface-variant bg-surface-container-high hover:bg-surface-bright border border-outline-variant/10 active:scale-95 transition-all disabled:opacity-40">
+          {declining ? "Declining…" : "Decline"}
+        </button>
+        <button
+          onClick={onAccept} disabled={accepting || declining}
+          className="py-2 rounded-lg text-[11px] font-bold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/20 active:scale-95 transition-all disabled:opacity-40 flex items-center justify-center gap-1">
+          {accepting ? "Accepting…" : (
+            <>
+              <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+              Accept
+            </>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
@@ -386,6 +451,9 @@ export function AlertsPage() {
   const [pollCountdown, setPollCountdown] = useState(POLL_INTERVAL_SEC);
   const [noEcLinked, setNoEcLinked] = useState(false);
   const [targetLocation, setTargetLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [decliningId, setDecliningId] = useState<string | null>(null);
   const loadingRef = useRef(false);
 
   // ── Derived stats ─────────────────────────────────────────────────────────
@@ -400,7 +468,7 @@ export function AlertsPage() {
 
     try {
       // 1. Find drivers who have the current user as their emergency contact
-      const [byUserId, byEmail] = await Promise.all([
+      const [byUserId, byEmail, pendById, pendByEmail] = await Promise.all([
         supabase
           .from("emergency_contacts")
           .select("user_id")
@@ -411,7 +479,44 @@ export function AlertsPage() {
           .select("user_id")
           .ilike("contact_email", user.email ?? "__no_email__")
           .neq("status", "pending"),
+        supabase
+          .from("emergency_contacts")
+          .select("id, user_id, created_at")
+          .eq("contact_user_id", user.id)
+          .eq("status", "pending"),
+        supabase
+          .from("emergency_contacts")
+          .select("id, user_id, created_at")
+          .ilike("contact_email", user.email ?? "__no_email__")
+          .eq("status", "pending"),
       ]);
+
+      // Build pending requests list (deduplicated)
+      const seenPend = new Set<string>();
+      const pendRows: Array<{ id: string; user_id: string; created_at: string }> = [];
+      for (const row of [...(pendById.data ?? []), ...(pendByEmail.data ?? [])]) {
+        if (!seenPend.has(row.id as string)) {
+          seenPend.add(row.id as string);
+          pendRows.push(row as typeof pendRows[number]);
+        }
+      }
+      const enrichedPending = await Promise.all(
+        pendRows.map(async (row) => {
+          const { data: p } = await supabase
+            .from("profiles")
+            .select("full_name, email")
+            .eq("id", row.user_id)
+            .maybeSingle();
+          return {
+            id: row.id,
+            user_id: row.user_id,
+            driver_name: (p as { full_name?: string } | null)?.full_name ?? "A SnoozeGuard user",
+            driver_email: (p as { email?: string } | null)?.email ?? null,
+            created_at: row.created_at,
+          };
+        }),
+      );
+      setPendingRequests(enrichedPending);
 
       const driverIds = Array.from(
         new Set([
@@ -423,6 +528,7 @@ export function AlertsPage() {
       if (driverIds.length === 0) {
         setNoEcLinked(true);
         setAlerts([]);
+        loadingRef.current = false;
         setLoading(false);
         return;
       }
@@ -535,6 +641,21 @@ export function AlertsPage() {
     setDismissingId(null);
   };
 
+  const handleAccept = async (id: string) => {
+    setAcceptingId(id);
+    await supabase.from("emergency_contacts").update({ status: "accepted" }).eq("id", id);
+    setPendingRequests((prev) => prev.filter((r) => r.id !== id));
+    setAcceptingId(null);
+    void load();
+  };
+
+  const handleDecline = async (id: string) => {
+    setDecliningId(id);
+    await supabase.from("emergency_contacts").delete().eq("id", id);
+    setPendingRequests((prev) => prev.filter((r) => r.id !== id));
+    setDecliningId(null);
+  };
+
   const allVisible = [...activeAlerts, ...alertedAlerts, ...resolvedAlerts];
   const activeCount = activeAlerts.length;
 
@@ -570,7 +691,7 @@ export function AlertsPage() {
             </h2>
             <span
               className={`px-2 py-1 rounded text-[10px] font-black uppercase tracking-tighter ${
-                activeCount > 0
+                activeCount > 0 || pendingRequests.length > 0
                   ? "bg-error/10 text-error"
                   : alertedAlerts.length > 0
                     ? "bg-secondary/10 text-secondary"
@@ -581,15 +702,40 @@ export function AlertsPage() {
                 ? "…"
                 : activeCount > 0
                   ? `${activeCount} Active`
-                  : allVisible.length > 0
-                    ? `${allVisible.length} Total`
-                    : "All Clear"}
+                  : pendingRequests.length > 0
+                    ? `${pendingRequests.length} Pending`
+                    : allVisible.length > 0
+                      ? `${allVisible.length} Total`
+                      : "All Clear"}
             </span>
           </div>
           <p className="text-sm text-on-surface-variant font-medium">
             Real-time fatigue monitoring
           </p>
         </div>
+
+        {/* Pending guardian requests */}
+        {pendingRequests.length > 0 && (
+          <div className="px-4 sm:px-5 lg:px-6 pt-4 space-y-2 shrink-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+              <p className="text-[9px] font-bold tracking-[0.2em] uppercase text-primary">
+                Guardian Requests ({pendingRequests.length})
+              </p>
+            </div>
+            {pendingRequests.map((req) => (
+              <PendingRequestCard
+                key={req.id}
+                req={req}
+                accepting={acceptingId === req.id}
+                declining={decliningId === req.id}
+                onAccept={() => void handleAccept(req.id)}
+                onDecline={() => void handleDecline(req.id)}
+              />
+            ))}
+            <div className="border-t border-outline-variant/10 mt-2" />
+          </div>
+        )}
 
         {/* Alert list */}
         <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 lg:p-6 space-y-4 lg:space-y-5">

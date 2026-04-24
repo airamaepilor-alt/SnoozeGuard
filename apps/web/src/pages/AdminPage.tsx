@@ -8,12 +8,11 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 
-const ACTION_OPTIONS = ["voice", "vibration", "alarm", "iot_led", "iot_buzzer"] as const;
+const ACTION_OPTIONS = ["voice", "vibration", "iot_led", "iot_buzzer"] as const;
 
 const ACTION_ICONS: Record<string, string> = {
   voice: "record_voice_over",
   vibration: "vibration",
-  alarm: "campaign",
   iot_led: "lightbulb",
   iot_buzzer: "settings_input_antenna",
 };
@@ -37,6 +36,9 @@ type Config = {
   head_movement_threshold: number;
   drowsiness_trigger_level: number;
   alert_map: unknown;
+  score_reset_minutes?: number;
+  sms_enabled?: boolean;
+  sms_rate_limit_enabled?: boolean;
 };
 
 export function AdminPage() {
@@ -47,9 +49,9 @@ export function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [editingLevel, setEditingLevel] = useState<string | null>(null);
-  const [smsProvider, setSmsProvider] = useState("Semaphore");
-  const [smsKey, setSmsKey] = useState("");
-  const [showSmsKey, setShowSmsKey] = useState(false);
+  const [scoreResetMinutes, setScoreResetMinutes] = useState(2);
+  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [smsRateLimitEnabled, setSmsRateLimitEnabled] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +62,9 @@ export function AdminPage() {
           const c = data as Config;
           setCfg(c);
           setAlertMap(parseAlertMap(c.alert_map));
+          setScoreResetMinutes(c.score_reset_minutes ?? 2);
+          setSmsEnabled(c.sms_enabled ?? false);
+          setSmsRateLimitEnabled(c.sms_rate_limit_enabled ?? true);
         }
         setLoading(false);
       }
@@ -78,12 +83,16 @@ export function AdminPage() {
     if (!cfg || !user) return;
     setSaving(true);
     setMessage(null);
+    const lvl6 = alertMap["6"];
     const payload = {
-      p_yawn_threshold: cfg.yawn_threshold,
-      p_head_movement_threshold: cfg.head_movement_threshold,
-      p_drowsiness_trigger_level: cfg.drowsiness_trigger_level,
+      p_yawn_threshold: lvl6?.yawn_count ?? 1,
+      p_head_movement_threshold: lvl6?.head_count ?? 20,
+      p_drowsiness_trigger_level: 6,
       p_alert_map: alertMap,
       p_updated_by: user.id,
+      p_score_reset_minutes: scoreResetMinutes,
+      p_sms_enabled: smsEnabled,
+      p_sms_rate_limit_enabled: smsRateLimitEnabled,
     };
     const { error } = await supabase.rpc("update_admin_config", payload);
     setSaving(false);
@@ -101,11 +110,27 @@ export function AdminPage() {
 
   function toggleAction(levelKey: string, action: string) {
     setAlertMap((prev) => {
-      const row = prev[levelKey] ?? { label: `Level ${levelKey}`, actions: [] };
+      const row = prev[levelKey] ?? { label: `Level ${levelKey}`, actions: [], yawn_count: 1, head_count: 20 };
       const set = new Set(row.actions);
       if (set.has(action)) set.delete(action);
       else set.add(action);
       return { ...prev, [levelKey]: { ...row, actions: Array.from(set) } };
+    });
+  }
+
+  function setLevelYawn(levelKey: string, value: number) {
+    const clamped = Math.max(1, Math.min(99, value));
+    setAlertMap((prev) => {
+      const row = prev[levelKey] ?? { label: `Level ${levelKey}`, actions: [], yawn_count: 1, head_count: 20 };
+      return { ...prev, [levelKey]: { ...row, yawn_count: clamped } };
+    });
+  }
+
+  function setLevelHead(levelKey: string, value: number) {
+    const clamped = Math.max(1, Math.min(999, value));
+    setAlertMap((prev) => {
+      const row = prev[levelKey] ?? { label: `Level ${levelKey}`, actions: [], yawn_count: 1, head_count: 20 };
+      return { ...prev, [levelKey]: { ...row, head_count: clamped } };
     });
   }
 
@@ -140,99 +165,70 @@ export function AdminPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left column */}
         <div className="lg:col-span-4 space-y-6">
-          {/* System Thresholds */}
+          {/* Level-10 Score Reset */}
           <section className="bg-surface-container-low rounded-3xl p-7 sm:p-8 hover:bg-surface-container transition-colors">
             <div className="flex items-center gap-3 mb-8">
-              <span className="material-symbols-outlined text-primary text-3xl">tune</span>
-              <h2 className="font-headline text-xl font-bold text-on-surface">System Thresholds</h2>
+              <span className="material-symbols-outlined text-primary text-3xl">timer</span>
+              <h2 className="font-headline text-xl font-bold text-on-surface">Score Reset</h2>
             </div>
             <div className="space-y-6">
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-on-surface-variant flex justify-between">
-                  Trigger Level
-                  <span className="text-primary text-xs">Default: {cfg.drowsiness_trigger_level}</span>
+                  Reset drowsiness after (minutes)
                 </label>
+                <p className="text-[10px] text-on-surface-variant italic">
+                  After the driver dismisses a level-10 alert and no new level-10 trigger fires within this time, all drowsiness accumulators reset to zero.
+                </p>
                 <input
                   type="number"
                   min={1}
-                  max={10}
-                  value={cfg.drowsiness_trigger_level}
-                  onChange={(e) => setCfg({ ...cfg, drowsiness_trigger_level: Number(e.target.value) })}
+                  max={60}
+                  value={scoreResetMinutes}
+                  onChange={(e) => setScoreResetMinutes(Math.max(1, Math.min(60, Number(e.target.value) || 1)))}
                   className="w-full bg-surface-container-highest border-none rounded-xl text-on-surface px-4 py-3 focus:ring-2 focus:ring-primary focus:outline-none"
                 />
-                <p className="text-[10px] text-outline italic">Minimum cumulative fatigue score to initiate level 1 monitoring.</p>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-on-surface-variant flex justify-between">
-                  Yawn Threshold
-                  <span className="text-primary text-xs">Default: {cfg.yawn_threshold}</span>
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={cfg.yawn_threshold}
-                  onChange={(e) => setCfg({ ...cfg, yawn_threshold: Number(e.target.value) })}
-                  className="w-full bg-surface-container-highest border-none rounded-xl text-on-surface px-4 py-3 focus:ring-2 focus:ring-primary focus:outline-none"
-                />
-                <p className="text-[10px] text-outline italic">Number of detected yawns before a fatigue event is logged.</p>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-on-surface-variant flex justify-between">
-                  Head Movement Threshold
-                  <span className="text-primary text-xs">Default: {cfg.head_movement_threshold}</span>
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={cfg.head_movement_threshold}
-                  onChange={(e) => setCfg({ ...cfg, head_movement_threshold: Number(e.target.value) })}
-                  className="w-full bg-surface-container-highest border-none rounded-xl text-on-surface px-4 py-3 focus:ring-2 focus:ring-primary focus:outline-none"
-                />
-                <p className="text-[10px] text-outline italic">Maximum head drift angle before flagged as inattentive.</p>
               </div>
             </div>
           </section>
 
-          {/* SMS Integration */}
+          {/* Emergency SMS */}
           <section className="bg-surface-container-low rounded-3xl p-7 sm:p-8 hover:bg-surface-container transition-colors">
             <div className="flex items-center gap-3 mb-8">
               <span className="material-symbols-outlined text-primary text-3xl">cell_tower</span>
-              <h2 className="font-headline text-xl font-bold text-on-surface">SMS Integration</h2>
+              <h2 className="font-headline text-xl font-bold text-on-surface">Emergency SMS</h2>
             </div>
             <div className="space-y-6">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-on-surface-variant">Provider</label>
-                <select
-                  value={smsProvider}
-                  onChange={(e) => setSmsProvider(e.target.value)}
-                  className="w-full bg-surface-container-highest border-none rounded-xl text-on-surface px-4 py-3 focus:ring-2 focus:ring-primary focus:outline-none appearance-none cursor-pointer"
+              <p className="text-[10px] text-on-surface-variant">
+                When enabled, an SMS is sent automatically to the emergency contact when a level 9/10 alert fires. API keys are configured in Supabase Edge Function secrets (TextBelt → Infobip → Semaphore fallback).
+              </p>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-semibold text-on-surface-variant">Enable auto SMS</label>
+                <button
+                  type="button"
+                  onClick={() => setSmsEnabled(!smsEnabled)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${smsEnabled ? "bg-primary" : "bg-outline-variant/50"}`}
                 >
-                  <option>Semaphore</option>
-                  <option>Twilio</option>
-                  <option>TextBelt</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-on-surface-variant">SMS API Key</label>
-                <div className="relative">
-                  <input
-                    type={showSmsKey ? "text" : "password"}
-                    value={smsKey}
-                    onChange={(e) => setSmsKey(e.target.value)}
-                    placeholder="Enter SMS API key…"
-                    className="w-full bg-surface-container-highest border-none rounded-xl text-on-surface px-4 py-3 pr-12 focus:ring-2 focus:ring-primary focus:outline-none"
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-on-primary transition-transform ${smsEnabled ? "translate-x-5" : "translate-x-0.5"}`}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowSmsKey((v) => !v)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-xl">{showSmsKey ? "visibility_off" : "visibility"}</span>
-                  </button>
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <label className="text-sm font-semibold text-on-surface-variant">Enable rate limit per user</label>
+                  <p className="text-[10px] text-on-surface-variant mt-1">
+                    When enabled, only 1 SMS per phone number per day is sent. Disable if you don't need this limit.
+                  </p>
                 </div>
-                <p className="text-[10px] text-primary/60">Key is encrypted at rest using AES-256.</p>
+                <button
+                  type="button"
+                  onClick={() => setSmsRateLimitEnabled(!smsRateLimitEnabled)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ml-4 flex-shrink-0 ${smsRateLimitEnabled ? "bg-primary" : "bg-outline-variant/50"}`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-on-primary transition-transform ${smsRateLimitEnabled ? "translate-x-5" : "translate-x-0.5"}`}
+                  />
+                </button>
               </div>
             </div>
           </section>
@@ -286,87 +282,139 @@ export function AdminPage() {
             <div className="space-y-4">
               {levelKeys.map((k) => {
                 const meta = LEVEL_META[k];
-                const row = alertMap[k] ?? { label: `Level ${k}`, actions: [] as string[] };
+                const row = alertMap[k] ?? { label: `Level ${k}`, actions: [] as string[], yawn_count: 1, head_count: 20 };
                 const isEditing = editingLevel === k;
                 return (
                   <div
                     key={k}
-                    className={`relative grid grid-cols-12 items-center bg-surface-container-high p-4 sm:p-6 rounded-2xl hover:scale-[1.01] transition-transform border-l-4 ${meta.borderColor} ${meta.hasBgTint ? "overflow-hidden" : ""}`}
+                    className={`relative bg-surface-container-high p-4 sm:p-6 rounded-2xl hover:scale-[1.01] transition-transform border-l-4 ${meta.borderColor} ${meta.hasBgTint ? "overflow-hidden" : ""}`}
                   >
                     {meta.hasBgTint && (
                       <div className="absolute inset-0 bg-error/5 pointer-events-none" />
                     )}
 
-                    {/* Level number */}
-                    <div className="col-span-3 sm:col-span-2 relative">
-                      <span className={`text-lg sm:text-2xl font-black ${meta.numberColor} font-headline leading-none`}>
-                        LVL {k}
-                      </span>
-                      <p className="text-[10px] text-on-surface-variant font-bold uppercase mt-0.5">{meta.severity}</p>
+                    {/* Top row: Level number, Label & description */}
+                    <div className="flex gap-4 mb-3 relative">
+                      {/* Level number */}
+                      <div className="flex-shrink-0">
+                        <span className={`text-lg sm:text-2xl font-black ${meta.numberColor} font-headline leading-none`}>
+                          LVL {k}
+                        </span>
+                        <p className="text-[10px] text-on-surface-variant font-bold uppercase mt-0.5">{meta.severity}</p>
+                      </div>
+
+                      {/* Label & description */}
+                      <div className="flex-1 space-y-1">
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            value={row.label || `Level ${k}`}
+                            onChange={(e) =>
+                              setAlertMap((prev) => ({
+                                ...prev,
+                                [k]: { ...row, label: e.target.value },
+                              }))
+                            }
+                            className="w-full bg-surface-container-highest rounded-lg px-2 py-1 text-xs text-on-surface border-none focus:ring-1 focus:ring-primary focus:outline-none"
+                            autoFocus
+                          />
+                        ) : (
+                          <p className="text-xs font-semibold text-on-surface truncate">{row.label || `Level ${k}`}</p>
+                        )}
+                        <p className="text-[10px] text-on-surface-variant">{meta.description}</p>
+                      </div>
                     </div>
 
-                    {/* Label & description */}
-                    <div className="col-span-5 px-2 sm:px-4 space-y-1 relative">
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={row.label}
-                          onChange={(e) =>
-                            setAlertMap((prev) => ({
-                              ...prev,
-                              [k]: { ...row, label: e.target.value },
-                            }))
-                          }
-                          className="w-full bg-surface-container-highest rounded-lg px-2 py-1 text-xs text-on-surface border-none focus:ring-1 focus:ring-primary focus:outline-none"
-                          autoFocus
-                        />
-                      ) : (
-                        <p className="text-xs font-semibold text-on-surface truncate">{row.label || `Level ${k}`}</p>
-                      )}
-                      <p className="text-[10px] text-on-surface-variant">{meta.description}</p>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="col-span-3 sm:col-span-4 flex flex-wrap gap-1.5 relative">
-                      {isEditing ? (
-                        ACTION_OPTIONS.map((a) => {
-                          const on = row.actions.includes(a);
-                          return (
+                    {/* Thresholds (when editing) */}
+                    {isEditing && (
+                      <div className="grid grid-cols-2 gap-4 px-4 py-3 bg-surface-container-highest rounded-lg mb-3 text-sm">
+                        <div className="flex flex-col items-center gap-2">
+                          <label className="text-[10px] font-semibold text-on-surface-variant">Yawns to reach</label>
+                          <div className="flex items-center gap-2">
                             <button
-                              key={a}
                               type="button"
-                              onClick={() => toggleAction(k, a)}
-                              title={a}
-                              className={`p-1 rounded-lg transition-colors ${on ? "text-primary bg-primary/10" : "text-outline hover:text-on-surface hover:bg-surface-bright"}`}
+                              onClick={() => setLevelYawn(k, (row.yawn_count ?? 1) - 1)}
+                              className="w-7 h-7 rounded bg-primary/20 text-primary font-bold hover:bg-primary/30 transition-colors"
                             >
-                              <span className="material-symbols-outlined text-lg">{ACTION_ICONS[a]}</span>
+                              −
                             </button>
-                          );
-                        })
-                      ) : (
-                        row.actions.map((a) => (
-                          <span
-                            key={a}
-                            className="material-symbols-outlined text-primary text-lg"
-                            title={a}
-                          >
-                            {ACTION_ICONS[a] ?? "notifications"}
-                          </span>
-                        ))
-                      )}
-                    </div>
+                            <span className="w-8 text-center font-bold text-on-surface">{row.yawn_count ?? 1}</span>
+                            <button
+                              type="button"
+                              onClick={() => setLevelYawn(k, (row.yawn_count ?? 1) + 1)}
+                              className="w-7 h-7 rounded bg-primary/20 text-primary font-bold hover:bg-primary/30 transition-colors"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-center gap-2">
+                          <label className="text-[10px] font-semibold text-on-surface-variant">Head moves to reach</label>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setLevelHead(k, (row.head_count ?? 20) - 1)}
+                              className="w-7 h-7 rounded bg-primary/20 text-primary font-bold hover:bg-primary/30 transition-colors"
+                            >
+                              −
+                            </button>
+                            <span className="w-8 text-center font-bold text-on-surface">{row.head_count ?? 20}</span>
+                            <button
+                              type="button"
+                              onClick={() => setLevelHead(k, (row.head_count ?? 20) + 1)}
+                              className="w-7 h-7 rounded bg-primary/20 text-primary font-bold hover:bg-primary/30 transition-colors"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
-                    {/* Edit toggle */}
-                    <div className="col-span-1 text-right relative flex justify-end">
+                    {/* Bottom row: Actions and Edit button */}
+                    <div className="flex items-end justify-between gap-4">
+                      {/* Actions */}
+                      <div className="flex flex-wrap gap-1.5">
+                        {isEditing ? (
+                          ACTION_OPTIONS.map((a) => {
+                            const on = row.actions.includes(a);
+                            return (
+                              <button
+                                key={a}
+                                type="button"
+                                onClick={() => toggleAction(k, a)}
+                                title={a}
+                                className={`p-1 rounded-lg transition-colors ${on ? "text-primary bg-primary/10" : "text-outline hover:text-on-surface hover:bg-surface-bright"}`}
+                              >
+                                <span className="material-symbols-outlined text-lg">{ACTION_ICONS[a]}</span>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          row.actions.map((a) => (
+                            <span
+                              key={a}
+                              className="material-symbols-outlined text-primary text-lg"
+                              title={a}
+                            >
+                              {ACTION_ICONS[a] ?? "notifications"}
+                            </span>
+                          ))
+                        )}
+                      </div>
+
+                      {/* Edit toggle - Bottom right */}
                       <button
                         type="button"
                         onClick={() => setEditingLevel(isEditing ? null : k)}
-                        className={`transition-colors ${isEditing ? "text-primary" : "text-outline hover:text-on-surface"}`}
-                        title={isEditing ? "Done" : "Edit level"}
+                        className={`p-2 rounded-lg transition-all font-bold text-sm flex-shrink-0 ${isEditing ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 shadow-lg" : "text-outline hover:text-on-surface hover:bg-surface-bright"}`}
+                        title={isEditing ? "Done editing" : "Edit level"}
                       >
-                        <span className="material-symbols-outlined">
-                          {isEditing ? "check_circle" : "edit"}
-                        </span>
+                        {isEditing ? (
+                          <span className="material-symbols-outlined text-xl">check_circle</span>
+                        ) : (
+                          <span className="material-symbols-outlined text-xl">edit</span>
+                        )}
                       </button>
                     </div>
                   </div>

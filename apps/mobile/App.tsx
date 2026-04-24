@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Animated, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
 import { drivingSessionActive, endSessionFn } from "./sessionState";
 import type { Session } from "@supabase/supabase-js";
@@ -29,7 +29,7 @@ import { AnalyticsScreen } from "./screens/AnalyticsScreen";
 import { EmergencyAlertMapScreen } from "./screens/EmergencyAlertMapScreen";
 import { EmergencyContactSetupModal } from "./screens/EmergencyContactSetupModal";
 import { getEmergencyContact, registerPushToken } from "./lib/emergencyNotify";
-import { getDatabase } from "./db/database";
+import { getDatabase, upsertLocalEC } from "./db/database";
 import { flushEndedSessions, flushPendingTelemetry, rehydrateSessions } from "./sync/flush";
 import { setPresenceIds } from "./lib/presenceStore";
 import { theme } from "./theme";
@@ -264,12 +264,12 @@ function AppDrawer({ visible, onClose, session, superAdmin, onSignOut, onGuard }
               </Pressable>
             ))}
             <View style={styles.navSectionDivider} />
-            <Pressable style={styles.navItem} onPress={() => onClose()}>
-              <MaterialIcons name="open-in-browser" size={22} color={t.onSurfaceVariant} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.navItemText, { color: t.onSurfaceVariant }]}>Web Dashboard</Text>
-                <Text style={styles.navItemSub}>Coming soon</Text>
-              </View>
+            <Pressable style={styles.navItem} onPress={() => {
+              onClose();
+              void Linking.openURL("https://snoozeguard-cf3d8.web.app");
+            }}>
+              <MaterialIcons name="open-in-browser" size={22} color={t.onSurface} />
+              <Text style={styles.navItemText}>Web Dashboard</Text>
             </Pressable>
           </ScrollView>
 
@@ -457,12 +457,18 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
         if (!ec) setShowEcSetup(true);
         if (ec) {
           try {
-            getDatabase().runSync(
-              `INSERT OR REPLACE INTO emergency_contacts_local
-               (user_id, contact_name, contact_phone, contact_email, my_phone, pending_sync, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)`,
-              session.user.id, ec.contact_name, ec.contact_phone ?? "", ec.contact_email ?? "", "", 0, new Date().toISOString(),
-            );
+            upsertLocalEC({
+              id: ec.id,
+              user_id: session.user.id,
+              contact_name: ec.contact_name,
+              contact_phone: ec.contact_phone ?? "",
+              contact_email: ec.contact_email ?? "",
+              my_phone: "",
+              is_active: 1,
+              status: ec.status ?? "accepted",
+              pending_sync: 0,
+              updated_at: new Date().toISOString(),
+            });
           } catch { /* DB not ready */ }
         }
       }
@@ -516,12 +522,18 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
           try {
             const ec = await getEmergencyContact(supabase, session.user.id);
             if (ec) {
-              getDatabase().runSync(
-                `INSERT OR REPLACE INTO emergency_contacts_local
-                 (user_id, contact_name, contact_phone, contact_email, my_phone, pending_sync, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                session.user.id, ec.contact_name, ec.contact_phone ?? "", ec.contact_email ?? "", "", 0, new Date().toISOString(),
-              );
+              upsertLocalEC({
+                id: ec.id,
+                user_id: session.user.id,
+                contact_name: ec.contact_name,
+                contact_phone: ec.contact_phone ?? "",
+                contact_email: ec.contact_email ?? "",
+                my_phone: "",
+                is_active: 1,
+                status: ec.status ?? "accepted",
+                pending_sync: 0,
+                updated_at: new Date().toISOString(),
+              });
             }
           } catch { /* silent */ }
         })();

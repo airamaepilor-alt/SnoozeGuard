@@ -6,12 +6,13 @@ import { supabase } from "../lib/supabase";
 
 type ContactStatus = "accepted" | "pending" | "rejected" | "vigilant" | "standby";
 
-type GuardianRow = {
+type ContactEntry = {
   id: string;
   contact_name: string;
   contact_phone: string | null;
   contact_email: string | null;
   status: string;
+  is_active: boolean;
 };
 
 type DriverCard = {
@@ -36,26 +37,12 @@ function fmtTime(iso: string | null): string {
 
 function statusMeta(status: ContactStatus): { label: string; colorClass: string; bgClass: string } {
   switch (status) {
-    case "vigilant":  return { label: "Online",    colorClass: "text-primary",           bgClass: "bg-primary/10" };
-    case "standby":   return { label: "Offline",   colorClass: "text-secondary",         bgClass: "bg-secondary/10" };
-    case "accepted":  return { label: "Accepted",  colorClass: "text-primary",           bgClass: "bg-primary/10" };
-    case "pending":   return { label: "Pending",   colorClass: "text-secondary",         bgClass: "bg-secondary/10" };
-    case "rejected":  return { label: "Rejected",  colorClass: "text-tertiary",          bgClass: "bg-tertiary/10" };
+    case "vigilant":  return { label: "Online",   colorClass: "text-primary",  bgClass: "bg-primary/10" };
+    case "standby":   return { label: "Offline",  colorClass: "text-secondary", bgClass: "bg-secondary/10" };
+    case "accepted":  return { label: "Accepted", colorClass: "text-primary",  bgClass: "bg-primary/10" };
+    case "pending":   return { label: "Pending",  colorClass: "text-secondary", bgClass: "bg-secondary/10" };
+    case "rejected":  return { label: "Rejected", colorClass: "text-tertiary", bgClass: "bg-tertiary/10" };
   }
-}
-
-// ─── SG Brand Mark ────────────────────────────────────────────────────────────
-
-function SGMark({ size = "md" }: { size?: "sm" | "md" }) {
-  return (
-    <div
-      className={`flex items-center justify-center rounded-lg bg-primary font-headline font-black text-on-primary tracking-tight select-none ${
-        size === "sm" ? "w-6 h-6 text-[10px]" : "w-8 h-8 text-xs"
-      }`}
-    >
-      SG
-    </div>
-  );
 }
 
 // ─── Status Pill ──────────────────────────────────────────────────────────────
@@ -63,7 +50,7 @@ function SGMark({ size = "md" }: { size?: "sm" | "md" }) {
 function StatusPill({ status }: { status: ContactStatus }) {
   const { label, colorClass, bgClass } = statusMeta(status);
   return (
-    <span className={`text-[10px] font-bold px-3 py-1 rounded-full tracking-widest uppercase ${colorClass} ${bgClass}`}>
+    <span className={`text-[9px] font-bold px-2.5 py-1 rounded-full tracking-[0.15em] uppercase shrink-0 ${colorClass} ${bgClass}`}>
       {label}
     </span>
   );
@@ -72,55 +59,34 @@ function StatusPill({ status }: { status: ContactStatus }) {
 // ─── View Detail Dialog ───────────────────────────────────────────────────────
 
 function ViewDialog({
-  name,
-  phone,
-  email,
-  status,
-  activeSince,
-  showActiveSince,
-  onClose,
+  name, phone, email, status, activeSince, showActiveSince, onClose,
 }: {
-  name: string;
-  phone: string | null;
-  email: string | null;
-  status: ContactStatus;
-  activeSince: string | null;
-  showActiveSince: boolean;
+  name: string; phone: string | null; email: string | null;
+  status: ContactStatus; activeSince: string | null; showActiveSince: boolean;
   onClose: () => void;
 }) {
   const { label, colorClass } = statusMeta(status);
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-
-      {/* Dialog */}
-      <div className="relative w-full max-w-sm bg-surface-container-low rounded-3xl overflow-hidden shadow-[0_32px_80px_rgba(0,0,0,0.6)]">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-5">
-          <div className="flex items-center gap-2.5">
-            <SGMark />
-            <span className="text-primary font-headline font-black text-xs tracking-[0.2em] uppercase">
-              SnoozeGuard
-            </span>
+      <div className="relative w-full sm:max-w-sm bg-surface-container-low sm:rounded-3xl rounded-t-3xl overflow-hidden shadow-2xl">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-outline-variant/10">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center font-headline font-black text-on-primary text-[10px] select-none">SG</div>
+            <span className="text-primary font-headline font-black text-[10px] tracking-[0.2em] uppercase">SnoozeGuard</span>
           </div>
           <StatusPill status={status} />
         </div>
 
-        {/* Avatar section */}
-        <div className="flex flex-col items-center gap-3 px-6 pb-6">
+        <div className="flex flex-col items-center gap-3 pt-8 pb-6 px-6">
           <div className="relative">
-            <div className="w-24 h-24 rounded-full bg-surface-container-high ring-4 ring-primary/20 flex items-center justify-center shadow-[0_0_40px_rgba(123,208,255,0.12)]">
-              <span className="font-headline font-black text-primary text-3xl select-none">
-                {getInitials(name)}
-              </span>
+            <div className="w-24 h-24 rounded-3xl bg-primary/10 ring-4 ring-primary/15 flex items-center justify-center">
+              <span className="font-headline font-black text-primary text-4xl select-none">{getInitials(name)}</span>
             </div>
             {status === "vigilant" && (
-              <span className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-emerald-400 ring-2 ring-surface-container-low block animate-pulse" />
+              <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-400 ring-2 ring-surface-container-low block animate-pulse" />
             )}
           </div>
-
           <div className="text-center">
             <h3 className="font-headline font-bold text-xl text-on-surface">{name}</h3>
             <p className={`text-xs font-semibold mt-0.5 ${colorClass}`}>
@@ -128,29 +94,23 @@ function ViewDialog({
             </p>
           </div>
 
-          {/* Contact pills */}
           <div className="w-full space-y-2">
             {phone && (
-              <a
-                href={`tel:${phone}`}
-                className="flex items-center gap-3 w-full px-4 py-3 bg-surface-container-high rounded-2xl text-on-surface-variant hover:text-primary transition-colors group"
-              >
+              <a href={`tel:${phone}`}
+                className="flex items-center gap-3 w-full px-4 py-3 bg-surface-container-high rounded-2xl text-on-surface-variant hover:text-primary transition-colors group">
                 <span className="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">call</span>
                 <span className="text-sm font-medium">{phone}</span>
               </a>
             )}
             {email && (
-              <a
-                href={`mailto:${email}`}
-                className="flex items-center gap-3 w-full px-4 py-3 bg-surface-container-high rounded-2xl text-on-surface-variant hover:text-primary transition-colors group"
-              >
+              <a href={`mailto:${email}`}
+                className="flex items-center gap-3 w-full px-4 py-3 bg-surface-container-high rounded-2xl text-on-surface-variant hover:text-primary transition-colors group">
                 <span className="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">mail</span>
                 <span className="text-sm font-medium truncate">{email}</span>
               </a>
             )}
           </div>
 
-          {/* Stat cards */}
           <div className={`w-full grid gap-3 ${showActiveSince ? "grid-cols-2" : "grid-cols-1"}`}>
             <div className="bg-surface-container-high rounded-2xl p-4">
               <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface-variant mb-1">Status</p>
@@ -163,14 +123,10 @@ function ViewDialog({
               </div>
             )}
           </div>
-
         </div>
 
-        {/* Close */}
-        <button
-          onClick={onClose}
-          className="w-full py-4 text-sm font-semibold text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors border-t border-outline-variant/10"
-        >
+        <button onClick={onClose}
+          className="w-full py-4 text-sm font-semibold text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors border-t border-outline-variant/10">
           Close
         </button>
       </div>
@@ -178,18 +134,10 @@ function ViewDialog({
   );
 }
 
-// ─── Remove Confirm Dialog ────────────────────────────────────────────────────
+// ─── Remove Dialog ────────────────────────────────────────────────────────────
 
-function RemoveDialog({
-  name,
-  busy,
-  onCancel,
-  onConfirm,
-}: {
-  name: string;
-  busy: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
+function RemoveDialog({ name, busy, onCancel, onConfirm }: {
+  name: string; busy: boolean; onCancel: () => void; onConfirm: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -201,24 +149,17 @@ function RemoveDialog({
         <div>
           <h3 className="font-headline font-bold text-lg text-on-surface">Remove Contact?</h3>
           <p className="text-sm text-on-surface-variant mt-2 leading-relaxed">
-            Are you sure you want to remove{" "}
-            <span className="font-bold text-on-surface">{name}</span>?{" "}
+            Are you sure you want to remove <span className="font-bold text-on-surface">{name}</span>?{" "}
             They will no longer receive alerts on your behalf.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-3 w-full">
-          <button
-            onClick={onCancel}
-            disabled={busy}
-            className="py-3.5 bg-surface-container-high rounded-xl text-sm font-bold text-on-surface hover:bg-surface-bright transition-colors"
-          >
+          <button onClick={onCancel} disabled={busy}
+            className="py-3.5 bg-surface-container-high rounded-xl text-sm font-bold text-on-surface hover:bg-surface-bright transition-colors">
             Cancel
           </button>
-          <button
-            onClick={onConfirm}
-            disabled={busy}
-            className="py-3.5 bg-tertiary/15 rounded-xl text-sm font-bold text-tertiary hover:bg-tertiary/25 transition-colors disabled:opacity-50"
-          >
+          <button onClick={onConfirm} disabled={busy}
+            className="py-3.5 bg-tertiary/15 rounded-xl text-sm font-bold text-tertiary hover:bg-tertiary/25 transition-colors disabled:opacity-50">
             {busy ? "Removing…" : "Remove"}
           </button>
         </div>
@@ -227,145 +168,148 @@ function RemoveDialog({
   );
 }
 
-// ─── Contact Card ─────────────────────────────────────────────────────────────
+// ─── Add / Edit Dialog ────────────────────────────────────────────────────────
 
-function ContactCard({
-  name,
-  phone,
-  email,
-  statusBadge,
-  onView,
-  onSecondary,
-  secondaryLabel,
-  secondaryIcon,
-  secondaryClass,
+function AddEditDialog({
+  contact, saving, error, onClose, onSave,
 }: {
-  name: string;
-  phone: string | null;
-  email: string | null;
-  statusBadge: ContactStatus;
-  onView: () => void;
-  onSecondary: () => void;
-  secondaryLabel: string;
-  secondaryIcon: string;
-  secondaryClass: string;
+  contact: ContactEntry | null;
+  saving: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSave: (data: { name: string; phone: string; email: string }) => void;
 }) {
-  const { label, colorClass, bgClass } = statusMeta(statusBadge);
+  const [name, setName] = useState(contact?.contact_name ?? "");
+  const [phone, setPhone] = useState(contact?.contact_phone ?? "");
+  const [email, setEmail] = useState(contact?.contact_email ?? "");
+  const [localErr, setLocalErr] = useState<string | null>(null);
+
+  const inputCls = "w-full bg-surface-container-high rounded-xl py-3.5 px-4 text-on-surface placeholder:text-outline/60 focus:ring-2 focus:ring-primary/50 focus:outline-none transition-all text-sm font-medium";
+
+  const handleSave = () => {
+    if (!name.trim()) { setLocalErr("Name is required."); return; }
+    if (!phone.trim() && !email.trim()) { setLocalErr("Provide a phone number or email."); return; }
+    setLocalErr(null);
+    onSave({ name: name.trim(), phone: phone.trim(), email: email.trim() });
+  };
+
+  const displayErr = localErr ?? error;
 
   return (
-    <div className="bg-surface-container rounded-3xl p-6 relative overflow-hidden group hover:bg-surface-container-high transition-colors duration-200">
-      {/* Status badge */}
-      <div className="absolute top-5 right-5">
-        <span className={`text-[10px] font-bold px-3 py-1 rounded-full tracking-widest uppercase ${colorClass} ${bgClass}`}>
-          {label}
-        </span>
-      </div>
-
-      {/* Identity */}
-      <div className="flex items-center gap-4 mb-5 pr-24">
-        <div className="w-14 h-14 rounded-2xl bg-surface-container-high flex items-center justify-center shrink-0 ring-1 ring-outline-variant/10">
-          <span className="font-headline font-black text-primary text-xl select-none">
-            {getInitials(name)}
-          </span>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full sm:max-w-sm bg-surface-container-low sm:rounded-3xl rounded-t-3xl overflow-hidden shadow-2xl">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-outline-variant/10">
+          <h3 className="font-headline font-bold text-lg text-on-surface">
+            {contact ? "Edit Guardian" : "Add Guardian"}
+          </h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high transition-colors text-on-surface-variant">
+            <span className="material-symbols-outlined text-lg">close</span>
+          </button>
         </div>
-        <div className="min-w-0">
-          <p className="font-headline font-bold text-base text-on-surface truncate">{name}</p>
-          <p className="text-sm text-on-surface-variant truncate mt-0.5">
-            {phone || email || "No contact info"}
-          </p>
-        </div>
-      </div>
 
-      {/* Actions */}
-      <div className="flex gap-3">
-        <button
-          onClick={onView}
-          className="flex-1 flex items-center justify-center gap-2 py-3 bg-surface-bright rounded-xl text-sm font-bold text-primary hover:opacity-80 active:scale-95 transition-all"
-        >
-          <span className="material-symbols-outlined text-[18px]">visibility</span>
-          View
-        </button>
-        <button
-          onClick={onSecondary}
-          className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold active:scale-95 transition-all ${secondaryClass}`}
-        >
-          <span className="material-symbols-outlined text-[18px]">{secondaryIcon}</span>
-          {secondaryLabel}
-        </button>
+        <div className="p-6 space-y-4">
+          {displayErr && (
+            <div className="flex items-center gap-2.5 bg-tertiary/10 text-tertiary rounded-2xl px-4 py-3 text-sm font-medium border border-tertiary/20">
+              <span className="material-symbols-outlined text-sm">error</span>
+              {displayErr}
+            </div>
+          )}
+
+          <div className="bg-surface-container-low rounded-3xl p-5 border border-outline-variant/10 space-y-4">
+            <p className="text-[9px] font-bold tracking-[0.25em] uppercase text-primary">Guardian Details</p>
+            <div className="space-y-3">
+              {([
+                { label: "Full Name *", value: name, onChange: setName, type: "text", placeholder: "e.g. Maria Santos" },
+                { label: "Mobile Number", value: phone, onChange: setPhone, type: "tel", placeholder: "+63 912 345 6789" },
+                { label: "Email Address", value: email, onChange: setEmail, type: "email", placeholder: "contact@email.com" },
+              ] as const).map(({ label, value, onChange, type, placeholder }) => (
+                <div key={label}>
+                  <label className="text-[9px] font-bold uppercase tracking-widest text-on-surface-variant block mb-1.5 px-1">{label}</label>
+                  <input type={type} value={value} onChange={(e) => { onChange(e.target.value); setLocalErr(null); }}
+                    placeholder={placeholder} className={inputCls} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 pb-6 flex gap-3">
+          <button type="button" onClick={onClose}
+            className="flex-1 py-4 bg-surface-container-high rounded-2xl font-headline font-bold text-sm text-on-surface-variant hover:bg-surface-bright active:scale-[0.98] transition-all">
+            Cancel
+          </button>
+          <button type="button" onClick={handleSave} disabled={saving}
+            className="flex-1 py-4 bg-gradient-to-br from-primary to-on-primary-container text-on-primary rounded-2xl font-headline font-extrabold text-sm hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 shadow-[0_8px_24px_rgba(123,208,255,0.15)]">
+            {saving ? "Saving…" : contact ? "Save Changes" : "Add Guardian"}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-// ─── EC Form ──────────────────────────────────────────────────────────────────
+// ─── Guardian Card ────────────────────────────────────────────────────────────
 
-function ECForm({
-  myPhone, name, phone, email, saving,
-  showCancel, onMyPhone, onName, onPhone, onEmail, onSave, onCancel,
+function GuardianCard({
+  contact, settingActive,
+  onView, onEdit, onRemove, onSetActive,
 }: {
-  myPhone: string; name: string; phone: string; email: string;
-  saving: boolean; showCancel: boolean;
-  onMyPhone: (v: string) => void; onName: (v: string) => void;
-  onPhone: (v: string) => void; onEmail: (v: string) => void;
-  onSave: () => void; onCancel: () => void;
+  contact: ContactEntry;
+  settingActive: boolean;
+  onView: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
+  onSetActive: () => void;
 }) {
-  const inputCls = "w-full bg-surface-container-high border-none rounded-xl py-3.5 px-4 text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary/60 focus:outline-none transition-all font-medium text-sm";
-  const labelCls = "text-xs font-label text-on-surface-variant uppercase tracking-widest px-1 block mb-1.5";
+  const isActive = contact.is_active;
+  const ecStatus: ContactStatus = contact.status === "pending" ? "pending" : "accepted";
 
   return (
-    <div className="space-y-5">
-      {/* My phone */}
-      <div className="bg-surface-container-low rounded-2xl p-5 space-y-4">
-        <div>
-          <h4 className="font-headline font-bold text-sm text-on-surface mb-0.5">Your Mobile Number</h4>
-          <p className="text-xs text-on-surface-variant leading-relaxed">
-            Shown to your guardian so they can reach you when an alert fires.
-          </p>
+    <div className={`rounded-3xl overflow-hidden border transition-all ${
+      isActive
+        ? "bg-primary/5 border-primary/30"
+        : "bg-surface-container-low border-outline-variant/10 hover:border-outline-variant/30"
+    }`}>
+      {isActive && (
+        <div className="px-5 pt-3.5 pb-0 flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+          <span className="text-[9px] font-bold tracking-[0.25em] uppercase text-primary">Active Guardian</span>
         </div>
-        <div>
-          <label className={labelCls}>Mobile Number</label>
-          <input type="tel" value={myPhone} onChange={(e) => onMyPhone(e.target.value)}
-            placeholder="+63 912 345 6789" className={inputCls} />
+      )}
+      <div className="p-5 flex items-center gap-4">
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${isActive ? "bg-primary/15" : "bg-primary/10"}`}>
+          <span className="font-headline font-black text-primary text-lg select-none">{getInitials(contact.contact_name)}</span>
         </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-headline font-bold text-on-surface truncate leading-snug">{contact.contact_name}</p>
+          <p className="text-xs text-on-surface-variant truncate mt-0.5">{contact.contact_phone || contact.contact_email || "No contact info"}</p>
+        </div>
+        <StatusPill status={ecStatus} />
       </div>
-
-      {/* EC fields */}
-      <div className="bg-surface-container-low rounded-2xl p-5 space-y-4">
-        <div>
-          <h4 className="font-headline font-bold text-sm text-on-surface mb-0.5">Emergency Contact</h4>
-          <p className="text-xs text-on-surface-variant leading-relaxed">
-            If a critical drowsiness alert goes unacknowledged for 2 minutes, your location is sent to this person.
-          </p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="sm:col-span-2">
-            <label className={labelCls}>Full Name *</label>
-            <input type="text" value={name} onChange={(e) => onName(e.target.value)}
-              placeholder="e.g. Maria Santos" className={inputCls} />
-          </div>
-          <div>
-            <label className={labelCls}>Their Mobile Number</label>
-            <input type="tel" value={phone} onChange={(e) => onPhone(e.target.value)}
-              placeholder="+63 912 345 6789" className={inputCls} />
-          </div>
-          <div>
-            <label className={labelCls}>Their Email Address</label>
-            <input type="email" value={email} onChange={(e) => onEmail(e.target.value)}
-              placeholder="contact@email.com" className={inputCls} autoComplete="off" />
-          </div>
-        </div>
-      </div>
-
-      <div className="flex gap-3">
-        {showCancel && (
-          <button type="button" onClick={onCancel}
-            className="flex-1 py-4 bg-surface-container-high rounded-2xl font-headline font-bold text-on-surface-variant hover:bg-surface-bright transition-all">
-            Cancel
+      <div className={`flex border-t ${isActive ? "border-primary/15" : "border-outline-variant/10"}`}>
+        <button onClick={onView}
+          className={`flex-1 py-3 text-xs font-bold hover:bg-primary/5 active:scale-95 transition-all flex items-center justify-center gap-1.5 border-r ${isActive ? "border-primary/15 text-primary" : "border-outline-variant/10 text-primary"}`}>
+          <span className="material-symbols-outlined text-sm">visibility</span>
+          View
+        </button>
+        {!isActive ? (
+          <button onClick={onSetActive} disabled={settingActive}
+            className="flex-1 py-3 text-xs font-bold text-primary hover:bg-primary/5 active:scale-95 transition-all flex items-center justify-center gap-1.5 border-r border-outline-variant/10 disabled:opacity-50">
+            <span className="material-symbols-outlined text-sm">radio_button_checked</span>
+            {settingActive ? "Setting…" : "Set Active"}
+          </button>
+        ) : (
+          <button onClick={onEdit}
+            className="flex-1 py-3 text-xs font-bold text-primary hover:bg-primary/5 active:scale-95 transition-all flex items-center justify-center gap-1.5 border-r border-primary/15">
+            <span className="material-symbols-outlined text-sm">edit</span>
+            Edit
           </button>
         )}
-        <button type="button" onClick={onSave} disabled={saving}
-          className="flex-1 py-4 bg-primary text-on-primary rounded-2xl font-headline font-extrabold hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 shadow-[0_8px_24px_rgba(123,208,255,0.2)]">
-          {saving ? "Saving…" : "Save Changes"}
+        <button onClick={onRemove}
+          className="flex-1 py-3 text-xs font-bold text-tertiary hover:bg-tertiary/5 active:scale-95 transition-all flex items-center justify-center gap-1.5">
+          <span className="material-symbols-outlined text-sm">person_remove</span>
+          Remove
         </button>
       </div>
     </div>
@@ -378,37 +322,35 @@ function MyGuardianTab() {
   const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [viewOpen, setViewOpen] = useState(false);
-  const [removeOpen, setRemoveOpen] = useState(false);
-  const [removeBusy, setRemoveBusy] = useState(false);
+  const [contacts, setContacts] = useState<ContactEntry[]>([]);
   const [myPhone, setMyPhone] = useState("");
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [ecDbStatus, setEcDbStatus] = useState("pending");
+  const [myPhoneSaving, setMyPhoneSaving] = useState(false);
+  const [myPhoneSaved, setMyPhoneSaved] = useState(false);
+  const [addEditOpen, setAddEditOpen] = useState<ContactEntry | "add" | null>(null);
+  const [viewOpen, setViewOpen] = useState<ContactEntry | null>(null);
+  const [removeOpen, setRemoveOpen] = useState<ContactEntry | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [settingActiveId, setSettingActiveId] = useState<string | null>(null);
+  const [formSaving, setFormSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const [ecRes, profileRes] = await Promise.all([
-        supabase.from("emergency_contacts").select("contact_name, contact_phone, contact_email, status").eq("user_id", user.id).maybeSingle(),
+      const [contactsRes, profileRes] = await Promise.all([
+        supabase.from("emergency_contacts")
+          .select("id, contact_name, contact_phone, contact_email, status, is_active")
+          .eq("user_id", user.id)
+          .order("is_active", { ascending: false })
+          .order("created_at", { ascending: true }),
         supabase.from("profiles").select("phone").eq("id", user.id).maybeSingle(),
       ]);
-      const ec = ecRes.data as { contact_name: string; contact_phone: string | null; contact_email: string | null; status: string } | null;
-      if (ec) {
-        setName(ec.contact_name);
-        setPhone(ec.contact_phone ?? "");
-        setEmail(ec.contact_email ?? "");
-        setEcDbStatus(ec.status ?? "pending");
-      }
+      setContacts((contactsRes.data ?? []) as ContactEntry[]);
       setMyPhone((profileRes.data as { phone?: string } | null)?.phone ?? "");
     } catch {
-      setError("Failed to load contact.");
+      setError("Failed to load contacts.");
     } finally {
       setLoading(false);
     }
@@ -416,39 +358,75 @@ function MyGuardianTab() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const save = async () => {
+  const handleSetActive = async (contactId: string) => {
     if (!user?.id) return;
-    setError(null); setSaved(false);
-    if (!name.trim()) { setError("Name is required."); return; }
-    if (!phone.trim() && !email.trim()) { setError("Provide a phone number or email."); return; }
-    setSaving(true);
+    setSettingActiveId(contactId);
+    // Optimistic update
+    setContacts((prev) => prev.map((c) => ({ ...c, is_active: c.id === contactId })));
+    await supabase.from("emergency_contacts").update({ is_active: false }).eq("user_id", user.id);
+    await supabase.from("emergency_contacts").update({ is_active: true }).eq("id", contactId);
+    setSettingActiveId(null);
+    void load();
+  };
+
+  const handleSave = async (data: { name: string; phone: string; email: string }) => {
+    if (!user?.id) return;
+    setFormSaving(true);
+    setFormError(null);
     try {
-      const payload = { user_id: user.id, contact_name: name.trim(), contact_phone: phone.trim() || null, contact_email: email.trim() || null };
-      const [ecRes, profileRes] = await Promise.all([
-        supabase.from("emergency_contacts").upsert(payload, { onConflict: "user_id" }),
-        supabase.from("profiles").update({ phone: myPhone.trim() || null }).eq("id", user.id),
-      ]);
-      const err = ecRes.error ?? profileRes.error;
-      if (err) { setError(err.message); }
-      else { setSaved(true); setShowForm(false); void load(); setTimeout(() => setSaved(false), 3000); }
+      if (addEditOpen === "add") {
+        const { count } = await supabase
+          .from("emergency_contacts")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id);
+        const isFirst = (count ?? 0) === 0;
+        const { error: e } = await supabase.from("emergency_contacts").insert({
+          user_id: user.id,
+          contact_name: data.name,
+          contact_phone: data.phone || null,
+          contact_email: data.email || null,
+          status: "pending",
+          is_active: false,
+        });
+        if (e) { setFormError(e.message); return; }
+      } else if (addEditOpen) {
+        const { error: e } = await supabase.from("emergency_contacts")
+          .update({ contact_name: data.name, contact_phone: data.phone || null, contact_email: data.email || null })
+          .eq("id", addEditOpen.id)
+          .eq("user_id", user.id);
+        if (e) { setFormError(e.message); return; }
+      }
+      setAddEditOpen(null);
+      void load();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Save failed.");
+      setFormError(e instanceof Error ? e.message : "Save failed.");
     } finally {
-      setSaving(false);
+      setFormSaving(false);
     }
   };
 
   const handleRemove = async () => {
-    if (!user?.id) return;
+    if (!removeOpen || !user?.id) return;
     setRemoveBusy(true);
     try {
-      await supabase.from("emergency_contacts").delete().eq("user_id", user.id);
-      setName(""); setPhone(""); setEmail(""); setRemoveOpen(false);
+      const { error: e } = await supabase.from("emergency_contacts")
+        .delete().eq("id", removeOpen.id).eq("user_id", user.id);
+      if (e) { setError(e.message); }
+      else { setRemoveOpen(null); void load(); }
     } catch {
       setError("Failed to remove.");
     } finally {
       setRemoveBusy(false);
     }
+  };
+
+  const handleSaveMyPhone = async () => {
+    if (!user?.id) return;
+    setMyPhoneSaving(true);
+    await supabase.from("profiles").update({ phone: myPhone.trim() || null }).eq("id", user.id);
+    setMyPhoneSaving(false);
+    setMyPhoneSaved(true);
+    setTimeout(() => setMyPhoneSaved(false), 3000);
   };
 
   if (loading) {
@@ -459,94 +437,109 @@ function MyGuardianTab() {
     );
   }
 
-  const hasContact = name.trim().length > 0;
-  const contactStatus: ContactStatus = ecDbStatus === "accepted" ? "accepted" : ecDbStatus === "rejected" ? "rejected" : "pending";
-
   return (
-    <div className="space-y-8">
-      {/* Section layout */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* Left: description */}
-        <div className="md:col-span-1 space-y-2">
-          <h2 className="font-headline text-xl font-bold text-on-surface">Emergency Contact</h2>
-          <p className="text-on-surface-variant text-sm leading-relaxed">
-            Your designated emergency contact. They will be notified if a critical drowsiness alert goes unacknowledged during your drive.
+    <div className="space-y-5">
+      <p className="text-xs text-on-surface-variant leading-relaxed">
+        Your guardians are notified when a critical drowsiness alert goes unacknowledged.
+        Only the <span className="font-bold text-primary">Active</span> guardian receives alerts — switch anytime.
+      </p>
+
+      {error && (
+        <div className="flex items-center gap-2.5 bg-tertiary/10 text-tertiary rounded-2xl px-4 py-3 text-sm font-medium border border-tertiary/20">
+          <span className="material-symbols-outlined text-sm">error</span>
+          {error}
+        </div>
+      )}
+
+      {/* Guardian list */}
+      {contacts.length === 0 ? (
+        <div className="bg-surface-container-low rounded-3xl p-10 flex flex-col items-center text-center gap-4 border border-outline-variant/10">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+            <span className="material-symbols-outlined text-primary text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>person_add</span>
+          </div>
+          <div>
+            <p className="font-headline font-bold text-on-surface text-lg">No guardians yet</p>
+            <p className="text-sm text-on-surface-variant mt-1 max-w-xs mx-auto leading-relaxed">
+              Add emergency contacts who can be alerted when you show signs of fatigue during a drive.
+            </p>
+          </div>
+          <button onClick={() => { setFormError(null); setAddEditOpen("add"); }}
+            className="px-6 py-3 bg-gradient-to-br from-primary to-on-primary-container text-on-primary rounded-2xl font-headline font-bold text-sm hover:opacity-90 active:scale-[0.98] transition-all shadow-[0_8px_24px_rgba(123,208,255,0.15)]">
+            Add Guardian
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {contacts.map((c) => (
+            <GuardianCard
+              key={c.id}
+              contact={c}
+              settingActive={settingActiveId === c.id}
+              onView={() => setViewOpen(c)}
+              onEdit={() => { setFormError(null); setAddEditOpen(c); }}
+              onRemove={() => setRemoveOpen(c)}
+              onSetActive={() => void handleSetActive(c.id)}
+            />
+          ))}
+          <button onClick={() => { setFormError(null); setAddEditOpen("add"); }}
+            className="w-full py-3.5 border-2 border-dashed border-outline-variant/30 rounded-2xl text-xs font-bold text-on-surface-variant hover:border-primary/30 hover:text-primary flex items-center justify-center gap-2 transition-colors">
+            <span className="material-symbols-outlined text-sm">add</span>
+            Add Another Guardian
+          </button>
+        </div>
+      )}
+
+      {/* Your number — applies to all guardians */}
+      <div className="bg-surface-container-low rounded-3xl p-5 border border-outline-variant/10 space-y-4">
+        <div>
+          <p className="text-[9px] font-bold tracking-[0.25em] uppercase text-primary mb-1">Your Number</p>
+          <p className="text-xs text-on-surface-variant leading-relaxed">
+            Shown to your guardian so they can reach you when an alert fires.
           </p>
         </div>
-
-        {/* Right: content */}
-        <div className="md:col-span-2 space-y-4">
-          {/* Banners */}
-          {saved && (
-            <div className="bg-emerald-500/10 text-emerald-400 rounded-xl px-5 py-3 text-sm font-medium">
-              ✓ Saved successfully
-            </div>
-          )}
-          {error && (
-            <div className="bg-tertiary/10 text-tertiary rounded-xl px-5 py-3 text-sm font-medium">
-              {error}
-            </div>
-          )}
-
-          {hasContact && !showForm ? (
-            <ContactCard
-              name={name} phone={phone || null} email={email || null}
-              statusBadge={contactStatus}
-              onView={() => setViewOpen(true)}
-              onSecondary={() => setShowForm(true)}
-              secondaryLabel="Edit"
-              secondaryIcon="edit"
-              secondaryClass="bg-primary/10 text-primary hover:bg-primary/20"
-            />
-          ) : hasContact && showForm ? (
-            <ECForm
-              myPhone={myPhone} name={name} phone={phone} email={email} saving={saving} showCancel
-              onMyPhone={setMyPhone} onName={(v) => { setName(v); setError(null); }}
-              onPhone={(v) => { setPhone(v); setError(null); }} onEmail={(v) => { setEmail(v); setError(null); }}
-              onSave={() => void save()} onCancel={() => setShowForm(false)}
-            />
-          ) : showForm ? (
-            <ECForm
-              myPhone={myPhone} name={name} phone={phone} email={email} saving={saving} showCancel={false}
-              onMyPhone={setMyPhone} onName={(v) => { setName(v); setError(null); }}
-              onPhone={(v) => { setPhone(v); setError(null); }} onEmail={(v) => { setEmail(v); setError(null); }}
-              onSave={() => void save()} onCancel={() => setShowForm(false)}
-            />
-          ) : (
-            /* Empty state */
-            <div className="bg-surface-container-low rounded-3xl p-10 flex flex-col items-center text-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                <span className="material-symbols-outlined text-primary text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>
-                  person_add
-                </span>
-              </div>
-              <div>
-                <p className="font-headline font-bold text-on-surface text-lg">No guardian set</p>
-                <p className="text-sm text-on-surface-variant mt-1 max-w-xs mx-auto leading-relaxed">
-                  Add an emergency contact who will be alerted if you show signs of fatigue during a drive.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowForm(true)}
-                className="mt-1 px-6 py-3 bg-primary text-on-primary rounded-2xl font-headline font-bold text-sm hover:opacity-90 transition-all shadow-[0_8px_24px_rgba(123,208,255,0.2)]"
-              >
-                Add Guardian
-              </button>
-            </div>
-          )}
+        <div className="flex gap-3">
+          <input
+            type="tel" value={myPhone} onChange={(e) => setMyPhone(e.target.value)}
+            placeholder="+63 912 345 6789"
+            className="flex-1 bg-surface-container-high rounded-xl py-3.5 px-4 text-on-surface placeholder:text-outline/60 focus:ring-2 focus:ring-primary/50 focus:outline-none text-sm font-medium"
+          />
+          <button onClick={() => void handleSaveMyPhone()} disabled={myPhoneSaving}
+            className={`px-5 py-3.5 rounded-xl text-xs font-bold transition-colors disabled:opacity-50 ${
+              myPhoneSaved ? "bg-emerald-500/15 text-emerald-400" : "bg-primary/10 text-primary hover:bg-primary/20"
+            }`}>
+            {myPhoneSaving ? "…" : myPhoneSaved ? "Saved ✓" : "Save"}
+          </button>
         </div>
-      </section>
+      </div>
 
       {/* Dialogs */}
+      {addEditOpen !== null && (
+        <AddEditDialog
+          contact={addEditOpen === "add" ? null : addEditOpen}
+          saving={formSaving}
+          error={formError}
+          onClose={() => setAddEditOpen(null)}
+          onSave={(data) => void handleSave(data)}
+        />
+      )}
       {viewOpen && (
         <ViewDialog
-          name={name} phone={phone || null} email={email || null}
-          status={contactStatus} activeSince={null} showActiveSince={false}
-          onClose={() => setViewOpen(false)}
+          name={viewOpen.contact_name}
+          phone={viewOpen.contact_phone}
+          email={viewOpen.contact_email}
+          status={viewOpen.status === "pending" ? "pending" : "accepted"}
+          activeSince={null}
+          showActiveSince={false}
+          onClose={() => setViewOpen(null)}
         />
       )}
       {removeOpen && (
-        <RemoveDialog name={name} busy={removeBusy} onCancel={() => setRemoveOpen(false)} onConfirm={() => void handleRemove()} />
+        <RemoveDialog
+          name={removeOpen.contact_name}
+          busy={removeBusy}
+          onCancel={() => setRemoveOpen(null)}
+          onConfirm={() => void handleRemove()}
+        />
       )}
     </div>
   );
@@ -600,7 +593,6 @@ function IProtectTab() {
     }
   }, [user?.id, user?.email]);
 
-  // Load contacts + watch for EC changes
   useEffect(() => {
     void load();
     const channel = supabase
@@ -610,11 +602,9 @@ function IProtectTab() {
     return () => { void supabase.removeChannel(channel); };
   }, [load]);
 
-  // Track which drivers are online via Supabase Realtime presence
   useEffect(() => {
     const ch = supabase.channel("presence:drivers");
     ch.on("presence", { event: "sync" }, () => {
-      // Presence key = user_id (set in mobile App.tsx), so Object.keys is the id list
       setOnlineIds(new Set(Object.keys(ch.presenceState())));
     }).subscribe();
     return () => { void supabase.removeChannel(ch); };
@@ -632,6 +622,8 @@ function IProtectTab() {
     }
   };
 
+  const onlineCount = drivers.filter((d) => onlineIds.has(d.user_id)).length;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -641,73 +633,85 @@ function IProtectTab() {
   }
 
   return (
-    <div className="space-y-8">
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* Left: description */}
-        <div className="md:col-span-1 space-y-2">
-          <h2 className="font-headline text-xl font-bold text-on-surface">Connection</h2>
-          <p className="text-on-surface-variant text-sm leading-relaxed">
-            Drivers who have added you as their emergency contact. You will be notified if they trigger a high fatigue alert.
-          </p>
-          <div className="flex items-center gap-2 mt-3">
-            <span className="w-2 h-2 rounded-full bg-primary animate-pulse inline-block" />
-            <span className="text-xs text-on-surface-variant font-medium">
-              {drivers.filter((d) => onlineIds.has(d.user_id)).length} online now
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-on-surface-variant leading-relaxed max-w-sm">
+          Drivers who have added you as their emergency contact. You're notified if they trigger a high fatigue alert.
+        </p>
+        {drivers.length > 0 && (
+          <div className="flex items-center gap-1.5 shrink-0 ml-4">
+            <span className={`w-1.5 h-1.5 rounded-full ${onlineCount > 0 ? "bg-primary animate-pulse" : "bg-outline-variant"}`} />
+            <span className="text-[10px] font-bold text-on-surface-variant whitespace-nowrap">
+              {onlineCount} online
             </span>
           </div>
-        </div>
+        )}
+      </div>
 
-        {/* Right: grid of cards */}
-        <div className="md:col-span-2 space-y-4">
-          {error && (
-            <div className="bg-tertiary/10 text-tertiary rounded-xl px-5 py-3 text-sm font-medium">{error}</div>
-          )}
-
-          {drivers.length === 0 ? (
-            <div className="bg-surface-container-low rounded-3xl p-10 flex flex-col items-center text-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                <span
-                  className="material-symbols-outlined text-primary text-3xl"
-                  style={{ fontVariationSettings: "'FILL' 1" }}
-                >
-                  shield
-                </span>
-              </div>
-              <div>
-                <p className="font-headline font-bold text-on-surface text-lg">No drivers assigned</p>
-                <p className="text-sm text-on-surface-variant mt-1 max-w-xs mx-auto leading-relaxed">
-                  No drivers have connected with you as their emergency contact yet.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4">
-              {drivers.map((d) => (
-                <ContactCard
-                  key={d.id} name={d.name} phone={d.phone} email={d.email}
-                  statusBadge={onlineIds.has(d.user_id) ? "vigilant" : "standby"}
-                  onView={() => setViewing(d)}
-                  onSecondary={() => setRemoving(d)}
-                  secondaryLabel="Remove"
-                  secondaryIcon="person_remove"
-                  secondaryClass="bg-tertiary/10 text-tertiary hover:bg-tertiary/20"
-                />
-              ))}
-            </div>
-          )}
+      {error && (
+        <div className="flex items-center gap-2.5 bg-tertiary/10 text-tertiary rounded-2xl px-4 py-3 text-sm font-medium border border-tertiary/20">
+          <span className="material-symbols-outlined text-sm">error</span>
+          {error}
         </div>
-      </section>
+      )}
+
+      {drivers.length === 0 ? (
+        <div className="bg-surface-container-low rounded-3xl p-10 flex flex-col items-center text-center gap-4 border border-outline-variant/10">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+            <span className="material-symbols-outlined text-primary text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>shield</span>
+          </div>
+          <div>
+            <p className="font-headline font-bold text-on-surface text-lg">No drivers assigned</p>
+            <p className="text-sm text-on-surface-variant mt-1 max-w-xs mx-auto leading-relaxed">
+              No drivers have connected with you as their emergency contact yet.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {drivers.map((d) => {
+            const isOnline = onlineIds.has(d.user_id);
+            const ecStatus: ContactStatus = isOnline ? "vigilant" : "standby";
+            return (
+              <div key={d.id} className="bg-surface-container-low rounded-3xl overflow-hidden border border-outline-variant/10 hover:border-outline-variant/30 transition-colors">
+                <div className="p-5 flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0">
+                    <span className="font-headline font-black text-primary text-lg select-none">{getInitials(d.name)}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-headline font-bold text-on-surface truncate">{d.name}</p>
+                    <p className="text-xs text-on-surface-variant truncate mt-0.5">{d.phone || d.email || "No contact info"}</p>
+                  </div>
+                  <StatusPill status={ecStatus} />
+                </div>
+                <div className="flex border-t border-outline-variant/10">
+                  <button onClick={() => setViewing(d)}
+                    className="flex-1 py-3 text-xs font-bold text-primary hover:bg-primary/5 active:scale-95 transition-all flex items-center justify-center gap-1.5 border-r border-outline-variant/10">
+                    <span className="material-symbols-outlined text-sm">visibility</span>
+                    View
+                  </button>
+                  <button onClick={() => setRemoving(d)}
+                    className="flex-1 py-3 text-xs font-bold text-tertiary hover:bg-tertiary/5 active:scale-95 transition-all flex items-center justify-center gap-1.5">
+                    <span className="material-symbols-outlined text-sm">person_remove</span>
+                    Remove
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {viewing && (
         <ViewDialog
           name={viewing.name} phone={viewing.phone} email={viewing.email}
           status={onlineIds.has(viewing.user_id) ? "vigilant" : "standby"}
           activeSince={null} showActiveSince={false}
-          onClose={() => setViewing(null)}
-        />
+          onClose={() => setViewing(null)} />
       )}
       {removing && (
-        <RemoveDialog name={removing.name} busy={removeBusy} onCancel={() => setRemoving(null)} onConfirm={() => void handleRemove(removing)} />
+        <RemoveDialog name={removing.name} busy={removeBusy}
+          onCancel={() => setRemoving(null)} onConfirm={() => void handleRemove(removing)} />
       )}
     </div>
   );
@@ -718,38 +722,47 @@ function IProtectTab() {
 type Tab = "my-guardian" | "i-protect";
 
 export function EmergencyContactPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("i-protect");
+  const [activeTab, setActiveTab] = useState<Tab>("my-guardian");
+
+  const tabs = [
+    { key: "my-guardian" as Tab, label: "My Guardian", icon: "person_add" },
+    { key: "i-protect" as Tab, label: "I Protect", icon: "shield" },
+  ];
 
   return (
-    <div className="max-w-5xl mx-auto font-body text-on-surface space-y-10 pb-12">
-      {/* Page header */}
-      <div>
-        <h1 className="font-headline font-black text-2xl sm:text-3xl text-primary uppercase tracking-wider mb-1">
-          Emergency Contact
+    <div className="max-w-xl mx-auto font-body text-on-surface pb-12">
+      <div className="mb-8">
+        <p className="text-[9px] font-bold tracking-[0.3em] uppercase text-primary mb-2">Safety System</p>
+        <h1 className="font-headline font-black text-3xl text-on-surface leading-none mb-2">
+          Emergency<br />Contact
         </h1>
         <p className="text-sm text-on-surface-variant">
-          Manage your emergency contact and drivers who have connected with you.
+          Manage your guardians and monitor drivers you protect.
         </p>
       </div>
 
-      {/* Tab switcher */}
-      <div className="flex p-1 bg-surface-container-low rounded-xl w-full max-w-sm">
-        {(["my-guardian", "i-protect"] as const).map((key) => (
+      <div className="flex gap-2 mb-8">
+        {tabs.map(({ key, label, icon }) => (
           <button
             key={key}
             onClick={() => setActiveTab(key)}
-            className={`flex-1 py-2.5 text-center text-sm font-semibold rounded-lg transition-all duration-150 ${
+            className={`flex-1 py-2.5 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
               activeTab === key
-                ? "bg-surface-bright text-primary shadow-sm"
-                : "text-on-surface-variant hover:text-on-surface"
+                ? "bg-primary/10 text-primary border-primary/20"
+                : "bg-surface-container-high text-on-surface-variant border-outline-variant/10 hover:bg-surface-bright"
             }`}
           >
-            {key === "my-guardian" ? "Emergency Contact" : "Connection"}
+            <span
+              className="material-symbols-outlined text-sm"
+              style={{ fontVariationSettings: activeTab === key ? "'FILL' 1" : "'FILL' 0" }}
+            >
+              {icon}
+            </span>
+            {label}
           </button>
         ))}
       </div>
 
-      {/* Tab content */}
       {activeTab === "my-guardian" ? <MyGuardianTab /> : <IProtectTab />}
     </div>
   );

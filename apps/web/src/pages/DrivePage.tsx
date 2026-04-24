@@ -1,29 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  alertConfigForDrowsinessLevel,
-  computeDrowsinessLevelFromSignals,
-  drowsinessStatusLabel,
-  shouldAlertForLevel,
-} from "@snoozeguard/shared";
-import { DrowsinessAlertOverlay } from "../components/DrowsinessAlertOverlay";
+// DrivePage.tsx — Drowsiness Detection with MediaPipe Face Landmarker
+// Real-time drowsiness scoring with facial analysis, alert management, and telemetry logging
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useAdminConfig } from "../hooks/useAdminConfig";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { useWebFaceLandmarker } from "../hooks/useWebFaceLandmarker";
-import { playWebAlert } from "../lib/alerts/playWebAlert";
 import { supabase } from "../lib/supabase";
-import { getOpenLocalSession, offlineDb } from "../lib/offline/db";
+import { offlineDb, getOpenLocalSession } from "../lib/offline/db";
 import { ensureRemoteSession, flushOutbox, flushPendingTelemetry } from "../lib/offline/sync";
+import {
+  alertConfigForDrowsinessLevel,
+  computeLevelFromAlertMap,
+  drowsinessStatusLabel,
+  parseAlertMap,
+  shouldAlertForLevel,
+} from "@snoozeguard/shared";
+import { playWebAlert, stopWebAlert } from "../lib/alerts/playWebAlert";
+import { createYawnDetector, createHeadDetector, createTiltDetector } from "../lib/ml/faceDetectors";
+import { DrowsinessAlertOverlay } from "./DrivePage.components";
 
-function formatElapsed(ms: number) {
-  const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return [h, m, sec].map((n) => String(n).padStart(2, "0")).join(":");
-}
-
-// ─── Attention bars ────────────────────────────────────────────────────────────
+// ─── Helper components ─────────────────────────────────────────────────────
 
 function AttentionBars({ count }: { count: number }) {
   return (
@@ -31,7 +28,7 @@ function AttentionBars({ count }: { count: number }) {
       {[1, 2, 3, 4, 5].map((i) => (
         <div
           key={i}
-          className={`w-4 h-1 rounded-full transition-all duration-300 ${
+          className={`h-3 w-1 rounded-full transition-colors ${
             i <= count ? "bg-primary" : "bg-primary/20"
           }`}
         />
@@ -39,8 +36,6 @@ function AttentionBars({ count }: { count: number }) {
     </div>
   );
 }
-
-// ─── Metric card ───────────────────────────────────────────────────────────────
 
 function MetricCard({
   label,
@@ -78,8 +73,6 @@ function MetricCard({
   );
 }
 
-// ─── Session metric row ───────────────────────────────────────────────────────
-
 function SessionMetric({
   icon,
   iconColor,
@@ -112,35 +105,48 @@ function SessionMetric({
   );
 }
 
-// ─── DrivePage ─────────────────────────────────────────────────────────────────
+// ─── DrivePage ────────────────────────────────────────────────────────────────
 
 export function DrivePage() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const online = useOnlineStatus();
-  const { config: adminCfg } = useAdminConfig();
   const [localSessionId, setLocalSessionId] = useState<string | null>(null);
   const [remoteSessionId, setRemoteSessionId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
-  const [sessionYawns, setSessionYawns] = useState(0);
-  const [sessionHeads, setSessionHeads] = useState(0);
-  const [sessionBrakeFlags, setSessionBrakeFlags] = useState(0);
-  const [brakePending, setBrakePending] = useState(false);
+  // ── Live drowsiness state ──────────────────────────────────────────────
+  const [liveLevel, setLiveLevel] = useState(0);
+  const [liveYawns, setLiveYawns] = useState(0);
+  const [liveHeads, setLiveHeads] = useState(0);
+  const [liveTilts, setLiveTilts] = useState(0);
+  const [liveSuddenBrakes, setLiveSuddenBrakes] = useState(0);
+  const [sessionSecs, setSessionSecs] = useState(0);
+
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const lastSentRef = useRef({ y: 0, h: 0 });
 
   const [useManualOverride, setUseManualOverride] = useState(false);
   const [manualLevel, setManualLevel] = useState(4);
-  const [lastTelemetryLevel, setLastTelemetryLevel] = useState<number | null>(null);
 
+  // ── Alert state ─────────────────────────────────────────────────────────
   const [alertOpen, setAlertOpen] = useState(false);
   const [alertLevel, setAlertLevel] = useState(0);
   const [alertTitle, setAlertTitle] = useState("");
   const [alertActions, setAlertActions] = useState<string[]>([]);
-  const lastAlertRef = useRef<{ level: number; at: number } | null>(null);
+  const [alertFlash, setAlertFlash] = useState(false);
+  const [specialAlertOpen, setSpecialAlertOpen] = useState(false);
+  const [specialAlertTitle, setSpecialAlertTitle] = useState("");
+  const [specialAlertMessage, setSpecialAlertMessage] = useState("");
+  const [ecCountdown, setEcCountdown] = useState<number | null>(null);
 
+  // ── Guardian Pulse History (real-time tracking) ──────────────────────────
+  const [pulseHistory, setPulseHistory] = useState<number[]>([
+    60, 65, 75, 70, 85, 80, 90, 85, 100,
+  ]);
+
+  // ── Camera state ───────────────────────────────────────────────────────
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraOn, setCameraOn] = useState(false);
@@ -148,7 +154,7 @@ export function DrivePage() {
   const [browserMlOn, setBrowserMlOn] = useState(false);
   const [mlError, setMlError] = useState<string | null>(null);
 
-  // Face ML data for AR overlays
+  // ── Face ML data ───────────────────────────────────────────────────────
   const [faceScore, setFaceScore] = useState<{
     pitch: number;
     yaw: number;
@@ -156,93 +162,147 @@ export function DrivePage() {
   } | null>(null);
   const [faceDetected, setFaceDetected] = useState(false);
 
-  // Rolling alertness history for the pulse chart (0-100)
-  const [pulseHistory, setPulseHistory] = useState<number[]>([
-    60, 65, 75, 70, 85, 80, 90, 85, 100,
-  ]);
+  // ── Refs for detector and scoring logic ───────────────────────────────
+  const { start: faceMlStart, stop: faceMlStop } = useWebFaceLandmarker();
+  
+  const yawnDetectorRef = useRef(createYawnDetector(() => { yawnAccRef.current += 1; }));
+  const headDetectorRef = useRef(createHeadDetector(() => { headAccRef.current += 1; }));
+  const tiltDetectorRef = useRef(createTiltDetector(() => {
+    headTiltAccRef.current += 1;
+    const tiltMsg = "Alert, alert. Head is tilted for a long period of time. Please focus on the road.";
+    window.speechSynthesis?.cancel();
+    const utterance = new SpeechSynthesisUtterance(tiltMsg);
+    utterance.rate = 0.9;
+    utterance.lang = "en-US";
+    window.speechSynthesis?.speak(utterance);
+    window.speechSynthesis?.speak(utterance);
+    setSpecialAlertTitle("Head tilted — keep your head straight!");
+    setSpecialAlertMessage("Your head has been tilted for a prolonged period. Stay focused on the road.");
+    setSpecialAlertOpen(true);
+    if (navigator.vibrate) navigator.vibrate([0, 500, 200, 500]);
+  }));
 
-  const faceMl = useWebFaceLandmarker();
-  const jawHighRef = useRef(0);
-  const lastYawnMlRef = useRef(0);
-  const prevEulerRef = useRef<{ yaw: number; pitch: number; roll: number } | null>(null);
-  const lastHeadMlRef = useRef(0);
+  // ── Drowsiness score accumulators (per session) ─────────────────────────
+  const yawnAccRef = useRef(0);
+  const headAccRef = useRef(0);
+  const headTiltAccRef = useRef(0);
+  const yawnLastTickRef = useRef(0);
+  const headLastTickRef = useRef(0);
+  const headTiltLastTickRef = useRef(0);
+  const suddenBrakeAccRef = useRef(0);
+  const suddenBrakeLastTickRef = useRef(0);
 
-  const thresholds = useMemo(
-    () => ({
-      yawn_threshold: adminCfg.yawn_threshold,
-      head_movement_threshold: adminCfg.head_movement_threshold,
-    }),
-    [adminCfg.yawn_threshold, adminCfg.head_movement_threshold],
-  );
+  // ── Level 10 retrigger baseline ────────────────────────────────────────
+  const level10BaseYawnRef = useRef<number | null>(null);
+  const level10BaseHeadRef = useRef<number | null>(null);
+  const scoreResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const previewLevel = useMemo(() => {
-    if (useManualOverride) return manualLevel;
-    return computeDrowsinessLevelFromSignals({
-      sessionYawnCount: sessionYawns,
-      sessionHeadEventCount: sessionHeads,
-      suddenBrakeThisTick: brakePending,
-      thresholds,
-    });
-  }, [useManualOverride, manualLevel, sessionYawns, sessionHeads, brakePending, thresholds]);
+  // ── Alert throttling and state ──────────────────────────────────────────
+  const lastAlertRef = useRef<{ level: number; at: number } | null>(null);
+  const dismissedLevelsRef = useRef<Set<number>>(new Set());
+  const alertOpenRef = useRef(false);
+  const alertLevelRef = useRef(0);
+  const sessionActiveRef = useRef(false);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const status = drowsinessStatusLabel(previewLevel);
-  const gaugePct = Math.min(100, Math.max(0, (previewLevel / 10) * 100));
+  // ── Emergency contact ───────────────────────────────────────────────────
+  const ecTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ecAutoFiredRef = useRef(false);
 
-  // Derived display values
-  const alertnessScore = Math.round((1 - previewLevel / 10) * 100);
-  const attentionBars = Math.round((alertnessScore / 100) * 5);
+  // ── Admin runtime (alert config) ────────────────────────────────────────
+  const adminRef = useRef({
+    trigger: 6,
+    map: parseAlertMap(undefined),
+    scoreResetMinutes: 2,
+    smsEnabled: false,
+  });
 
-  const guardianPulse =
-    previewLevel <= 2
-      ? "VIGILANT"
-      : previewLevel <= 5
-        ? "MODERATE"
-        : previewLevel <= 7
-          ? "DROWSY"
-          : "CRITICAL";
+  useEffect(() => {
+    alertOpenRef.current = alertOpen;
+  }, [alertOpen]);
+  useEffect(() => {
+    alertLevelRef.current = alertLevel;
+  }, [alertLevel]);
 
-  const guardianColor =
-    previewLevel <= 2
-      ? "text-primary"
-      : previewLevel <= 5
-        ? "text-secondary"
-        : "text-tertiary";
+  const resetDrowsinessScore = useCallback(() => {
+    if (scoreResetTimerRef.current) { clearTimeout(scoreResetTimerRef.current); scoreResetTimerRef.current = null; }
+    yawnAccRef.current = 0;
+    headAccRef.current = 0;
+    yawnLastTickRef.current = 0;
+    headLastTickRef.current = 0;
+    headTiltAccRef.current = 0;
+    headTiltLastTickRef.current = 0;
+    suddenBrakeAccRef.current = 0;
+    suddenBrakeLastTickRef.current = 0;
+    level10BaseYawnRef.current = null;
+    level10BaseHeadRef.current = null;
+    dismissedLevelsRef.current.clear();
+    setLiveYawns(0);
+    setLiveHeads(0);
+    setLiveTilts(0);
+    setLiveSuddenBrakes(0);
+    setLiveLevel(0);
+  }, []);
 
-  const fatigueLabel =
-    previewLevel <= 3 ? "Safe Range" : previewLevel <= 6 ? "Caution Zone" : "Danger Zone";
+  const startScoreResetTimer = useCallback(() => {
+    if (scoreResetTimerRef.current) clearTimeout(scoreResetTimerRef.current);
+    scoreResetTimerRef.current = setTimeout(() => {
+      resetDrowsinessScore();
+    }, adminRef.current.scoreResetMinutes * 60_000);
+  }, [resetDrowsinessScore]);
 
-  const fatigueLabelColor =
-    previewLevel <= 3 ? "text-primary" : previewLevel <= 6 ? "text-secondary" : "text-tertiary";
+  const stopAlertAudio = useCallback(() => {
+    stopWebAlert();
+  }, []);
 
-  const headPosition =
-    browserMlOn && faceDetected && faceScore
-      ? Math.abs(faceScore.pitch) < 10 && Math.abs(faceScore.yaw) < 10
-        ? "STABLE"
-        : "DRIFT"
-      : browserMlOn && !faceDetected
-        ? "NO FACE"
-        : "STABLE";
+  const loadAdminConfig = useCallback(async () => {
+    const { data } = await supabase.from("admin_config").select("*").eq("id", 1).maybeSingle();
+    if (!data) return;
+    adminRef.current = {
+      trigger: Number(data.drowsiness_trigger_level) || 6,
+      map: parseAlertMap(data.alert_map),
+      scoreResetMinutes: Number(data.score_reset_minutes) || 2,
+      smsEnabled: Boolean(data.sms_enabled),
+    };
+  }, []);
 
-  const headPositionColor =
-    headPosition === "STABLE" ? "text-on-surface" : headPosition === "DRIFT" ? "text-secondary" : "text-slate-500";
+  const stopEcTimer = useCallback(() => {
+    if (ecTimerRef.current) clearInterval(ecTimerRef.current);
+    ecTimerRef.current = null;
+    setEcCountdown(null);
+  }, []);
 
-  const perclosVal =
-    faceDetected && faceScore != null ? faceScore.jawOpen.toFixed(2) : "0.04";
+  const startEcCountdown = useCallback(() => {
+    if (ecTimerRef.current) return;
+    ecAutoFiredRef.current = false;
+    setEcCountdown(120);
+    ecTimerRef.current = setInterval(() => {
+      setEcCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          if (!ecAutoFiredRef.current) {
+            ecAutoFiredRef.current = true;
+            console.log("[DrivePage] EC auto-fire after 120s countdown");
+          }
+          if (ecTimerRef.current) clearInterval(ecTimerRef.current);
+          ecTimerRef.current = null;
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
 
-  const activeLocal = Boolean(localSessionId);
+  const stopTick = useCallback(() => {
+    if (tickRef.current) clearInterval(tickRef.current);
+    tickRef.current = null;
+  }, []);
 
-  const sessionStartTimeStr = useMemo(() => {
-    if (!sessionStartedAt) return null;
-    return new Date(sessionStartedAt).toLocaleTimeString("en", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }, [sessionStartedAt]);
+  useEffect(() => {
+    if (alertOpen && alertLevel >= 9) startEcCountdown();
+    else stopEcTimer();
+  }, [alertOpen, alertLevel, startEcCountdown, stopEcTimer]);
 
-  const minutesDriven = Math.floor(elapsedMs / 60000);
-  const breakInMins = Math.max(0, 120 - minutesDriven);
-
-  // ── Timers ────────────────────────────────────────────────────────────────
+  // ── Timers ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!localSessionId || sessionStartedAt == null) return;
@@ -250,7 +310,22 @@ export function DrivePage() {
     return () => window.clearInterval(id);
   }, [localSessionId, sessionStartedAt]);
 
-  // ── Session resume / sync ─────────────────────────────────────────────────
+  // ── Guardian Pulse History: Update with real-time drowsiness level ────────
+  useEffect(() => {
+    if (!localSessionId) {
+      setPulseHistory([60, 65, 75, 70, 85, 80, 90, 85, 100]);
+      return;
+    }
+    const pulseUpdateInterval = setInterval(() => {
+      setPulseHistory((prev) => {
+        const scaled = Math.max(0, Math.min(100, (liveLevel / 10) * 100));
+        return [...prev.slice(1), scaled];
+      });
+    }, 2000);
+    return () => clearInterval(pulseUpdateInterval);
+  }, [localSessionId, liveLevel]);
+
+  // ── Session resume / sync ────────────────────────────────────────────────
 
   const refreshRemoteHint = useCallback(async () => {
     if (!localSessionId) {
@@ -301,10 +376,21 @@ export function DrivePage() {
     void flushOutbox(supabase, user.id).then(() => void refreshRemoteHint());
   }, [user, online, refreshRemoteHint]);
 
-  // ── Camera ────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    void loadAdminConfig();
+  }, [loadAdminConfig]);
+
+  useEffect(() => {
+    if (online) {
+      void flushPendingTelemetry(supabase, user?.id ?? "");
+      void loadAdminConfig();
+    }
+  }, [online, user?.id, loadAdminConfig]);
+
+  // ── Camera ──────────────────────────────────────────────────────────────
 
   const stopCamera = useCallback(() => {
-    faceMl.stop();
+    faceMlStop();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -312,12 +398,16 @@ export function DrivePage() {
     setCameraOn(false);
     setFaceDetected(false);
     setFaceScore(null);
-  }, [faceMl]);
+  }, [faceMlStop]);
 
   const startCamera = useCallback(async () => {
     setCameraError(null);
+    if (!window.isSecureContext) {
+      setCameraError("Camera requires HTTPS. Open this page via https:// or localhost.");
+      return;
+    }
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraError("Camera not supported in this browser.");
+      setCameraError("Camera API unavailable — try Chrome or Firefox over HTTPS.");
       return;
     }
     try {
@@ -332,7 +422,10 @@ export function DrivePage() {
       }
       setCameraOn(true);
     } catch (e) {
-      setCameraError(e instanceof Error ? e.message : "Could not open camera");
+      const msg = e instanceof Error ? e.message : "Could not open camera";
+      setCameraError(msg.includes("Permission") || msg.includes("permission")
+        ? "Camera permission denied — allow camera access in your browser settings."
+        : msg);
       setCameraOn(false);
     }
   }, []);
@@ -343,44 +436,46 @@ export function DrivePage() {
     };
   }, [stopCamera]);
 
-  // ── Alert ─────────────────────────────────────────────────────────────────
-
-  const fireAlert = useCallback(
-    async (level: number, actions: string[], label: string) => {
-      const now = Date.now();
-      const prev = lastAlertRef.current;
-      const throttleMs = 35_000;
-      if (prev && now - prev.at < throttleMs && level <= prev.level) return;
-      lastAlertRef.current = { level, at: now };
-
-      if (user) {
-        void supabase.from("alert_events").insert({
-          user_id: user.id,
-          driving_session_id: remoteSessionId,
-          local_session_hint: localSessionId,
-          drowsiness_level: level,
-          trigger_level: adminCfg.drowsiness_trigger_level,
-          alert_label: label,
-          source: "web_drive",
-        });
+  // ── Sudden brake detection via DeviceMotion (mobile web) ─────────────────
+  useEffect(() => {
+    let lastMag = 0;
+    let lastTriggerAt = 0;
+    const handler = (e: DeviceMotionEvent) => {
+      if (!sessionActiveRef.current) return;
+      const g = e.accelerationIncludingGravity;
+      if (!g) return;
+      const mag = Math.sqrt((g.x ?? 0) ** 2 + (g.y ?? 0) ** 2 + (g.z ?? 0) ** 2);
+      const delta = Math.abs(mag - lastMag);
+      if (lastMag > 0 && delta > 20) {
+        const now = Date.now();
+        if (now - lastTriggerAt > 3000) {
+          lastTriggerAt = now;
+          suddenBrakeAccRef.current += 1;
+          setSpecialAlertTitle("Sudden Impact Detected!");
+          setSpecialAlertMessage("A sudden brake or impact was detected. Pull over safely if needed and check your surroundings.");
+          setSpecialAlertOpen(true);
+          window.speechSynthesis?.cancel();
+          const u = new SpeechSynthesisUtterance("Warning! Sudden impact detected. Please check your surroundings.");
+          u.rate = 0.9;
+          u.lang = "en-US";
+          window.speechSynthesis?.speak(u);
+          if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
+        }
       }
+      lastMag = mag;
+    };
+    window.addEventListener("devicemotion", handler);
+    return () => window.removeEventListener("devicemotion", handler);
+  }, []);
 
-      setAlertLevel(level);
-      setAlertTitle(label);
-      setAlertActions(actions);
-      setAlertOpen(true);
-      await playWebAlert(actions);
-    },
-    [user, remoteSessionId, localSessionId, adminCfg.drowsiness_trigger_level],
-  );
+  // ── Session start / stop ────────────────────────────────────────────────
 
-  // ── Session start / stop ──────────────────────────────────────────────────
-
-  const start = useCallback(async () => {
+  const startSession = useCallback(async () => {
     if (!user) return;
     setBusy(true);
     setNote(null);
     try {
+      await loadAdminConfig();
       const id = crypto.randomUUID();
       const startedAt = new Date().toISOString();
       await offlineDb.drivingSessionsLocal.add({
@@ -392,133 +487,89 @@ export function DrivePage() {
       });
       setLocalSessionId(id);
       setRemoteSessionId(null);
-      setLastTelemetryLevel(null);
       lastAlertRef.current = null;
-      setSessionYawns(0);
-      setSessionHeads(0);
-      setSessionBrakeFlags(0);
-      setBrakePending(false);
-      lastSentRef.current = { y: 0, h: 0 };
+      yawnAccRef.current = 0;
+      headAccRef.current = 0;
+      yawnLastTickRef.current = 0;
+      headLastTickRef.current = 0;
+      headTiltAccRef.current = 0;
+      headTiltLastTickRef.current = 0;
+      suddenBrakeAccRef.current = 0;
+      suddenBrakeLastTickRef.current = 0;
+      level10BaseYawnRef.current = null;
+      level10BaseHeadRef.current = null;
+      dismissedLevelsRef.current.clear();
       const t0 = Date.now();
+      sessionStartRef.current = t0;
       setSessionStartedAt(t0);
       setElapsedMs(0);
-      jawHighRef.current = 0;
-      lastYawnMlRef.current = 0;
-      prevEulerRef.current = null;
-      lastHeadMlRef.current = 0;
+      setLiveLevel(0);
+      setLiveYawns(0);
+      setLiveHeads(0);
+      setLiveTilts(0);
+      setLiveSuddenBrakes(0);
+      setSessionSecs(0);
       setPulseHistory([60, 65, 75, 70, 85, 80, 90, 85, 100]);
-      setNote("Session saved locally. Syncs to Supabase when online.");
+      setNote("Session started. MediaPipe face detection active.");
+      sessionActiveRef.current = true;
+      tiltDetectorRef.current.reset();
       await ensureRemoteSession(supabase, user.id, id);
-      await flushPendingTelemetry(supabase, user.id);
-      await refreshRemoteHint();
+      if (online) await flushPendingTelemetry(supabase, user.id);
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Failed to start session");
     } finally {
       setBusy(false);
     }
-  }, [user, refreshRemoteHint]);
+  }, [user, online, loadAdminConfig]);
 
-  const stop = useCallback(async () => {
-    if (!localSessionId || !user) return;
-    setBusy(true);
-    setNote(null);
+  const sessionStartRef = useRef<number | null>(null);
+
+  const endSession = useCallback(() => {
+    if (!localSessionId) return;
+    // Stop all active loops immediately
+    stopTick();
+    sessionActiveRef.current = false;
+    tiltDetectorRef.current.reset();
+    stopAlertAudio();
+    if (scoreResetTimerRef.current) { clearTimeout(scoreResetTimerRef.current); scoreResetTimerRef.current = null; }
+    level10BaseYawnRef.current = null;
+    level10BaseHeadRef.current = null;
+    dismissedLevelsRef.current.clear();
+
+    // Write ended_at synchronously — no network needed
     try {
-      const endedAt = new Date().toISOString();
-      await offlineDb.drivingSessionsLocal.update(localSessionId, { endedAt });
-      setLocalSessionId(null);
-      setRemoteSessionId(null);
-      setAlertOpen(false);
-      setSessionStartedAt(null);
-      setElapsedMs(0);
-      await flushOutbox(supabase, user.id);
-      setNote("Session ended. Outbox flushed.");
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : "Failed to end session");
-    } finally {
-      setBusy(false);
-    }
-  }, [localSessionId, user]);
-
-  // ── Telemetry push ────────────────────────────────────────────────────────
-
-  const pushSample = useCallback(async () => {
-    if (!localSessionId || !user) return;
-    setBusy(true);
-    setNote(null);
-    const yDelta = sessionYawns - lastSentRef.current.y;
-    const hDelta = sessionHeads - lastSentRef.current.h;
-    const sudden = brakePending;
-    lastSentRef.current = { y: sessionYawns, h: sessionHeads };
-    if (sudden) setSessionBrakeFlags((b) => b + 1);
-    setBrakePending(false);
-
-    const level = useManualOverride
-      ? manualLevel
-      : computeDrowsinessLevelFromSignals({
-          sessionYawnCount: sessionYawns,
-          sessionHeadEventCount: sessionHeads,
-          suddenBrakeThisTick: sudden,
-          thresholds,
-        });
-
-    try {
-      await offlineDb.sessionTelemetryLocal.add({
-        localSessionId,
-        recordedAt: new Date().toISOString(),
-        drowsinessLevel: level,
-        yawnCountDelta: yDelta,
-        headEventCountDelta: hDelta,
-        suddenBrake: sudden ? 1 : 0,
-        source: browserMlOn ? "web_mediapipe_face" : "web_demo",
-        remoteSynced: 0,
+      void offlineDb.drivingSessionsLocal.update(localSessionId, {
+        endedAt: new Date().toISOString(),
       });
-      setLastTelemetryLevel(level);
+    } catch { /* ignore DB error */ }
 
-      // Update pulse history
-      const alertnessVal = Math.round((1 - level / 10) * 100);
-      setPulseHistory((prev) => [...prev.slice(-8), alertnessVal]);
+    // Clear UI immediately
+    const idToSync = localSessionId;
+    setLocalSessionId(null);
+    setAlertOpen(false);
+    setLiveLevel(0);
+    sessionStartRef.current = null;
+    setSessionStartedAt(null);
+    setElapsedMs(0);
+    setNote("Session ended.");
 
-      const n = await flushPendingTelemetry(supabase, user.id);
-      await refreshRemoteHint();
+    // Background sync — fire-and-forget
+    void (async () => {
+      try {
+        if (user) {
+          await flushOutbox(supabase, user.id);
+          await flushPendingTelemetry(supabase, user.id);
+        }
+      } catch { /* sync will retry next time the app is online */ }
+      void idToSync; // satisfy lint
+    })();
+  }, [localSessionId, stopTick, stopAlertAudio, user]);
 
-      const trigger = adminCfg.drowsiness_trigger_level;
-      if (shouldAlertForLevel(level, trigger)) {
-        const band = alertConfigForDrowsinessLevel(level, adminCfg.alertMap);
-        const actions = band?.actions ?? ["sound"];
-        const label = band?.label ?? "Attention required";
-        await fireAlert(level, actions, label);
-      }
-
-      setNote(
-        n > 0
-          ? `Telemetry synced (${n} row).`
-          : "Telemetry queued locally.",
-      );
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : "Failed to log telemetry");
-    } finally {
-      setBusy(false);
-    }
-  }, [
-    localSessionId,
-    user,
-    sessionYawns,
-    sessionHeads,
-    brakePending,
-    useManualOverride,
-    manualLevel,
-    thresholds,
-    adminCfg,
-    refreshRemoteHint,
-    fireAlert,
-    browserMlOn,
-  ]);
-
-  // ── Face ML ───────────────────────────────────────────────────────────────
+  // ── Face ML + detectors ─────────────────────────────────────────────────
 
   useEffect(() => {
     if (!browserMlOn || !cameraOn) {
-      faceMl.stop();
+      faceMlStop();
       setMlError(null);
       setFaceDetected(false);
       setFaceScore(null);
@@ -529,12 +580,14 @@ export function DrivePage() {
 
     let cancelled = false;
     setMlError(null);
-    void faceMl
-      .start(video, (scores) => {
-        if (cancelled) return;
+    void faceMlStart(video, (scores) => {
+        if (cancelled || !sessionActiveRef.current || alertOpenRef.current) return;
         setFaceDetected(scores.faceDetected);
         if (!scores.faceDetected) {
           setFaceScore(null);
+          yawnDetectorRef.current.process(0);
+          headDetectorRef.current.process(0, 0);
+          tiltDetectorRef.current.process(0, 0);
           return;
         }
         setFaceScore({
@@ -543,36 +596,11 @@ export function DrivePage() {
           jawOpen: scores.jawOpen,
         });
 
-        const now = performance.now();
-        if (scores.jawOpen > 0.48) jawHighRef.current += 1;
-        else jawHighRef.current = 0;
-        if (jawHighRef.current >= 5 && now - lastYawnMlRef.current > 2200) {
-          lastYawnMlRef.current = now;
-          jawHighRef.current = 0;
-          setSessionYawns((y) => y + 1);
-        }
-
-        if (prevEulerRef.current === null) {
-          prevEulerRef.current = {
-            yaw: scores.yawDeg,
-            pitch: scores.pitchDeg,
-            roll: scores.rollDeg,
-          };
-          return;
-        }
-        const pe = prevEulerRef.current;
-        const delta =
-          Math.abs(scores.yawDeg - pe.yaw) +
-          Math.abs(scores.pitchDeg - pe.pitch) +
-          Math.abs(scores.rollDeg - pe.roll);
-        prevEulerRef.current = {
-          yaw: scores.yawDeg,
-          pitch: scores.pitchDeg,
-          roll: scores.rollDeg,
-        };
-        if (delta > 16 && now - lastHeadMlRef.current > 700) {
-          lastHeadMlRef.current = now;
-          setSessionHeads((h) => h + 1);
+        yawnDetectorRef.current.process(scores.jawOpen);
+        // Suppress head/tilt while jaw is wide open — yawning naturally tilts the head
+        if (scores.jawOpen < 0.6) {
+          headDetectorRef.current.process(scores.pitchDeg, scores.rollDeg);
+          tiltDetectorRef.current.process(scores.pitchDeg, scores.rollDeg);
         }
       })
       .then((err) => {
@@ -581,35 +609,236 @@ export function DrivePage() {
 
     return () => {
       cancelled = true;
-      faceMl.stop();
+      faceMlStop();
     };
-  }, [browserMlOn, cameraOn, faceMl]);
+  }, [browserMlOn, cameraOn, faceMlStart, faceMlStop]);
+
+  // ── Main scoring tick (1-second interval) ───────────────────────────────
+
+  useEffect(() => {
+    if (!localSessionId) {
+      stopTick();
+      return;
+    }
+
+    tickRef.current = setInterval(() => {
+      const ar = adminRef.current;
+
+      const yawnDelta = yawnAccRef.current - yawnLastTickRef.current;
+      const headDelta = headAccRef.current - headLastTickRef.current;
+      const suddenBrakeDelta = suddenBrakeAccRef.current > suddenBrakeLastTickRef.current;
+      yawnLastTickRef.current = yawnAccRef.current;
+      headLastTickRef.current = headAccRef.current;
+      headTiltLastTickRef.current = headTiltAccRef.current;
+      suddenBrakeLastTickRef.current = suddenBrakeAccRef.current;
+
+      let level = 0;
+      if (useManualOverride) {
+        level = manualLevel;
+      } else {
+        level = computeLevelFromAlertMap(yawnAccRef.current, headAccRef.current, false, ar.map);
+      }
+
+      setLiveLevel(level);
+      setLiveYawns(yawnAccRef.current);
+      setLiveHeads(headAccRef.current);
+      setLiveTilts(headTiltAccRef.current);
+      setLiveSuddenBrakes(suddenBrakeAccRef.current);
+      if (sessionStartRef.current) setSessionSecs(Math.floor((Date.now() - sessionStartRef.current) / 1000));
+
+      void (async () => {
+        if (!localSessionId || !user) return;
+        try {
+          await offlineDb.sessionTelemetryLocal.add({
+            localSessionId,
+            recordedAt: new Date().toISOString(),
+            drowsinessLevel: level,
+            yawnCountDelta: yawnDelta,
+            headEventCountDelta: headDelta,
+            suddenBrake: suddenBrakeDelta ? 1 : 0,
+            source: browserMlOn ? "web_mediapipe_face" : "web_manual",
+            remoteSynced: 0,
+          });
+          if (online) await flushPendingTelemetry(supabase, user.id);
+        } catch { /* ignore */ }
+      })();
+
+      if (level >= 10 && level10BaseYawnRef.current === null) {
+        level10BaseYawnRef.current = yawnAccRef.current;
+        level10BaseHeadRef.current = headAccRef.current;
+      }
+
+      const LEVEL10_YAWN_RETRIGGER = 3;
+      const LEVEL10_HEAD_RETRIGGER = 10;
+      const l10YawnDelta = level10BaseYawnRef.current !== null
+        ? yawnAccRef.current - level10BaseYawnRef.current : 0;
+      const l10HeadDelta = level10BaseHeadRef.current !== null
+        ? headAccRef.current - (level10BaseHeadRef.current ?? 0) : 0;
+      const isLevel10Retrigger =
+        level >= 10 &&
+        level10BaseYawnRef.current !== null &&
+        !alertOpenRef.current &&
+        (l10YawnDelta >= LEVEL10_YAWN_RETRIGGER || l10HeadDelta >= LEVEL10_HEAD_RETRIGGER);
+
+      // Higher level interrupts a currently-showing lower-level alert (matches mobile)
+      const isLevelEscalation = level > alertLevelRef.current && alertOpenRef.current && !dismissedLevelsRef.current.has(level);
+      const canAlert = (!alertOpenRef.current && shouldAlertForLevel(level, ar.trigger) && !dismissedLevelsRef.current.has(level))
+        || isLevelEscalation
+        || isLevel10Retrigger;
+
+      if (canAlert) {
+        const band = alertConfigForDrowsinessLevel(level, ar.map);
+        const actions = band?.actions ?? ["voice"];
+        const label = band?.label ?? "Attention required";
+        const now = Date.now();
+        const prev = lastAlertRef.current;
+        const bypassCooldown = isLevelEscalation || isLevel10Retrigger;
+        if (bypassCooldown || !prev || now - prev.at > 35_000 || level > prev.level) {
+          stopAlertAudio();
+
+          if (isLevel10Retrigger) {
+            level10BaseYawnRef.current = yawnAccRef.current;
+            level10BaseHeadRef.current = headAccRef.current;
+            startScoreResetTimer();
+          }
+
+          lastAlertRef.current = { level, at: now };
+          alertLevelRef.current = level;
+          setAlertFlash(actions.some((a: string) => a === "iot_led"));
+          setAlertLevel(level);
+          setAlertTitle(label);
+          setAlertActions(actions);
+          setAlertOpen(true);
+
+          if (user) {
+            void supabase.from("alert_events").insert({
+              user_id: user.id,
+              driving_session_id: remoteSessionId,
+              local_session_hint: localSessionId,
+              drowsiness_level: level,
+              trigger_level: ar.trigger,
+              alert_label: label,
+              source: "web_drive",
+            });
+          }
+          void playWebAlert(actions, level);
+        }
+      }
+    }, 1000);
+
+    return () => {
+      stopTick();
+    };
+  }, [localSessionId, useManualOverride, manualLevel, user, online, browserMlOn, remoteSessionId, stopTick, startScoreResetTimer, stopAlertAudio]);
 
   const dismissAlert = useCallback(() => {
+    dismissedLevelsRef.current.add(alertLevelRef.current);
+    stopAlertAudio();
+    stopEcTimer();
+    if (alertLevelRef.current >= 10) startScoreResetTimer();
     setAlertOpen(false);
-  }, []);
+  }, [stopAlertAudio, stopEcTimer, startScoreResetTimer]);
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Computed state ──────────────────────────────────────────────────────
+
+  const activeLocal = Boolean(localSessionId);
+  const status = drowsinessStatusLabel(liveLevel);
+  const gaugePct = Math.min(100, Math.max(0, (liveLevel / 10) * 100));
+  const alertnessScore = Math.round((1 - liveLevel / 10) * 100);
+  const attentionBars = Math.round((alertnessScore / 100) * 5);
+
+  const guardianPulse =
+    liveLevel <= 2
+      ? "VIGILANT"
+      : liveLevel <= 5
+        ? "MODERATE"
+        : liveLevel <= 7
+          ? "DROWSY"
+          : "CRITICAL";
+
+  const guardianColor =
+    liveLevel <= 2
+      ? "text-primary"
+      : liveLevel <= 5
+        ? "text-secondary"
+        : "text-tertiary";
+
+  const fatigueLabel =
+    liveLevel <= 3 ? "Safe Range" : liveLevel <= 6 ? "Caution Zone" : "Danger Zone";
+
+  const fatigueLabelColor =
+    liveLevel <= 3 ? "text-primary" : liveLevel <= 6 ? "text-secondary" : "text-tertiary";
+
+  const headPosition =
+    browserMlOn && faceDetected && faceScore
+      ? Math.abs(faceScore.pitch) < 10 && Math.abs(faceScore.yaw) < 10
+        ? "STABLE"
+        : "DRIFT"
+      : browserMlOn && !faceDetected
+        ? "NO FACE"
+        : "STABLE";
+
+  const headPositionColor =
+    headPosition === "STABLE" ? "text-on-surface" : headPosition === "DRIFT" ? "text-secondary" : "text-slate-500";
+
+  const perclosVal =
+    faceDetected && faceScore != null ? faceScore.jawOpen.toFixed(2) : "0.04";
+
+  const minutesDriven = Math.floor(elapsedMs / 60000);
+  const breakInMins = Math.max(0, 120 - minutesDriven);
+
+  // ── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col lg:flex-row h-full overflow-hidden bg-background text-on-surface font-body">
+    <div className="flex flex-col lg:flex-row lg:h-full lg:overflow-hidden bg-background text-on-surface font-body">
+      {/* Mobile back button — visible only when nav bars are hidden */}
+      <button
+        onClick={() => navigate(-1)}
+        className="fixed top-3 left-3 z-50 lg:hidden bg-surface-container-low/90 backdrop-blur-sm border border-outline-variant/20 rounded-full p-2 shadow-lg active:scale-90 transition-transform"
+        aria-label="Go back"
+      >
+        <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: 20 }}>arrow_back</span>
+      </button>
+
+      {/* Alert overlay */}
       <DrowsinessAlertOverlay
         open={alertOpen}
         level={alertLevel}
         title={alertTitle}
         actionsSummary={alertActions.join(", ")}
         onDismiss={dismissAlert}
-        flash={alertActions.some((a) => a === "flashlight" || a === "iot_led")}
+        flash={alertFlash}
         elapsedMs={elapsedMs}
       />
 
-      {/* ── Left: Camera + Metrics ─────────────────────────────────────────── */}
-      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      {/* Special tilt alert */}
+      {specialAlertOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-surface-container-low rounded-3xl p-8 max-w-md text-center">
+            <h3 className="text-2xl font-bold text-tertiary mb-2">{specialAlertTitle}</h3>
+            <p className="text-on-surface-variant mb-6">{specialAlertMessage}</p>
+            <button
+              onClick={() => setSpecialAlertOpen(false)}
+              className="px-6 py-3 bg-primary text-on-primary rounded-xl font-bold"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
 
+      {/* EC countdown display */}
+      {ecCountdown !== null && (
+        <div className="fixed bottom-6 right-6 z-40 bg-tertiary/10 border border-tertiary/50 rounded-full px-6 py-4">
+          <p className="text-sm font-bold text-tertiary">Emergency Contact in {ecCountdown}s</p>
+        </div>
+      )}
+
+      {/* Left: Camera + Metrics */}
+      <div className="flex flex-col lg:flex-1 lg:min-h-0 lg:overflow-hidden">
         {/* Camera view */}
         <div
-          className="relative flex-1 min-h-0 bg-surface-container-lowest overflow-hidden"
-          style={{ minHeight: "clamp(180px, 40vh, 500px)" }}
+          className="relative h-[45vh] sm:h-[50vh] lg:flex-1 lg:min-h-0 bg-surface-container-lowest overflow-hidden"
         >
           <video
             ref={videoRef}
@@ -618,7 +847,6 @@ export function DrivePage() {
             muted
           />
 
-          {/* Camera off placeholder */}
           {!cameraOn && (
             <div className="absolute inset-0 bg-surface-container-lowest flex flex-col items-center justify-center gap-3 text-center">
               <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-surface-container-high flex items-center justify-center">
@@ -635,7 +863,6 @@ export function DrivePage() {
             </div>
           )}
 
-          {/* AR overlays (camera on) */}
           {cameraOn && (
             <div className="absolute inset-0 pointer-events-none">
               {/* Eye tracking ellipse */}
@@ -727,7 +954,7 @@ export function DrivePage() {
             </div>
           )}
 
-          {/* Active session: drowsiness gauge strip */}
+          {/* Drowsiness gauge strip */}
           {activeLocal && (
             <div className="absolute top-0 left-0 right-0 h-1">
               <div
@@ -765,7 +992,7 @@ export function DrivePage() {
             label="Alertness Score"
             icon="bolt"
             iconColor="text-primary"
-            sub={activeLocal ? `Session active · Level ${previewLevel}` : "Start a session to monitor."}
+            sub={activeLocal ? `Session active · Level ${liveLevel}` : "Start a session to monitor."}
           >
             <div className="flex items-baseline gap-1 mb-2 sm:mb-3">
               <span className="text-2xl sm:text-4xl lg:text-5xl font-headline font-extrabold text-on-surface">
@@ -783,7 +1010,7 @@ export function DrivePage() {
 
           {/* Eye Closure (PERCLOS) */}
           <MetricCard
-            label="Eye Closure"
+            label="Yawn Openness (PERCLOS)"
             icon="visibility"
             iconColor="text-secondary"
             sub={faceDetected ? "ML face tracking active." : "Enable Face ML for data."}
@@ -833,10 +1060,25 @@ export function DrivePage() {
             </div>
           </MetricCard>
         </div>
+
+        {/* Event counters — always visible below camera on mobile */}
+        <div className="shrink-0 grid grid-cols-4 gap-1.5 px-3 sm:px-4 lg:px-6 pb-3 sm:pb-4 lg:pb-6 bg-background">
+          {[
+            { label: "Yawns", count: liveYawns, color: "text-secondary", ring: "border-secondary/25", active: "bg-secondary/10" },
+            { label: "Head Moves", count: liveHeads, color: "text-primary", ring: "border-primary/25", active: "bg-primary/10" },
+            { label: "Long Tilts", count: liveTilts, color: "text-tertiary", ring: "border-tertiary/25", active: "bg-tertiary/10" },
+            { label: "Brakes", count: liveSuddenBrakes, color: "text-on-surface-variant", ring: "border-outline-variant/20", active: "bg-surface-container-highest" },
+          ].map(({ label, count, color, ring, active }) => (
+            <div key={label} className={`border ${ring} ${count > 0 ? active : "bg-surface-container-lowest"} rounded-xl p-2 flex flex-col items-center gap-1 transition-colors`}>
+              <span className={`text-2xl font-headline font-extrabold leading-none ${count > 0 ? color : "text-on-surface-variant/25"}`}>{count}</span>
+              <p className="text-[7px] font-bold uppercase tracking-wide text-on-surface-variant text-center leading-tight">{label}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* ── Right: Session panel ───────────────────────────────────────────── */}
-      <div className="lg:w-96 xl:w-[420px] shrink-0 flex flex-col overflow-y-auto bg-surface-container-low border-t lg:border-t-0 lg:border-l border-outline-variant/10 pb-16 lg:pb-6">
+      {/* Right: Session panel */}
+      <div className="lg:w-96 xl:w-[420px] lg:shrink-0 flex flex-col lg:overflow-y-auto bg-surface-container-low border-t lg:border-t-0 lg:border-l border-outline-variant/10 pb-4 lg:pb-6">
 
         {/* Header: camera + session controls */}
         <div className="p-5 sm:p-6 lg:p-8 shrink-0 border-b border-outline-variant/5">
@@ -880,11 +1122,11 @@ export function DrivePage() {
             </label>
           </div>
 
-          {/* Start / Stop / Log */}
+          {/* Start / Stop */}
           {!activeLocal ? (
             <button
               disabled={busy}
-              onClick={() => void start()}
+              onClick={() => void startSession()}
               className="w-full py-3.5 bg-gradient-to-br from-primary to-on-primary-container text-on-primary rounded-xl font-headline font-bold text-sm active:scale-95 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
             >
               <span
@@ -896,33 +1138,18 @@ export function DrivePage() {
               Start Monitoring Session
             </button>
           ) : (
-            <div className="flex gap-2">
-              <button
-                disabled={busy}
-                onClick={() => void pushSample()}
-                className="flex-1 py-3 bg-surface-container-high text-on-surface rounded-xl font-bold text-xs active:scale-95 transition-all disabled:opacity-40 border border-outline-variant/10 hover:bg-surface-bright flex items-center justify-center gap-1.5"
-              >
-                <span className="material-symbols-outlined text-sm">upload</span>
-                Log Sample
-              </button>
-              <button
-                disabled={busy}
-                onClick={() => void stop()}
-                className="flex-1 py-3 bg-error-container/20 text-error rounded-xl font-bold text-xs active:scale-95 transition-all disabled:opacity-40 border border-error/20 hover:bg-error-container/30 flex items-center justify-center gap-1.5"
-              >
-                <span className="material-symbols-outlined text-sm">stop_circle</span>
-                End Session
-              </button>
-            </div>
+            <button
+              disabled={busy}
+              onClick={() => endSession()}
+              className="w-full py-3 bg-error-container/20 text-error rounded-xl font-bold text-xs active:scale-95 transition-all disabled:opacity-40 border border-error/20 hover:bg-error-container/30 flex items-center justify-center gap-1.5"
+            >
+              <span className="material-symbols-outlined text-sm">stop_circle</span>
+              End Session
+            </button>
           )}
 
           {note && (
             <p className="mt-3 text-xs text-secondary leading-relaxed">{note}</p>
-          )}
-          {lastTelemetryLevel !== null && (
-            <p className="mt-1 text-[10px] text-slate-500">
-              Last logged level: <span className="text-primary font-mono">{lastTelemetryLevel}</span>
-            </p>
           )}
         </div>
 
@@ -931,25 +1158,23 @@ export function DrivePage() {
           <SessionMetric
             icon="timer"
             iconColor="text-primary"
-            label="Continuous Drive"
-            value={activeLocal && sessionStartedAt != null ? formatElapsed(elapsedMs) : "—:—:—"}
+            label="Session Duration"
+            value={sessionSecs > 0 ? `${sessionSecs}s` : "—"}
           />
           <SessionMetric
             icon="coffee"
             iconColor="text-secondary"
-            label="Fatigue Threshold"
+            label="Fatigue Level"
             value={fatigueLabel}
             valueColor={fatigueLabelColor}
           />
           <SessionMetric
             icon="warning"
             iconColor="text-tertiary"
-            label="Recent Alerts"
-            value={
-              sessionYawns + sessionHeads > 0
-                ? `${sessionYawns + sessionHeads} Events`
-                : "0 Records"
-            }
+            label="Events Detected"
+            value={liveYawns + liveHeads + liveTilts + liveSuddenBrakes > 0
+              ? `${liveYawns}Y · ${liveHeads}H · ${liveTilts}T · ${liveSuddenBrakes}B`
+              : "0 Events"}
           />
         </div>
 
@@ -970,9 +1195,7 @@ export function DrivePage() {
                 : "Start a session to track rest intervals."}
             </p>
             <p className="text-xs text-on-surface-variant">
-              {activeLocal
-                ? "Recommended: take a break every 2 hours of driving."
-                : "Monitoring will begin once a session starts."}
+              Recommended: take a break every 2 hours of driving.
             </p>
           </div>
         </div>
@@ -1017,65 +1240,28 @@ export function DrivePage() {
         </div>
 
         {/* Demo / quick action buttons */}
-        <div className="px-5 sm:px-6 lg:px-8 pb-4 shrink-0">
-          {activeLocal ? (
+        {activeLocal && (
+          <div className="px-5 sm:px-6 lg:px-8 pb-4 shrink-0">
             <div className="grid grid-cols-2 gap-2">
-              <button
-                disabled={busy}
-                onClick={() => setSessionYawns((n) => n + 1)}
-                className="py-4 bg-surface-container-highest hover:bg-surface-bright rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border border-outline-variant/10 active:scale-95 disabled:opacity-40 group"
-              >
-                <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors text-xl">
-                  face_retouching_natural
-                </span>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
-                  +Yawn
-                </span>
-              </button>
-              <button
-                disabled={busy}
-                onClick={() => setSessionHeads((n) => n + 1)}
-                className="py-4 bg-surface-container-highest hover:bg-surface-bright rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border border-outline-variant/10 active:scale-95 disabled:opacity-40 group"
-              >
-                <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors text-xl">
-                  transfer_within_a_station
-                </span>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
-                  +Head Move
-                </span>
-              </button>
-              <button
-                disabled={busy}
-                onClick={() => setBrakePending(true)}
-                className="col-span-2 py-3.5 bg-secondary/10 hover:bg-secondary/20 rounded-2xl flex items-center justify-center gap-2 transition-all border border-secondary/20 active:scale-95 disabled:opacity-40"
-              >
-                <span className="material-symbols-outlined text-secondary text-xl">warning</span>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-secondary">
-                  Flag Sudden Brake
-                </span>
-              </button>
+              {[
+                { label: "+Yawn", icon: "sentiment_very_dissatisfied", onClick: () => { yawnAccRef.current += 1; } },
+                { label: "+Head Move", icon: "transfer_within_a_station", onClick: () => { headAccRef.current += 1; } },
+                { label: "+Long Tilt", icon: "rotate_90_degrees_cw", onClick: () => { headTiltAccRef.current += 1; } },
+                { label: "+Sudden Brake", icon: "emergency_brake", onClick: () => { suddenBrakeAccRef.current += 1; } },
+              ].map(({ label, icon, onClick }) => (
+                <button
+                  key={label}
+                  disabled={busy}
+                  onClick={onClick}
+                  className="py-4 bg-surface-container-highest hover:bg-surface-bright rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border border-outline-variant/10 active:scale-95 disabled:opacity-40 group"
+                >
+                  <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors text-xl">{icon}</span>
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">{label}</span>
+                </button>
+              ))}
             </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2">
-              <button className="py-4 bg-surface-container-highest hover:bg-surface-bright rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border border-outline-variant/10 active:scale-95 group">
-                <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors text-xl">
-                  mic_off
-                </span>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
-                  Mute Alerts
-                </span>
-              </button>
-              <button className="py-4 bg-surface-container-highest hover:bg-surface-bright rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border border-outline-variant/10 active:scale-95 group">
-                <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors text-xl">
-                  brightness_high
-                </span>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
-                  Night Mode
-                </span>
-              </button>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Manual override (debug) */}
         {activeLocal && (
@@ -1106,51 +1292,8 @@ export function DrivePage() {
           </div>
         )}
 
-        {/* Debug info */}
-        <div className="px-5 sm:px-6 lg:px-8 pb-4 shrink-0 text-[9px] text-slate-600 space-y-0.5">
-          <p>
-            Local:{" "}
-            <span className="font-mono text-slate-500">{localSessionId?.slice(0, 12) ?? "—"}</span>
-          </p>
-          <p>
-            Remote:{" "}
-            <span className="font-mono text-slate-500">
-              {remoteSessionId?.slice(0, 12) ?? "—"}
-            </span>
-          </p>
-          <p>
-            Network:{" "}
-            <span className={online ? "text-emerald-600" : "text-secondary"}>
-              {online ? "online" : "offline"}
-            </span>{" "}
-            · Trigger:{" "}
-            <span className="text-primary">{adminCfg.drowsiness_trigger_level}</span>
-            {" · "}
-            Brake events:{" "}
-            <span className="text-slate-500">
-              {sessionBrakeFlags}{brakePending ? " (pending)" : ""}
-            </span>
-          </p>
-        </div>
-      </div>
 
-      {/* ── System: Armed floating pill ───────────────────────────────────── */}
-      {activeLocal && (
-        <div className="fixed bottom-[4.5rem] lg:bottom-6 right-4 lg:right-6 z-40 pointer-events-none">
-          <div className="sg-glass-panel px-4 py-3 rounded-full border border-outline-variant/20 shadow-2xl flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 bg-primary rounded-full animate-pulse shadow-[0_0_8px_rgba(123,208,255,0.6)]" />
-              <span className="text-[10px] font-black tracking-widest uppercase text-on-surface">
-                System: Armed
-              </span>
-            </div>
-            <div className="w-px h-3 bg-outline-variant/40" />
-            <span className="text-[9px] text-on-surface-variant font-medium whitespace-nowrap">
-              {sessionStartTimeStr ? `SINCE ${sessionStartTimeStr}` : "ACTIVE"}
-            </span>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

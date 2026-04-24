@@ -23,12 +23,52 @@ function beep(freq: number, durationMs: number, gain = 0.08): Promise<void> {
   });
 }
 
+function getAlertVoiceMessage(level: number): string {
+  if (level === 6)  return "Warning. Level 6 drowsiness detected. Please stay alert and active.";
+  if (level === 7)  return "Warning, warning. Level 7 drowsiness detected. Please stay alert or pull over and rest.";
+  if (level === 8)  return "High alert, high alert. Level 8 drowsiness detected. Please pull over and rest.";
+  if (level === 9)  return "Critical alert, critical alert. Level 9 drowsiness detected. Please pull over and rest immediately.";
+  if (level >= 10)  return "Emergency, emergency. Level 10 drowsiness detected. Please pull over immediately and rest.";
+  return "Warning: drowsiness detected. Please stay alert.";
+}
+
+function getAlertVoiceRepeats(level: number): number {
+  if (level === 8) return 2;
+  if (level >= 9)  return 3;
+  return 1;
+}
+
+/** Speak message using Web Speech API */
+function speakMessage(message: string, repeats = 1): void {
+  if (!("speechSynthesis" in window)) return;
+  for (let i = 0; i < repeats; i++) {
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.rate = 0.9;
+    utterance.pitch = 1.0;
+    utterance.lang = "en-US";
+    window.speechSynthesis.speak(utterance);
+  }
+}
+
+/** Cancel all active alert audio immediately. */
+export function stopWebAlert(): void {
+  if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+  if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(0);
+  if (audioCtx?.state === "running") void audioCtx.suspend();
+}
+
 /** Best-effort web implementations of BRD alert_map actions. */
-export async function playWebAlert(actions: string[]): Promise<void> {
+export async function playWebAlert(actions: string[], level?: number): Promise<void> {
   for (const a of actions) {
     switch (a) {
-      case "sound":
       case "voice":
+        if (level) {
+          const msg = getAlertVoiceMessage(level);
+          const repeats = getAlertVoiceRepeats(level);
+          speakMessage(msg, repeats);
+        }
+        break;
+      case "sound":
         await beep(880, 120, 0.06);
         break;
       case "alarm":
@@ -40,8 +80,10 @@ export async function playWebAlert(actions: string[]): Promise<void> {
           navigator.vibrate([100, 80, 100]);
         }
         break;
-      case "flashlight":
       case "iot_led":
+      case "iot_buzzer":
+      case "flashlight":
+        // LED/buzzer handled server-side, flashlight requires permission
         break;
       default:
         break;

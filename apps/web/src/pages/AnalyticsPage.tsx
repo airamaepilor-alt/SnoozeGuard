@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { supabase } from "../lib/supabase";
@@ -11,6 +12,7 @@ type TelRow = {
   drowsiness_level: number;
   yawn_count_delta: number;
   head_event_count_delta: number;
+  head_tilt_delta: number;
   sudden_brake: boolean;
   recorded_at: string;
 };
@@ -48,15 +50,18 @@ function buildDailyAvg(rows: TelRow[], days: number): DailyAvg[] {
  */
 function buildHourlyAvg(rows: TelRow[]): number[] {
   const blocks: { sum: number; n: number }[] = Array.from({ length: 6 }, () => ({ sum: 0, n: 0 }));
+  
   for (const r of rows) {
-    const h = new Date(r.recorded_at).getHours();
+    const d = new Date(r.recorded_at);
+    const h = d.getUTCHours();
     const idx = Math.min(5, Math.floor(h / 4));
+    
     blocks[idx].sum += Number(r.drowsiness_level);
     blocks[idx].n += 1;
   }
+  
   return blocks.map((b) => (b.n > 0 ? b.sum / b.n : 0));
 }
-
 /** Returns Mon=0 … Sun=6 session counts. */
 function buildDowCounts(sessions: { started_at: string }[]): number[] {
   const counts = Array(7).fill(0) as number[];
@@ -404,19 +409,22 @@ type DonutSeg = { value: number; color: string; label: string };
 function DonutChart({
   yawns,
   head,
+  tilt,
   brakes,
   loading,
 }: {
   yawns: number;
   head: number;
+  tilt: number;
   brakes: number;
   loading: boolean;
 }) {
-  const total = yawns + head + brakes;
+  const total = yawns + head + tilt + brakes;
 
   const segments: DonutSeg[] = [
     { value: yawns, color: "#7bd0ff", label: "Yawns" },
     { value: head, color: "#ffb95f", label: "Head Nods" },
+    { value: tilt, color: "#d8b4ff", label: "Head Tilts" },
     { value: brakes, color: "#ffb3ad", label: "Sudden Brakes" },
   ];
 
@@ -501,9 +509,12 @@ function DonutChart({
                   <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: a.color }} />
                   <span className="text-sm font-medium text-on-surface-variant">{a.label}</span>
                 </div>
-                <span className="text-sm font-black text-on-surface">
-                  {total > 0 ? `${Math.round(a.pct * 100)}%` : "—"}
-                </span>
+                <div className="flex items-center gap-2 text-sm font-black text-on-surface">
+                  <span>{total > 0 ? a.value.toLocaleString() : "—"}</span>
+                  <span className="text-xs font-medium text-on-surface-variant">
+                    {total > 0 ? `${Math.round(a.pct * 100)}%` : ""}
+                  </span>
+                </div>
               </div>
             ))}
           </div>
@@ -515,7 +526,7 @@ function DonutChart({
 
 // ─── Predictive Risk Banner ───────────────────────────────────────────────────
 
-function RiskBanner({ hourly }: { hourly: number[] }) {
+function RiskBanner({ hourly, onReviewAlert }: { hourly: number[]; onReviewAlert: () => void }) {
   // Night blocks (20-24 = idx 5, 00-04 = idx 0) vs daytime (08-16 = idx 2+3)
   const nightAvg = (hourly[0] + hourly[5]) / 2;
   const dayAvg = (hourly[2] + hourly[3]) / 2;
@@ -540,7 +551,10 @@ function RiskBanner({ hourly }: { hourly: number[] }) {
           <p className="text-on-surface-variant text-sm mt-1 max-w-xl">{message}</p>
         </div>
       </div>
-      <button className="shrink-0 bg-primary-container text-primary font-headline font-bold px-5 sm:px-8 py-3 rounded-xl hover:bg-primary hover:text-on-primary transition-all duration-300 whitespace-nowrap text-sm sm:text-base">
+      <button
+        onClick={onReviewAlert}
+        className="shrink-0 bg-primary-container text-primary font-headline font-bold px-5 sm:px-8 py-3 rounded-xl hover:bg-primary hover:text-on-primary transition-all duration-300 whitespace-nowrap text-sm sm:text-base"
+      >
         Review Alert Protocol
       </button>
     </div>
@@ -551,6 +565,7 @@ function RiskBanner({ hourly }: { hourly: number[] }) {
 
 export function AnalyticsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const online = useOnlineStatus();
   const [filter, setFilter] = useState<Filter>(30);
   const [loading, setLoading] = useState(true);
@@ -560,6 +575,7 @@ export function AnalyticsPage() {
   const [hourlyAvg, setHourlyAvg] = useState<number[]>(Array(6).fill(0));
   const [yawnSum, setYawnSum] = useState(0);
   const [headSum, setHeadSum] = useState(0);
+  const [tiltSum, setTiltSum] = useState(0);
   const [brakeCount, setBrakeCount] = useState(0);
 
   useEffect(() => {
@@ -569,6 +585,7 @@ export function AnalyticsPage() {
 
     (async () => {
       const cutoff = cutoffISO(filter);
+
 
       // 1. Get session IDs for the user in the period
       const { data: sessionRows } = await supabase
@@ -584,12 +601,14 @@ export function AnalyticsPage() {
       // Day-of-week distribution
       if (!cancelled) setDowCounts(buildDowCounts(sessionRows ?? []));
 
+
+
       // 2. Fetch telemetry for those sessions (up to 8000 rows)
       let telemetry: TelRow[] = [];
       if (sessionIds.length > 0) {
         const { data: telRaw } = await supabase
           .from("session_telemetry")
-          .select("drowsiness_level, yawn_count_delta, head_event_count_delta, sudden_brake, recorded_at")
+          .select("drowsiness_level, yawn_count_delta, head_event_count_delta, head_tilt_delta, sudden_brake, recorded_at")
           .in("session_id", sessionIds)
           .gte("recorded_at", cutoff)
           .order("recorded_at", { ascending: true })
@@ -598,14 +617,24 @@ export function AnalyticsPage() {
         if (!cancelled && telRaw) telemetry = telRaw as TelRow[];
       }
 
+
+
       if (cancelled) return;
 
       // Compute from telemetry
-      setDailyAvg(buildDailyAvg(telemetry, filter));
-      setHourlyAvg(buildHourlyAvg(telemetry));
-      setYawnSum(telemetry.reduce((s, r) => s + (r.yawn_count_delta ?? 0), 0));
-      setHeadSum(telemetry.reduce((s, r) => s + (r.head_event_count_delta ?? 0), 0));
-      setBrakeCount(telemetry.filter((r) => r.sudden_brake).length);
+      const dailyAvgData = buildDailyAvg(telemetry, filter);
+      const hourlyAvgData = buildHourlyAvg(telemetry);
+      const yawnTotal = telemetry.reduce((s, r) => s + (r.yawn_count_delta ?? 0), 0);
+      const headTotal = telemetry.reduce((s, r) => s + (r.head_event_count_delta ?? 0), 0);
+      const tiltTotal = telemetry.reduce((s, r) => s + (r.head_tilt_delta ?? 0), 0);
+      const brakeTotal = telemetry.filter((r) => r.sudden_brake).length;
+
+      setDailyAvg(dailyAvgData);
+      setHourlyAvg(hourlyAvgData);
+      setYawnSum(yawnTotal);
+      setHeadSum(headTotal);
+      setTiltSum(tiltTotal);
+      setBrakeCount(brakeTotal);
 
       setLoading(false);
     })();
@@ -670,12 +699,12 @@ export function AnalyticsPage() {
         </div>
 
         <div className="bg-surface-container rounded-2xl lg:rounded-[2rem] p-5 sm:p-8">
-          <DonutChart yawns={yawnSum} head={headSum} brakes={brakeCount} loading={loading} />
+          <DonutChart yawns={yawnSum} head={headSum} tilt={tiltSum} brakes={brakeCount} loading={loading} />
         </div>
       </div>
 
       {/* ── Predictive Risk Assessment footer ── */}
-      {!loading && <RiskBanner hourly={hourlyAvg} />}
+      {!loading && <RiskBanner hourly={hourlyAvg} onReviewAlert={() => navigate("/admin")} />}
     </div>
   );
 }

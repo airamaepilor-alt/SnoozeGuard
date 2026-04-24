@@ -1,10 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useThemeToggle } from "../context/ThemeContext";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { supabase } from "../lib/supabase";
 import { flushOutbox } from "../lib/offline/sync";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type NotifItem = {
+  id: string;
+  type: "alert" | "request";
+  name: string;
+  created_at: string;
+};
+
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "Just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return new Date(iso).toLocaleDateString("en", { month: "short", day: "numeric" });
+}
 
 // ─── Nav item components ──────────────────────────────────────────────────────
 
@@ -13,12 +32,14 @@ function SideNavItem({
   icon,
   label,
   end,
+  badge,
   onNavigate,
 }: {
   to: string;
   icon: string;
   label: string;
   end?: boolean;
+  badge?: boolean;
   onNavigate?: () => void;
 }) {
   return (
@@ -42,7 +63,12 @@ function SideNavItem({
           >
             {icon}
           </span>
-          <span className="truncate">{label}</span>
+          <span className="truncate flex-1">{label}</span>
+          {badge && (
+            <span className="flex items-center justify-center w-4 h-4 bg-error text-white rounded-full text-[9px] font-black shrink-0">
+              !
+            </span>
+          )}
         </>
       )}
     </NavLink>
@@ -111,10 +137,9 @@ function SidebarContent({
         <SideNavItem to="/about" icon="info" label="About" onNavigate={onNavigate} />
         <SideNavItem to="/terms" icon="policy" label="Terms & Privacy" onNavigate={onNavigate} />
         <SideNavItem to="/safety-protocol" icon="security" label="Safety Protocol" onNavigate={onNavigate} />
-        {isAdmin ? (
+        <SideNavItem to="/simulation" icon="directions_car" label="Drive Simulation" onNavigate={onNavigate} />
+        {isAdmin && (
           <SideNavItem to="/admin" icon="admin_panel_settings" label="Admin Console" onNavigate={onNavigate} />
-        ) : (
-          <PlaceholderNavItem icon="admin_panel_settings" label="Admin Console" />
         )}
       </nav>
 
@@ -165,8 +190,13 @@ export function AppShell() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeAlertCount, setActiveAlertCount] = useState(0);
+  const [pendingEcCount, setPendingEcCount] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifItems, setNotifItems] = useState<NotifItem[]>([]);
+  const notifRef = useRef<HTMLDivElement>(null);
   const isAdmin = profile?.role === "super_admin";
   const isFullscreen = location.pathname === "/safety-protocol" || location.pathname === "/drive";
+  const isDrivePage = location.pathname === "/drive" || location.pathname === "/simulation";
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -192,19 +222,40 @@ export function AppShell() {
 
     const loadActiveAlerts = async () => {
       try {
-        // Find drivers who have the current user as their emergency contact
-        const [byUserId, byEmail] = await Promise.all([
-          supabase
-            .from("emergency_contacts")
-            .select("user_id")
-            .eq("contact_user_id", user.id)
-            .eq("status", "accepted"),
-          supabase
-            .from("emergency_contacts")
-            .select("user_id")
-            .ilike("contact_email", user.email ?? "__no_email__")
-            .neq("status", "pending"),
+        const [pendById, pendByEmail, byUserId, byEmail] = await Promise.all([
+          supabase.from("emergency_contacts").select("id, user_id, created_at")
+            .eq("contact_user_id", user.id).eq("status", "pending"),
+          supabase.from("emergency_contacts").select("id, user_id, created_at")
+            .ilike("contact_email", user.email ?? "__no_email__").eq("status", "pending"),
+          supabase.from("emergency_contacts").select("user_id")
+            .eq("contact_user_id", user.id).eq("status", "accepted"),
+          supabase.from("emergency_contacts").select("user_id")
+            .ilike("contact_email", user.email ?? "__no_email__").neq("status", "pending"),
         ]);
+
+        // Deduplicate pending rows by id
+        const seenPend = new Set<string>();
+        const pendRows = [...(pendById.data ?? []), ...(pendByEmail.data ?? [])].filter((r) => {
+          if (seenPend.has(r.id as string)) return false;
+          seenPend.add(r.id as string);
+          return true;
+        }) as Array<{ id: string; user_id: string; created_at: string }>;
+
+        setPendingEcCount(pendRows.length);
+
+        // Enrich pending requests with driver names
+        const requestNotifs: NotifItem[] = await Promise.all(
+          pendRows.map(async (row) => {
+            const { data: p } = await supabase.from("profiles")
+              .select("full_name").eq("id", row.user_id).maybeSingle();
+            return {
+              id: row.id,
+              type: "request" as const,
+              name: (p as { full_name?: string } | null)?.full_name ?? "A SnoozeGuard user",
+              created_at: row.created_at,
+            };
+          }),
+        );
 
         const driverIds = Array.from(
           new Set([
@@ -215,30 +266,43 @@ export function AppShell() {
 
         if (driverIds.length === 0) {
           setActiveAlertCount(0);
+          setNotifItems(requestNotifs);
           return;
         }
 
-        // Fetch ALL alert events for these drivers (last 24h)
         const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
         const { data: events } = await supabase
           .from("emergency_alert_events")
-          .select("user_id, status, created_at")
+          .select("id, user_id, status, created_at")
           .in("user_id", driverIds)
           .gte("created_at", since)
           .order("created_at", { ascending: false });
 
-        // Dedupe: get most recent alert per driver
         const seenDrivers = new Set<string>();
         const mostRecentPerDriver = (events ?? []).filter((ev) => {
-          if (seenDrivers.has(ev.user_id)) return false;
-          seenDrivers.add(ev.user_id);
+          if (seenDrivers.has(ev.user_id as string)) return false;
+          seenDrivers.add(ev.user_id as string);
           return true;
         });
 
-        // Count only those with status === "active" (exact match, like AlertCard)
-        const activeCount = mostRecentPerDriver.filter((ev) => ev.status === "active").length;
+        const activeEvents = mostRecentPerDriver.filter((ev) => ev.status === "active");
+        setActiveAlertCount(activeEvents.length);
 
-        setActiveAlertCount(activeCount);
+        // Enrich active alerts with driver names
+        const alertNotifs: NotifItem[] = await Promise.all(
+          activeEvents.map(async (ev) => {
+            const { data: p } = await supabase.from("profiles")
+              .select("full_name").eq("id", ev.user_id).maybeSingle();
+            return {
+              id: ev.id as string,
+              type: "alert" as const,
+              name: (p as { full_name?: string } | null)?.full_name ?? "Driver",
+              created_at: ev.created_at as string,
+            };
+          }),
+        );
+
+        setNotifItems([...alertNotifs, ...requestNotifs]);
       } catch {
         // Silent fail
       }
@@ -250,6 +314,9 @@ export function AppShell() {
     const channel = supabase
       .channel("active-alerts-header")
       .on("postgres_changes", { event: "*", schema: "public", table: "emergency_alert_events" }, () =>
+        void loadActiveAlerts(),
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "emergency_contacts" }, () =>
         void loadActiveAlerts(),
       )
       .subscribe();
@@ -271,6 +338,17 @@ export function AppShell() {
     .slice(0, 2)
     .toUpperCase();
   const roleLabel = isAdmin ? "Fleet Manager" : "Driver";
+
+  // Close notification panel on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const closeSidebar = () => setSidebarOpen(false);
   const handleSignOut = () => void signOut();
@@ -301,13 +379,14 @@ export function AppShell() {
           displayName={displayName}
           initials={initials}
           roleLabel={roleLabel}
+
           onNavigate={closeSidebar}
           onSignOut={handleSignOut}
         />
       </aside>
 
       {/* ── Top header ── */}
-      <header className="fixed top-0 left-0 right-0 lg:left-64 z-20 h-16 lg:h-20 bg-background/90 backdrop-blur-xl flex items-center justify-between px-4 lg:px-10 gap-4 shadow-[0_1px_0_rgba(69,70,77,0.3)]">
+      <header className={`fixed top-0 left-0 right-0 lg:left-64 z-20 h-16 lg:h-20 bg-background/90 backdrop-blur-xl flex items-center justify-between px-4 lg:px-10 gap-4 shadow-[0_1px_0_rgba(69,70,77,0.3)] ${isDrivePage ? "max-lg:hidden" : ""}`}>
 
         {/* Left: hamburger (mobile) + search + top nav (desktop) */}
         <div className="flex items-center gap-4 min-w-0 flex-1">
@@ -344,19 +423,15 @@ export function AppShell() {
             <TopNavLink to="/analytics" label="Analytics" />
             <TopNavLink to="/history" label="History" />
             <TopNavLink to="/drive" label="Drive" />
+            <TopNavLink to="/simulation" label="Simulation" />
           </nav>
         </div>
 
         {/* Right: actions + user */}
         <div className="flex items-center gap-2 lg:gap-4 shrink-0">
           {/* Safety Protocol — hidden on small screens */}
-          <Link to="/safety-protocol" className="hidden sm:flex items-center gap-2 bg-primary/10 text-primary px-3 lg:px-4 py-2 rounded-lg font-bold text-xs lg:text-sm hover:bg-primary/20 transition-all border border-primary/20 whitespace-nowrap relative">
+          <Link to="/safety-protocol" className="hidden sm:flex items-center gap-2 bg-primary/10 text-primary px-3 lg:px-4 py-2 rounded-lg font-bold text-xs lg:text-sm hover:bg-primary/20 transition-all border border-primary/20 whitespace-nowrap">
             Safety Protocol
-            {activeAlertCount > 0 && (
-              <span className="ml-1 flex items-center justify-center w-5 h-5 bg-error text-white rounded-full text-[10px] font-bold">
-                !
-              </span>
-            )}
           </Link>
 
           {/* Theme toggle */}
@@ -370,9 +445,85 @@ export function AppShell() {
             </span>
           </button>
 
-          <button className="hover:bg-surface-bright/50 rounded-full p-1.5 lg:p-2 transition-all" title="Notifications">
-            <span className="material-symbols-outlined text-on-surface-variant text-[20px] lg:text-[24px]">notifications_active</span>
-          </button>
+          {/* Notifications */}
+          <div className="relative" ref={notifRef}>
+            <button
+              onClick={() => setNotifOpen((v) => !v)}
+              className="relative hover:bg-surface-bright/50 rounded-full p-1.5 lg:p-2 transition-all"
+              title="Notifications"
+            >
+              <span
+                className="material-symbols-outlined text-on-surface-variant text-[20px] lg:text-[24px]"
+                style={{ fontVariationSettings: notifItems.length > 0 ? "'FILL' 1" : "'FILL' 0" }}
+              >
+                {notifItems.length > 0 ? "notifications_active" : "notifications"}
+              </span>
+              {notifItems.length > 0 && (
+                <span className="absolute top-0.5 right-0.5 w-4 h-4 bg-error text-white rounded-full text-[9px] font-black flex items-center justify-center leading-none">
+                  {notifItems.length > 9 ? "9+" : notifItems.length}
+                </span>
+              )}
+            </button>
+
+            {notifOpen && (
+              <div className="absolute right-0 top-full mt-2 w-80 bg-surface-container-low border border-outline-variant/20 rounded-2xl shadow-2xl z-50 overflow-hidden">
+                <div className="px-4 py-3 border-b border-outline-variant/10 flex justify-between items-center">
+                  <p className="text-sm font-bold text-on-surface">Notifications</p>
+                  <Link
+                    to="/safety-protocol"
+                    onClick={() => setNotifOpen(false)}
+                    className="text-[10px] text-primary font-bold hover:underline"
+                  >
+                    View all
+                  </Link>
+                </div>
+
+                {notifItems.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-on-surface-variant text-sm">
+                    No new notifications
+                  </div>
+                ) : (
+                  <div className="max-h-80 overflow-y-auto divide-y divide-outline-variant/10">
+                    {notifItems.map((item) => (
+                      <Link
+                        key={item.id}
+                        to="/safety-protocol"
+                        onClick={() => setNotifOpen(false)}
+                        className="flex items-start gap-3 px-4 py-3 hover:bg-surface-container-high transition-colors"
+                      >
+                        <div className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${item.type === "alert" ? "bg-error/20" : "bg-primary/20"}`}>
+                          <span
+                            className={`material-symbols-outlined text-sm ${item.type === "alert" ? "text-error" : "text-primary"}`}
+                            style={{ fontVariationSettings: "'FILL' 1" }}
+                          >
+                            {item.type === "alert" ? "warning" : "person_add"}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-on-surface truncate">{item.name}</p>
+                          <p className="text-[11px] text-on-surface-variant mt-0.5">
+                            {item.type === "alert" ? "Fatigue alert — needs attention" : "Wants you as emergency guardian"}
+                          </p>
+                          <p className="text-[10px] text-slate-500 mt-1">{relativeTime(item.created_at)}</p>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+
+                <div className="px-4 py-3 border-t border-outline-variant/10">
+                  <Link
+                    to="/safety-protocol"
+                    onClick={() => setNotifOpen(false)}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 bg-primary/10 text-primary rounded-xl text-xs font-bold hover:bg-primary/20 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-sm">security</span>
+                    Open Safety Protocol
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* User avatar */}
           <Link to="/account" className="flex items-center gap-2 lg:gap-3 ml-1 hover:opacity-80 transition-opacity">
@@ -388,7 +539,13 @@ export function AppShell() {
       </header>
 
       {/* ── Main content ── */}
-      <main className={`lg:ml-64 pt-16 lg:pt-20 ${isFullscreen ? "h-[calc(100vh-4rem)] lg:h-[calc(100vh-5rem)] overflow-hidden" : "min-h-screen"}`}>
+      <main className={`lg:ml-64 ${
+        isDrivePage
+          ? "pt-0 lg:pt-20 h-dvh lg:h-[calc(100vh-5rem)] overflow-hidden"
+          : isFullscreen
+            ? "pt-16 lg:pt-20 h-[calc(100vh-4rem)] lg:h-[calc(100vh-5rem)] overflow-hidden"
+            : "pt-16 lg:pt-20 min-h-screen"
+      }`}>
         {isFullscreen ? (
           <Outlet />
         ) : (
@@ -399,12 +556,13 @@ export function AppShell() {
       </main>
 
       {/* ── Mobile bottom nav ── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-20 lg:hidden bg-background/95 backdrop-blur-xl border-t border-outline-variant/20 flex justify-around items-center px-2 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-2">
+      <nav className={`fixed bottom-0 left-0 right-0 z-20 lg:hidden bg-background/95 backdrop-blur-xl border-t border-outline-variant/20 flex justify-around items-center px-2 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-2 ${isDrivePage ? "hidden" : ""}`}>
         {[
           { to: "/", icon: "dashboard", label: "Home", end: true },
-          { to: "/history", icon: "history", label: "History" },
+          { to: "/analytics", icon: "bar_chart", label: "Analytics" },
           { to: "/drive", icon: "directions_car", label: "Drive" },
-          { to: "/account", icon: "manage_accounts", label: "Account" },
+          { to: "/safety-protocol", icon: "security", label: "Alerts" },
+          { to: "/history", icon: "history", label: "History" },
         ].map(({ to, icon, label, end }) => (
           <NavLink
             key={to}

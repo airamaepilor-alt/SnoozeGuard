@@ -23,6 +23,16 @@ export function AccountScreen({ onSignOut }: { onSignOut: () => void }) {
   const isGoogle = (user.app_metadata?.provider === "google") ||
     (user.identities ?? []).some((id: { provider: string }) => id.provider === "google");
 
+  // True when the user has an email/password identity — even if they also have Google.
+  // This is the correct guard for showing "Current password" field.
+  const hasPassword = (user.identities ?? []).some(
+    (id: { provider: string }) => id.provider === "email",
+  );
+
+  // Tracks whether the user has a password — either from Supabase identities or
+  // because they just set one in this session (session refresh may lag behind).
+  const [hasSetPassword, setHasSetPassword] = useState(hasPassword);
+
   const [displayName, setDisplayName] = useState(user.user_metadata?.full_name ?? "");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -37,6 +47,7 @@ export function AccountScreen({ onSignOut }: { onSignOut: () => void }) {
   const saveAccount = async () => {
     setErrorMsg("");
     setSavedMsg("");
+
     if (newPassword && newPassword !== confirmPassword) {
       setErrorMsg("Passwords do not match.");
       return;
@@ -45,12 +56,25 @@ export function AccountScreen({ onSignOut }: { onSignOut: () => void }) {
       setErrorMsg("Password must be at least 6 characters.");
       return;
     }
-    if (newPassword && !isGoogle && !currentPassword) {
-      setErrorMsg("Current password is required to set a new password.");
+    if (newPassword && hasSetPassword && !currentPassword) {
+      setErrorMsg("Enter your current password to set a new one.");
       return;
     }
+
     setSaving(true);
     try {
+      // Verify current password before changing it
+      if (newPassword && hasSetPassword && currentPassword) {
+        const { error: verifyError } = await supabase.auth.signInWithPassword({
+          email: user.email!,
+          password: currentPassword,
+        });
+        if (verifyError) {
+          setErrorMsg("Current password is incorrect.");
+          return;
+        }
+      }
+
       const updates: Record<string, unknown> = {};
       if (displayName.trim()) updates.data = { full_name: displayName.trim() };
       if (newPassword) updates.password = newPassword;
@@ -74,6 +98,10 @@ export function AccountScreen({ onSignOut }: { onSignOut: () => void }) {
         }
       }
 
+      if (newPassword) {
+        setHasSetPassword(true);
+        void supabase.auth.refreshSession();
+      }
       setSavedMsg("✓ Account updated successfully");
       setCurrentPassword("");
       setNewPassword("");
@@ -84,7 +112,7 @@ export function AccountScreen({ onSignOut }: { onSignOut: () => void }) {
     }
   };
 
-  const providerLabel = isGoogle ? "Google" : "Email / Password";
+  const providerLabel = isGoogle && !hasPassword ? "Google" : isGoogle ? "Google + Password" : "Email / Password";
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
@@ -127,7 +155,7 @@ export function AccountScreen({ onSignOut }: { onSignOut: () => void }) {
           </Text>
         )}
 
-        {!isGoogle && (
+        {hasSetPassword && (
           <>
             <Text style={styles.label}>Current password</Text>
             <View style={styles.passwordInputWrap}>

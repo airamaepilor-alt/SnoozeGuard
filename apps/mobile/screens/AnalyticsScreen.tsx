@@ -21,26 +21,39 @@ const FILTER_OPTIONS = [
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+// Circadian block labels (4-hour blocks)
+const HOUR_BLOCK_LABELS = [
+  "00:00 - 03:59",
+  "04:00 - 07:59",
+  "08:00 - 11:59",
+  "12:00 - 15:59",
+  "16:00 - 19:59",
+  "20:00 - 23:59",
+];
+
 // ─── Smooth area chart ────────────────────────────────────────────────────────
 
 function AreaChart({ points, width, height, t }: { points: DayPoint[]; width: number; height: number; t: Theme }) {
-  if (points.length < 2) {
+  if (points.length === 0) {
     return (
       <View style={{ width, height, justifyContent: "center", alignItems: "center" }}>
-        <Text style={{ color: t.onSurfaceVariant, fontSize: 12 }}>Not enough data</Text>
+        <Text style={{ color: t.onSurfaceVariant, fontSize: 12 }}>No data available</Text>
       </View>
     );
   }
+
+  // For single point, duplicate it to create a line
+  const displayPoints = points.length === 1 ? [points[0], points[0]] : points;
 
   const pad = { top: 16, right: 12, bottom: 36, left: 32 };
   const cw = width - pad.left - pad.right;
   const ch = height - pad.top - pad.bottom;
 
-  const xOf = (i: number) => pad.left + (i / (points.length - 1)) * cw;
+  const xOf = (i: number) => pad.left + (i / (displayPoints.length - 1)) * cw;
   const yOf = (v: number) => pad.top + ch - (v / 10) * ch;
-  const labelStep = Math.max(1, Math.ceil(points.length / 7));
+  const labelStep = Math.max(1, Math.ceil(displayPoints.length / 7));
 
-  const linePts = points.map((p, i) => ({ x: xOf(i), y: yOf(p.avg) }));
+  const linePts = displayPoints.map((p, i) => ({ x: xOf(i), y: yOf(p.avg) }));
   let d = `M ${linePts[0].x} ${linePts[0].y}`;
   for (let i = 1; i < linePts.length; i++) {
     const cp1x = linePts[i - 1].x + (linePts[i].x - linePts[i - 1].x) / 3;
@@ -52,7 +65,7 @@ function AreaChart({ points, width, height, t }: { points: DayPoint[]; width: nu
 
   const fillPath = `${d} L ${linePts[linePts.length - 1].x} ${pad.top + ch} L ${linePts[0].x} ${pad.top + ch} Z`;
 
-  const variance = points.reduce((s, p) => s + Math.abs(p.avg - (points.reduce((a, b) => a + b.avg, 0) / points.length)), 0) / points.length;
+  const variance = displayPoints.reduce((s, p) => s + Math.abs(p.avg - (displayPoints.reduce((a, b) => a + b.avg, 0) / displayPoints.length)), 0) / displayPoints.length;
   const stability = variance < 1 ? "STABLE" : variance < 2 ? "MODERATE" : "VOLATILE";
   const stabilityColor = stability === "STABLE" ? "#4ade80" : stability === "MODERATE" ? t.secondary : t.tertiary;
 
@@ -195,7 +208,7 @@ const ANALYTICS_TOOLTIPS: Record<NonNullable<AnalyticsTooltipKey>, { title: stri
   },
   hourly: {
     title: "Hourly Fatigue Pattern",
-    body: "Average drowsiness level grouped by the hour your session started. Peaks reveal your highest-risk times to drive. Avoid driving at these hours when possible.",
+    body: "Average drowsiness level grouped by 4-hour circadian blocks. Early morning (00-04) shows baseline fatigue, while evening (20-24) may peak. Peaks reveal your highest-risk times to drive.",
   },
   detection: {
     title: "Detection Breakdown",
@@ -221,22 +234,34 @@ export function AnalyticsScreen() {
       const db = getDatabase();
       const since = new Date(Date.now() - filterDays * 86400 * 1000).toISOString();
 
+      // Query telemetry grouped by RECORDED date (not session start date) for accuracy
       const dayRows = db.getAllSync<{ day: string; avg: number; sessions: number }>(
-        `SELECT DATE(s.started_at) AS day,
+        `SELECT DATE(t.recorded_at) AS day,
                 AVG(t.drowsiness_level) AS avg,
                 COUNT(DISTINCT s.id) AS sessions
          FROM driving_sessions_local s
-         LEFT JOIN session_telemetry_local t ON t.local_session_id = s.id
-         WHERE s.user_id = ? AND s.started_at >= ?
-         GROUP BY DATE(s.started_at)
+         INNER JOIN session_telemetry_local t ON t.local_session_id = s.id
+         WHERE s.user_id = ? AND t.recorded_at >= ?
+         GROUP BY DATE(t.recorded_at)
          ORDER BY day ASC`,
         session.user.id, since,
       );
-      setDayPoints(dayRows.map((r) => ({
-        label: new Date(r.day + "T00:00:00").toLocaleDateString("en", { month: "numeric", day: "numeric" }),
-        avg: Number(r.avg ?? 0),
-        sessions: Number(r.sessions),
-      })));
+      
+      // Fill entire date range with 0 for days without data (matches web behavior)
+      const dayMap = new Map(dayRows.map(r => [r.day, { avg: Number(r.avg ?? 0), sessions: Number(r.sessions) }]));
+      const filledDays: DayPoint[] = [];
+      for (let i = filterDays - 1; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 86400 * 1000);
+        const key = d.toISOString().slice(0, 10);
+        const entry = dayMap.get(key);
+        filledDays.push({
+          label: d.toLocaleDateString("en", { month: "numeric", day: "numeric" }),
+          avg: entry?.avg ?? 0,
+          sessions: entry?.sessions ?? 0,
+        });
+      }
+      
+      setDayPoints(filledDays);
 
       const dowRows = db.getAllSync<{ dow: number; count: number }>(
         `SELECT CAST(strftime('%w', s.started_at) AS INTEGER) AS dow, COUNT(*) AS count
@@ -249,11 +274,11 @@ export function AnalyticsScreen() {
       setSessionByDay(DAY_LABELS.map((l, i) => ({ label: l, value: dowMap[i] ?? 0 })));
 
       const hourRows = db.getAllSync<{ hour: number; avg: number }>(
-        `SELECT CAST(strftime('%H', s.started_at) AS INTEGER) AS hour,
+        `SELECT (CAST(strftime('%H', t.recorded_at) AS INTEGER) / 4) AS hour,
                 AVG(t.drowsiness_level) AS avg
          FROM driving_sessions_local s
-         LEFT JOIN session_telemetry_local t ON t.local_session_id = s.id
-         WHERE s.user_id = ? AND s.started_at >= ? AND t.drowsiness_level IS NOT NULL
+         INNER JOIN session_telemetry_local t ON t.local_session_id = s.id
+         WHERE s.user_id = ? AND t.recorded_at >= ? AND t.drowsiness_level IS NOT NULL
          GROUP BY hour
          ORDER BY hour`,
         session.user.id, since,
@@ -276,7 +301,9 @@ export function AnalyticsScreen() {
         tilts: Number(detRow?.tilts ?? 0),
         brakes: Number(detRow?.brakes ?? 0),
       });
-    } catch { /* DB not ready */ }
+    } catch (err) {
+      // DB may not be ready yet
+    }
   }, [session.user.id, filterDays]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -290,7 +317,7 @@ export function AnalyticsScreen() {
   ];
 
   const hourBarData = hourPoints.map((h) => ({
-    label: h.hour % 6 === 0 ? `${h.hour}h` : "",
+    label: HOUR_BLOCK_LABELS[h.hour] || "",
     value: h.avg,
   }));
 

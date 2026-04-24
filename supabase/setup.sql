@@ -50,40 +50,58 @@ create table if not exists emergency_contacts (
   contact_phone    text,
   contact_email    text,
   status           text not null default 'accepted', -- 'pending' | 'accepted'
+  is_active        boolean not null default false,
   created_at       timestamptz default now(),
-  updated_at       timestamptz default now(),
-  unique (user_id)
+  updated_at       timestamptz default now()
+  -- no unique(user_id) — multiple contacts per driver are allowed
 );
 
--- Add status column if table already existed without it
+-- Add columns if table already existed without them
 alter table emergency_contacts
   add column if not exists status text not null default 'accepted';
-
--- Add contact_user_id column if table already existed without it
 alter table emergency_contacts
   add column if not exists contact_user_id uuid references auth.users;
+alter table emergency_contacts
+  add column if not exists is_active boolean not null default false;
+
+-- Remove old single-contact constraint (idempotent)
+alter table emergency_contacts
+  drop constraint if exists emergency_contacts_user_id_key;
+
+-- Partial unique index: at most one active contact per driver
+create unique index if not exists emergency_contacts_one_active_per_user
+  on emergency_contacts (user_id) where (is_active = true);
 
 -- RLS
 alter table emergency_contacts enable row level security;
 
--- Driver manages their own emergency contact record
+-- Driver manages their own emergency contact records
 drop policy if exists "Driver manages own EC" on emergency_contacts;
 create policy "Driver manages own EC"
   on emergency_contacts for all
   using  (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
--- Contact can view requests addressed to them (to accept/decline)
+-- Contact can view requests addressed to them by linked account
 drop policy if exists "Contact views their requests" on emergency_contacts;
 create policy "Contact views their requests"
   on emergency_contacts for select
   using (auth.uid() = contact_user_id);
 
+-- Contact can see rows matched by email (driver added them before they signed up)
+drop policy if exists "Contact views by email" on emergency_contacts;
+create policy "Contact views by email"
+  on emergency_contacts for select
+  using (lower(contact_email) = lower(auth.email()));
+
 -- Contact can accept a pending request (update status)
 drop policy if exists "Contact accepts request" on emergency_contacts;
 create policy "Contact accepts request"
   on emergency_contacts for update
-  using (auth.uid() = contact_user_id);
+  using (
+    auth.uid() = contact_user_id 
+    OR (contact_user_id IS NULL AND lower(contact_email) = lower(auth.email()))
+  );
 
 -- Contact can decline a request (delete row)
 drop policy if exists "Contact declines request" on emergency_contacts;

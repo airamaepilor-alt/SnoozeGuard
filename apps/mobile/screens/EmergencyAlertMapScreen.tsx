@@ -122,7 +122,7 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
         return;
       }
 
-      const requests = await getPendingRequests(supabase, session.user.id);
+      const requests = await getPendingRequests(supabase, session.user.id, session.user.email);
       setPending(requests);
 
       const [byUserId, byEmail] = await Promise.all([
@@ -145,6 +145,7 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
 
       if (allDriverIds.length === 0) {
         setAlerts([]);
+        if (requests.length === 0) onActionDone?.();
         return;
       }
 

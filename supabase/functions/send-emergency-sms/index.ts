@@ -86,26 +86,41 @@ Deno.serve(async (req: Request) => {
     const stripped = phone.trim().replace(/[\s\-().+]/g, "");
     const normalized = stripped.startsWith("09") ? "63" + stripped.slice(1) : stripped;
 
-    // Rate limit: 1 SMS per phone number per UTC calendar day
+    // Check if rate limiting is enabled
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const today = new Date().toISOString().slice(0, 10);
 
-    const rlRes = await fetch(`${SUPABASE_URL}/rest/v1/sms_rate_limit`, {
-      method: "POST",
+    const configRes = await fetch(`${SUPABASE_URL}/rest/v1/admin_config?id=eq.1`, {
+      method: "GET",
       headers: {
         "Content-Type": "application/json",
         "apikey": SERVICE_KEY,
         "Authorization": `Bearer ${SERVICE_KEY}`,
-        "Prefer": "return=minimal",
       },
-      body: JSON.stringify({ phone: normalized, sent_date: today }),
     });
+    const configData = (await configRes.json()) as Array<{ sms_rate_limit_enabled?: boolean }>;
+    const smsRateLimitEnabled = configData?.[0]?.sms_rate_limit_enabled !== false; // default true
 
-    if (rlRes.status === 409) {
-      return new Response(JSON.stringify({ ok: false, reason: "rate_limited" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Rate limit: 1 SMS per phone number per UTC calendar day (if enabled)
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (smsRateLimitEnabled) {
+      const rlRes = await fetch(`${SUPABASE_URL}/rest/v1/sms_rate_limit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": SERVICE_KEY,
+          "Authorization": `Bearer ${SERVICE_KEY}`,
+          "Prefer": "return=minimal",
+        },
+        body: JSON.stringify({ phone: normalized, sent_date: today }),
       });
+
+      if (rlRes.status === 409) {
+        return new Response(JSON.stringify({ ok: false, reason: "rate_limited" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     const message = buildMessage(driverName ?? "Driver", lat, lng);

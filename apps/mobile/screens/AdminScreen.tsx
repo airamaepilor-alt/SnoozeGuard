@@ -45,6 +45,7 @@ export function AdminScreen() {
 
   const [scoreResetMinutes, setScoreResetMinutes] = useState(2);
   const [smsEnabled, setSmsEnabled] = useState(false);
+  const [smsRateLimitEnabled, setSmsRateLimitEnabled] = useState(true);
   const [saveError, setSaveError] = useState("");
   const [saveSaved, setSaveSaved] = useState(false);
   const [alertMap, setAlertMap] = useState<AlertMapDraft>(() => {
@@ -79,6 +80,7 @@ export function AdminScreen() {
     if (data) {
       setScoreResetMinutes(Number(data.score_reset_minutes) || 2);
       setSmsEnabled(Boolean(data.sms_enabled));
+      setSmsRateLimitEnabled(data.sms_rate_limit_enabled !== false); // default true
       if (data.alert_map && typeof data.alert_map === "object") {
         const raw = data.alert_map as Record<string, { label?: string; actions?: string[]; yawn_count?: number; head_count?: number }>;
         const draft: AlertMapDraft = {};
@@ -151,6 +153,7 @@ export function AdminScreen() {
       p_updated_by: user.id,
       p_score_reset_minutes: clamp(scoreResetMinutes, 1, 60),
       p_sms_enabled: smsEnabled,
+      p_sms_rate_limit_enabled: smsRateLimitEnabled,
     };
     setSaving(true);
     const { error } = await supabase.rpc("update_admin_config", payload);
@@ -228,6 +231,20 @@ export function AdminScreen() {
             onValueChange={setSmsEnabled}
             trackColor={{ false: `${t.outlineVariant}88`, true: `${t.primary}88` }}
             thumbColor={smsEnabled ? t.primary : t.onSurfaceVariant}
+          />
+        </View>
+        <View style={styles.toggleRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.fieldLabel}>Enable rate limit per user</Text>
+            <Text style={styles.fieldHint}>
+              When enabled, only 1 SMS per phone number per day is sent. Disable if you don't need this limit.
+            </Text>
+          </View>
+          <Switch
+            value={smsRateLimitEnabled}
+            onValueChange={setSmsRateLimitEnabled}
+            trackColor={{ false: `${t.outlineVariant}88`, true: `${t.primary}88` }}
+            thumbColor={smsRateLimitEnabled ? t.primary : t.onSurfaceVariant}
           />
         </View>
       </View>

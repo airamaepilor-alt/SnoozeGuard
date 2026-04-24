@@ -164,18 +164,18 @@ export function TermsPage() {
           </div>
         </div>
 
-        {/* Certified Safety — 4/12 */}
+        {/* Thesis Foundation — 4/12 */}
         <div className="md:col-span-4 bg-surface-container-high p-7 sm:p-8 rounded-3xl flex flex-col justify-between gap-6">
           <div>
-            <h3 className="font-headline font-bold text-xl text-secondary mb-3">Certified Safety</h3>
+            <h3 className="font-headline font-bold text-xl text-secondary mb-3">Thesis Foundation</h3>
             <p className="text-on-surface-variant text-sm">
-              Audited and verified by academic research ethics boards.
+              Research-driven design with industry-standard ML and privacy-first architecture.
             </p>
           </div>
           <div className="flex flex-col gap-4">
             {[
-              { icon: "local_shipping", label: "Global Transit Safety Org" },
-              { icon: "shield", label: "Privacy Defense Bureau" },
+              { icon: "psychology", label: "MediaPipe Face Landmarker" },
+              { icon: "school", label: "Drowsiness Detection Research" },
             ].map((item) => (
               <div
                 key={item.label}

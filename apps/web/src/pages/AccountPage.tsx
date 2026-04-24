@@ -1,35 +1,40 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useThemeToggle } from "../context/ThemeContext";
 import { supabase } from "../lib/supabase";
-
-function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={on}
-      className="relative inline-flex items-center w-12 h-6 rounded-full transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-      style={{ background: on ? "rgb(var(--sg-primary))" : "rgb(var(--sg-surface-container-highest))" }}
-    >
-      <span
-        className="absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all duration-300"
-        style={{ left: on ? "calc(100% - 1.25rem)" : "0.25rem" }}
-      />
-    </button>
-  );
-}
 
 export function AccountPage() {
   const { user, profile, signOut } = useAuth();
   const { isDark, toggleTheme } = useThemeToggle();
 
   const [fullName, setFullName] = useState(profile?.full_name ?? "");
-  const [phone, setPhone] = useState("");
-  const [autoPurge, setAutoPurge] = useState(true);
-  const [audioBoost, setAudioBoost] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const isGoogleSignIn = user?.app_metadata?.provider === "google";
+
+  // Load profile data from database on mount and when user changes
+  useEffect(() => {
+    if (!user) return;
+
+    const loadProfile = async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", user.id)
+        .single();
+
+      if (data) {
+        setFullName(data.full_name ?? "");
+      }
+    };
+
+    void loadProfile();
+  }, [user?.id]);
 
   const displayName = fullName.trim() || user?.email?.split("@")[0] || "User";
   const initials = displayName
@@ -41,17 +46,18 @@ export function AccountPage() {
   const email = user?.email ?? "";
   const roleLabel = profile?.role === "super_admin" ? "Fleet Manager" : "Driver";
 
-  async function onSave(e: FormEvent) {
-    e.preventDefault();
+  async function onSave(e?: FormEvent) {
+    if (e) e.preventDefault();
     if (!user) return;
     setSaving(true);
     setMessage(null);
 
-    // Mirror mobile: update auth user_metadata so full_name is consistent
-    // across both auth.users and profiles (if a DB trigger syncs them)
+    // Update auth user_metadata and profiles table
     const [authResult, profileResult] = await Promise.all([
       supabase.auth.updateUser({ data: { full_name: fullName.trim() || null } }),
-      supabase.from("profiles").update({ full_name: fullName.trim() || null }).eq("id", user.id),
+      supabase.from("profiles").update({
+        full_name: fullName.trim() || null,
+      }).eq("id", user.id),
     ]);
 
     setSaving(false);
@@ -63,16 +69,51 @@ export function AccountPage() {
     }
   }
 
+  async function onChangePassword(e: FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    setSaving(true);
+    setMessage(null);
+
+    // Validate
+    if (newPassword.length < 6) {
+      setMessage({ text: "Password must be at least 6 characters.", ok: false });
+      setSaving(false);
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setMessage({ text: "Passwords do not match.", ok: false });
+      setSaving(false);
+      return;
+    }
+
+    // Update password
+    const result = await supabase.auth.updateUser({ password: newPassword });
+    setSaving(false);
+
+    if (result.error) {
+      setMessage({ text: `Error: ${result.error.message}`, ok: false });
+    } else {
+      setMessage({ text: "Password changed successfully.", ok: true });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setShowPasswordForm(false);
+    }
+  }
+
   function onReset() {
     setFullName(profile?.full_name ?? "");
-    setPhone("");
-    setAutoPurge(true);
-    setAudioBoost(false);
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setShowPasswordForm(false);
     setMessage({ text: "Reset to current saved values.", ok: true });
   }
 
   return (
-    <form onSubmit={onSave} className="max-w-5xl mx-auto font-body text-on-surface space-y-12 pb-12">
+    <div className="max-w-5xl mx-auto font-body text-on-surface space-y-12 pb-12">
       {/* Header */}
       <div>
         <h1 className="font-headline font-black text-2xl sm:text-3xl text-primary uppercase tracking-wider mb-1">
@@ -103,8 +144,8 @@ export function AccountPage() {
           </p>
         </div>
         <div className="md:col-span-2 bg-surface-container-low p-7 sm:p-8 rounded-3xl space-y-6">
-          {/* Avatar + account level */}
-          <div className="flex items-center gap-6">
+          {/* Avatar + account level + action buttons */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-6">
             <div className="relative group shrink-0">
               <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-primary/20 ring-2 ring-primary/20 flex items-center justify-center select-none">
                 <span className="font-headline font-black text-primary text-2xl sm:text-3xl">{initials}</span>
@@ -113,10 +154,26 @@ export function AccountPage() {
                 <span className="material-symbols-outlined text-white text-xl">photo_camera</span>
               </div>
             </div>
-            <div>
+            <div className="flex-1">
               <p className="text-xs font-label text-primary uppercase tracking-widest mb-1">Account Level</p>
-              <p className="text-base sm:text-lg font-headline font-bold text-on-surface">Sentinel Gold Member</p>
               <p className="text-xs text-on-surface-variant mt-0.5">{roleLabel}</p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => void onSave()}
+                disabled={saving}
+                className="px-5 py-2 bg-primary text-on-primary font-headline font-bold rounded-xl hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-50 text-xs"
+              >
+                {saving ? "SAVING…" : "SAVE"}
+              </button>
+              <button
+                type="button"
+                onClick={onReset}
+                className="px-5 py-2 bg-surface-container-high text-on-surface font-headline font-bold rounded-xl hover:bg-surface-bright transition-all text-xs"
+              >
+                RESET
+              </button>
             </div>
           </div>
 
@@ -143,18 +200,6 @@ export function AccountPage() {
                 value={email}
                 readOnly
                 className="w-full bg-surface-container-high border-none rounded-xl py-4 px-5 text-on-surface-variant focus:outline-none transition-all font-medium cursor-not-allowed opacity-70"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-label text-on-surface-variant uppercase tracking-widest px-1">
-                Phone Number
-              </label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+63 912 345 6789"
-                className="w-full bg-surface-container-high border-none rounded-xl py-4 px-5 text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:outline-none transition-all font-medium"
               />
             </div>
           </div>
@@ -209,26 +254,26 @@ export function AccountPage() {
             </div>
           </div>
 
-          {/* Affiliated Institutions (visual/static) */}
+          {/* Thesis Foundation (visual/static) */}
           <div className="bg-surface-container-low p-6 rounded-3xl">
-            <h3 className="font-headline font-bold text-on-surface mb-4">Affiliated Institutions</h3>
+            <h3 className="font-headline font-bold text-on-surface mb-4">Thesis Foundation</h3>
             <div className="space-y-3">
               <div className="flex items-center gap-4 p-3 bg-surface-container-high rounded-2xl">
                 <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                  <span className="material-symbols-outlined text-primary text-xl">local_shipping</span>
+                  <span className="material-symbols-outlined text-primary text-xl">smart_toy</span>
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-on-surface">Global Transit Co.</p>
-                  <p className="text-[10px] text-on-surface-variant uppercase tracking-tighter">Verified Provider</p>
+                  <p className="text-sm font-bold text-on-surface">MediaPipe</p>
+                  <p className="text-[10px] text-on-surface-variant uppercase tracking-tighter">Face Detection ML</p>
                 </div>
               </div>
               <div className="flex items-center gap-4 p-3 bg-surface-container-high rounded-2xl">
                 <div className="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0">
-                  <span className="material-symbols-outlined text-secondary text-xl">shield</span>
+                  <span className="material-symbols-outlined text-secondary text-xl">psychology</span>
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-on-surface">Sentinel Assurance</p>
-                  <p className="text-[10px] text-on-surface-variant uppercase tracking-tighter">Safety Partner</p>
+                  <p className="text-sm font-bold text-on-surface">Drowsiness Detection Research</p>
+                  <p className="text-[10px] text-on-surface-variant uppercase tracking-tighter">Academic Study</p>
                 </div>
               </div>
             </div>
@@ -236,50 +281,113 @@ export function AccountPage() {
         </div>
       </section>
 
-      {/* ── Section 3: Session Security ── */}
+      {/* ── Section 3: Password & Security ── */}
       <section className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="md:col-span-1 space-y-2">
-          <h2 className="font-headline text-xl font-bold text-on-surface">Session Security</h2>
+          <h2 className="font-headline text-xl font-bold text-on-surface">Password & Security</h2>
           <p className="text-on-surface-variant text-sm leading-relaxed">
-            Manage active monitoring sessions and historical logs.
+            Manage your authentication credentials and security settings.
           </p>
         </div>
         <div className="md:col-span-2 space-y-4">
-          <div className="bg-surface-container-low p-6 rounded-3xl">
-            <div className="flex items-start justify-between gap-4">
+          {/* Change Password Card */}
+          <div className="bg-surface-container-low p-6 rounded-3xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4 mb-6">
               <div className="flex gap-4">
                 <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center shrink-0">
-                  <span className="material-symbols-outlined text-primary">history</span>
+                  <span className="material-symbols-outlined text-primary">lock</span>
                 </div>
-                <div>
-                  <h4 className="font-bold text-on-surface">Session History Auto-Purge</h4>
-                  <p className="text-sm text-on-surface-variant mt-0.5">Clear monitoring logs every 24 hours.</p>
-                </div>
-              </div>
-              <Toggle on={autoPurge} onToggle={() => setAutoPurge((v) => !v)} />
-            </div>
-          </div>
-          <div className="bg-surface-container-low p-6 rounded-3xl">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex gap-4">
-                <div className="w-10 h-10 bg-secondary/10 rounded-xl flex items-center justify-center shrink-0">
-                  <span className="material-symbols-outlined text-secondary">notifications_active</span>
-                </div>
-                <div>
-                  <h4 className="font-bold text-on-surface">Audio Alerts Volume Boost</h4>
-                  <p className="text-sm text-on-surface-variant mt-0.5">Intelligent volume boosting during fatigue detection.</p>
+                <div className="flex-1">
+                  <h4 className="font-bold text-on-surface">Change Password</h4>
+                  <p className="text-sm text-on-surface-variant mt-0.5">
+                    {isGoogleSignIn
+                      ? "Set a password as a backup login method."
+                      : "Update your account password for enhanced security."}
+                  </p>
                 </div>
               </div>
-              <Toggle on={audioBoost} onToggle={() => setAudioBoost((v) => !v)} />
             </div>
+            {!showPasswordForm ? (
+              <button
+                type="button"
+                onClick={() => setShowPasswordForm(true)}
+                className="w-full bg-primary-container text-primary font-headline font-bold px-5 py-3 rounded-xl hover:bg-primary hover:text-on-primary transition-all duration-300 text-sm"
+              >
+                SET PASSWORD
+              </button>
+            ) : (
+              <form onSubmit={(e) => void onChangePassword(e)} className="space-y-4">
+                {!isGoogleSignIn && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-label text-on-surface-variant uppercase tracking-widest px-1">
+                      Current Password
+                    </label>
+                    <input
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Enter your current password"
+                      className="w-full bg-surface-container-high border-none rounded-xl py-3 px-4 text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:outline-none transition-all font-medium text-sm"
+                    />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <label className="text-xs font-label text-on-surface-variant uppercase tracking-widest px-1">
+                    New Password
+                  </label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="At least 6 characters"
+                    className="w-full bg-surface-container-high border-none rounded-xl py-3 px-4 text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:outline-none transition-all font-medium text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-label text-on-surface-variant uppercase tracking-widest px-1">
+                    Confirm Password
+                  </label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter your new password"
+                    className="w-full bg-surface-container-high border-none rounded-xl py-3 px-4 text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:outline-none transition-all font-medium text-sm"
+                  />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="flex-1 bg-primary text-on-primary font-headline font-bold px-4 py-3 rounded-xl hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-50 text-sm"
+                  >
+                    {saving ? "SAVING…" : "SAVE PASSWORD"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPasswordForm(false);
+                      setCurrentPassword("");
+                      setNewPassword("");
+                      setConfirmPassword("");
+                    }}
+                    className="flex-1 bg-surface-container-high text-on-surface font-headline font-bold px-4 py-3 rounded-xl hover:bg-surface-bright transition-all text-sm"
+                  >
+                    CANCEL
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
-          <div className="bg-surface-container-low p-6 rounded-3xl">
+
+          {/* Sign Out Card */}
+          <div className="bg-surface-container-low p-6 rounded-3xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-4">
               <div className="flex gap-4">
                 <div className="w-10 h-10 bg-error-container/30 rounded-xl flex items-center justify-center shrink-0">
                   <span className="material-symbols-outlined text-error">logout</span>
                 </div>
-                <div>
+                <div className="flex-1">
                   <h4 className="font-bold text-on-surface">Sign Out</h4>
                   <p className="text-sm text-on-surface-variant mt-0.5">End your current session and return to login.</p>
                 </div>
@@ -296,23 +404,6 @@ export function AccountPage() {
         </div>
       </section>
 
-      {/* ── Action Buttons ── */}
-      <div className="flex flex-col sm:flex-row gap-4 pt-4">
-        <button
-          type="submit"
-          disabled={saving}
-          className="flex-1 bg-primary text-on-primary font-headline font-extrabold py-5 rounded-2xl shadow-[0_10px_30px_rgba(123,208,255,0.15)] hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-50"
-        >
-          {saving ? "SAVING…" : "SAVE CHANGES"}
-        </button>
-        <button
-          type="button"
-          onClick={onReset}
-          className="flex-1 bg-surface-container-high text-on-surface font-headline font-bold py-5 rounded-2xl hover:bg-surface-bright transition-all"
-        >
-          RESET TO DEFAULT
-        </button>
-      </div>
-    </form>
+    </div>
   );
 }

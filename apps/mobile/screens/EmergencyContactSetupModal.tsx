@@ -10,8 +10,8 @@ import {
   View,
 } from "react-native";
 import { supabase } from "../lib/supabase";
-import { upsertEmergencyContact } from "../lib/emergencyNotify";
-import { getDatabase } from "../db/database";
+import { upsertEmergencyContact, getEmergencyContact } from "../lib/emergencyNotify";
+import { upsertLocalEC } from "../db/database";
 import { useTheme } from "../context/ThemeContext";
 import { isOnline } from "../sync/flush";
 import { OfflineNotificationModal } from "../components/OfflineNotificationModal";
@@ -93,14 +93,22 @@ export function EmergencyContactSetupModal({ visible, userId, onDone, onSkip }: 
       if (ecRes.error) {
         setError(ecRes.error);
       } else {
-        // Mark as synced
+        // Cache to SQLite with new multi-contact schema
         try {
-          getDatabase().runSync(
-            `INSERT OR REPLACE INTO emergency_contacts_local
-             (user_id, contact_name, contact_phone, contact_email, my_phone, pending_sync, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            userId, name.trim(), phone.trim(), email.trim(), myPhone.trim(), 0, new Date().toISOString(),
-          );
+          const saved = await getEmergencyContact(supabase, userId);
+          if (saved?.id) {
+            upsertLocalEC({
+              id: saved.id,
+              user_id: userId,
+              contact_name: name.trim(),
+              contact_phone: phone.trim(),
+              contact_email: email.trim(),
+              my_phone: myPhone.trim(),
+              is_active: 1,
+              pending_sync: 0,
+              updated_at: new Date().toISOString(),
+            });
+          }
         } catch { /* ignore */ }
         onDone();
       }

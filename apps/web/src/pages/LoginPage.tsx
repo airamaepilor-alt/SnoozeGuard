@@ -126,7 +126,7 @@ export function LoginPage() {
           email,
           password,
           options: {
-            redirectTo: `${window.location.origin}/`,
+            emailRedirectTo: `${window.location.origin}/`,
             data: { full_name: displayName.trim(), email: email.trim() },
           },
         });

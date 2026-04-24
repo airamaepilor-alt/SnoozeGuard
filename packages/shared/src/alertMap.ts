@@ -14,9 +14,12 @@ export const DEFAULT_ALERT_MAP: AlertMap = {
   "6":  { label: "Mild fatigue",        actions: ["voice"],                                           yawn_count: 3,  head_count: 20  },
   "7":  { label: "Moderate fatigue",    actions: ["voice", "vibration"],                              yawn_count: 5,  head_count: 35  },
   "8":  { label: "High fatigue",        actions: ["vibration", "voice"],                              yawn_count: 8,  head_count: 55  },
-  "9":  { label: "Severe — pull over",  actions: ["iot_led", "voice"],                                yawn_count: 12, head_count: 80  },
-  "10": { label: "Critical — stop now", actions: ["iot_led", "iot_buzzer", "voice"],                  yawn_count: 18, head_count: 110 },
+  "9":  { label: "Severe — pull over",  actions: ["voice", "vibration", "iot_led", "iot_buzzer"],    yawn_count: 12, head_count: 80  },
+  "10": { label: "Critical — stop now", actions: ["voice", "vibration", "iot_led", "iot_buzzer"],    yawn_count: 18, head_count: 110 },
 };
+
+/** Valid action types */
+const VALID_ACTIONS = new Set(["voice", "vibration", "iot_led", "iot_buzzer"]);
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -29,12 +32,14 @@ export function parseAlertMap(raw: unknown): AlertMap {
     if (!isRecord(v)) continue;
     const def = DEFAULT_ALERT_MAP[k];
     const label = typeof v.label === "string" ? v.label : def?.label ?? `Level ${k}`;
-    const actions = Array.isArray(v.actions) ? v.actions.filter((a): a is string => typeof a === "string") : [];
+    const actions = Array.isArray(v.actions) 
+      ? v.actions.filter((a): a is string => typeof a === "string" && VALID_ACTIONS.has(a)) 
+      : [];
     const yawn_count = typeof v.yawn_count === "number" ? v.yawn_count : def?.yawn_count ?? 3;
     const head_count = typeof v.head_count === "number" ? v.head_count : def?.head_count ?? 20;
     out[k] = {
       label,
-      actions: actions.length ? actions : def?.actions ?? ["sound"],
+      actions: actions.length ? actions : def?.actions ?? ["voice"],
       yawn_count,
       head_count,
     };

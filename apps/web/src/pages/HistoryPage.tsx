@@ -336,16 +336,15 @@ function SessionTableRow({ s }: { s: SessionSummary }) {
 
       {/* Action */}
       <td className="px-4 lg:px-8 py-5 lg:py-6 text-right">
-        <div className="flex items-center justify-end gap-2">
+        <Link
+          to={`/history/${s.id}`}
+          className={`inline-flex items-center justify-end gap-2 text-xs font-black uppercase tracking-widest hover:underline transition-colors ${
+            crit ? "text-tertiary" : "text-primary"
+          }`}
+        >
           <SessionSparkline series={s.series} />
-          <span
-            className={`text-xs font-black uppercase tracking-widest hover:underline cursor-default ${
-              crit ? "text-tertiary" : "text-primary"
-            }`}
-          >
-            {crit ? "Review" : "Details"}
-          </span>
-        </div>
+          <span>{crit ? "Review" : "Details"}</span>
+        </Link>
       </td>
     </tr>
   );
@@ -366,11 +365,12 @@ function SessionCard({ s }: { s: SessionSummary }) {
   const duration = formatDuration(s.started_at, s.ended_at);
 
   return (
-    <div
-      className={`rounded-2xl p-4 transition-colors ${
+    <Link
+      to={`/history/${s.id}`}
+      className={`block rounded-2xl p-4 transition-all hover:shadow-lg ${
         crit
-          ? "bg-tertiary-container/15 border-l-4 border-tertiary"
-          : "bg-surface-container-low"
+          ? "bg-tertiary-container/15 border-l-4 border-tertiary hover:bg-tertiary-container/20"
+          : "bg-surface-container-low hover:bg-surface-container"
       }`}
     >
       <div className="flex items-start justify-between gap-3 mb-3">
@@ -420,7 +420,7 @@ function SessionCard({ s }: { s: SessionSummary }) {
           )}
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
 

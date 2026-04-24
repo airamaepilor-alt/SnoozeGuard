@@ -1,0 +1,17 @@
+{
+  "hosting": {
+    "site": "snoozeguard-cf3d8",
+    "public": "apps/web/dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

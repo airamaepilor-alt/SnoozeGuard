@@ -12,6 +12,16 @@ export type EmergencyContact = {
   status: "pending" | "accepted";
 };
 
+export type EmergencyContactEntry = {
+  id: string;
+  contact_name: string;
+  contact_phone: string | null;
+  contact_email: string | null;
+  contact_user_id: string | null;
+  status: "pending" | "accepted";
+  is_active: boolean;
+};
+
 export type PendingRequest = {
   id: string;
   user_id: string;
@@ -27,8 +37,6 @@ async function lookupUserByEmail(
   email: string,
 ): Promise<string | null> {
   if (!email?.trim()) return null;
-  // Uses a SECURITY DEFINER RPC to query auth.users directly — bypasses RLS
-  // which blocks users from reading other users' email in the profiles table.
   const { data, error } = await supabase.rpc("get_user_id_by_email", {
     p_email: email.trim().toLowerCase(),
   });
@@ -38,6 +46,7 @@ async function lookupUserByEmail(
 
 // ─── Emergency contact CRUD ──────────────────────────────────────────────────
 
+/** Returns the currently active emergency contact for the driver. */
 export async function getEmergencyContact(
   supabase: SupabaseClient,
   userId: string,
@@ -46,6 +55,7 @@ export async function getEmergencyContact(
     .from("emergency_contacts")
     .select("id, contact_name, contact_phone, contact_email, contact_user_id, status")
     .eq("user_id", userId)
+    .eq("is_active", true)
     .maybeSingle();
   if (!data) return null;
   return {
@@ -54,35 +64,64 @@ export async function getEmergencyContact(
   };
 }
 
-export async function upsertEmergencyContact(
+/** Returns all emergency contacts for the driver, active first. */
+export async function listEmergencyContacts(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<EmergencyContactEntry[]> {
+  const { data } = await supabase
+    .from("emergency_contacts")
+    .select("id, contact_name, contact_phone, contact_email, contact_user_id, status, is_active")
+    .eq("user_id", userId)
+    .order("is_active", { ascending: false })
+    .order("created_at", { ascending: true });
+  if (!data) return [];
+  return (data as Array<Record<string, unknown>>).map((row) => ({
+    id: row.id as string,
+    contact_name: row.contact_name as string,
+    contact_phone: row.contact_phone as string | null,
+    contact_email: row.contact_email as string | null,
+    contact_user_id: row.contact_user_id as string | null,
+    status: (row.status as string) === "pending" ? "pending" : "accepted",
+    is_active: Boolean(row.is_active),
+  }));
+}
+
+/** Adds a new emergency contact. Automatically activates it if it's the first one. */
+export async function addEmergencyContact(
   supabase: SupabaseClient,
   userId: string,
   contact: { contact_name: string; contact_phone: string; contact_email: string },
-): Promise<{ error: string | null; status: "pending" | "accepted" }> {
-  // Check if contact email belongs to a registered SnoozeGuard user
+): Promise<{ error: string | null; id: string | null; status: "pending" | "accepted" }> {
   const contactUserId = contact.contact_email
     ? await lookupUserByEmail(supabase, contact.contact_email)
     : null;
-
-  // If registered: create pending request (they must approve)
-  // If not registered: auto-accepted (can't approve if not in app)
   const status: "pending" | "accepted" = contactUserId ? "pending" : "accepted";
 
-  const { error } = await supabase
+  // If no contacts exist yet, make this one active
+  const { count } = await supabase
     .from("emergency_contacts")
-    .upsert(
-      {
-        user_id: userId,
-        contact_name: contact.contact_name,
-        contact_phone: contact.contact_phone,
-        contact_email: contact.contact_email,
-        contact_user_id: contactUserId,
-        status,
-      },
-      { onConflict: "user_id" },
-    );
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId);
+  const isFirst = (count ?? 0) === 0;
 
-  if (error) return { error: error.message, status };
+  const { data, error } = await supabase
+    .from("emergency_contacts")
+    .insert({
+      user_id: userId,
+      contact_name: contact.contact_name,
+      contact_phone: contact.contact_phone || null,
+      contact_email: contact.contact_email || null,
+      contact_user_id: contactUserId,
+      status,
+      is_active: isFirst,
+    })
+    .select("id")
+    .single();
+
+  if (error) return { error: error.message, id: null, status };
+
+  const newId = (data as { id: string } | null)?.id ?? null;
 
   // Notify the contact via push if they're registered
   if (contactUserId && status === "pending") {
@@ -114,40 +153,139 @@ export async function upsertEmergencyContact(
     }
   }
 
+  return { error: null, id: newId, status };
+}
+
+/** Updates an existing emergency contact by its ID. */
+export async function updateEmergencyContact(
+  supabase: SupabaseClient,
+  contactId: string,
+  userId: string,
+  contact: { contact_name: string; contact_phone: string; contact_email: string },
+): Promise<{ error: string | null; status: "pending" | "accepted" }> {
+  const contactUserId = contact.contact_email
+    ? await lookupUserByEmail(supabase, contact.contact_email)
+    : null;
+  const status: "pending" | "accepted" = contactUserId ? "pending" : "accepted";
+
+  const { error } = await supabase
+    .from("emergency_contacts")
+    .update({
+      contact_name: contact.contact_name,
+      contact_phone: contact.contact_phone || null,
+      contact_email: contact.contact_email || null,
+      contact_user_id: contactUserId,
+      status,
+    })
+    .eq("id", contactId)
+    .eq("user_id", userId);
+
+  if (error) return { error: error.message, status };
   return { error: null, status };
+}
+
+/** Removes an emergency contact by ID. */
+export async function removeEmergencyContactById(
+  supabase: SupabaseClient,
+  contactId: string,
+  userId: string,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from("emergency_contacts")
+    .delete()
+    .eq("id", contactId)
+    .eq("user_id", userId);
+  if (error) return { error: error.message };
+  return { error: null };
+}
+
+/** Sets one contact as the active guardian, deactivating all others for this driver. */
+export async function setActiveEmergencyContact(
+  supabase: SupabaseClient,
+  userId: string,
+  contactId: string,
+): Promise<{ error: string | null }> {
+  const { error: e1 } = await supabase
+    .from("emergency_contacts")
+    .update({ is_active: false })
+    .eq("user_id", userId);
+  if (e1) return { error: e1.message };
+
+  const { error: e2 } = await supabase
+    .from("emergency_contacts")
+    .update({ is_active: true })
+    .eq("id", contactId)
+    .eq("user_id", userId);
+  if (e2) return { error: e2.message };
+
+  return { error: null };
+}
+
+/**
+ * Compat shim used by ProfileScreen and EmergencyContactSetupModal.
+ * Updates the active contact if one exists, otherwise adds a new one (auto-activated).
+ */
+export async function upsertEmergencyContact(
+  supabase: SupabaseClient,
+  userId: string,
+  contact: { contact_name: string; contact_phone: string; contact_email: string },
+): Promise<{ error: string | null; status: "pending" | "accepted" }> {
+  const existing = await getEmergencyContact(supabase, userId);
+  if (existing) {
+    return updateEmergencyContact(supabase, existing.id, userId, contact);
+  }
+  const res = await addEmergencyContact(supabase, userId, contact);
+  return { error: res.error, status: res.status };
 }
 
 // ─── Pending request management ──────────────────────────────────────────────
 
-/**
- * Get requests where someone wants to add the current user as their emergency contact.
- * These are pending and need Accept / Decline.
- */
 export async function getPendingRequests(
   supabase: SupabaseClient,
   contactUserId: string,
+  contactEmail?: string | null,
 ): Promise<PendingRequest[]> {
-  const { data } = await supabase
-    .from("emergency_contacts")
-    .select("id, user_id, created_at")
-    .eq("contact_user_id", contactUserId)
-    .eq("status", "pending");
+  const [byId, byEmail] = await Promise.all([
+    supabase
+      .from("emergency_contacts")
+      .select("id, user_id, created_at")
+      .eq("contact_user_id", contactUserId)
+      .eq("status", "pending"),
+    contactEmail
+      ? supabase
+          .from("emergency_contacts")
+          .select("id, user_id, created_at")
+          .ilike("contact_email", contactEmail)
+          .eq("status", "pending")
+      : Promise.resolve({ data: [] }),
+  ]);
 
-  if (!data || data.length === 0) return [];
+  // Deduplicate by row id
+  const seen = new Set<string>();
+  const rows: Array<{ id: string; user_id: string; created_at: string }> = [];
+  for (const row of [...(byId.data ?? []), ...(byEmail.data ?? [])]) {
+    const rowId = (row as { id: string }).id;
+    if (rowId && !seen.has(rowId)) {
+      seen.add(rowId);
+      rows.push(row as typeof rows[number]);
+    }
+  }
+
+  if (rows.length === 0) return [];
 
   const enriched: PendingRequest[] = [];
-  for (const row of data) {
+  for (const row of rows) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("full_name, email")
-      .eq("id", (row as { user_id: string }).user_id)
+      .eq("id", row.user_id)
       .maybeSingle();
     enriched.push({
-      id: (row as { id: string }).id,
-      user_id: (row as { user_id: string }).user_id,
+      id: row.id,
+      user_id: row.user_id,
       driver_name: (profile as { full_name?: string } | null)?.full_name ?? "A SnoozeGuard user",
       driver_email: (profile as { email?: string } | null)?.email ?? null,
-      created_at: (row as { created_at: string }).created_at,
+      created_at: row.created_at,
     });
   }
   return enriched;
@@ -267,7 +405,7 @@ export async function triggerEmergencyAlert(
 
   const alertId = data?.id ?? null;
 
-  // Only notify if emergency contact has accepted
+  // Only notify the active emergency contact
   const ec = await getEmergencyContact(supabase, userId);
   console.log("[Alert] EC found:", ec ? `${ec.contact_name} status=${ec.status} phone=${ec.contact_phone ? "yes" : "no"} userId=${ec.contact_user_id ? "yes" : "no"}` : "null");
   if (!ec || ec.status !== "accepted") {
@@ -279,7 +417,6 @@ export async function triggerEmergencyAlert(
     ? `${driverName} needs a check-in. Location: ${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`
     : `${driverName} triggered a drowsiness alert — please check in.`;
 
-  // Push notification if contact is registered
   console.log("[Alert] Push check — contact_user_id:", ec.contact_user_id ? "yes" : "no (not a SnoozeGuard user)");
   if (ec.contact_user_id) {
     const { data: tokenRow } = await supabase
@@ -305,7 +442,6 @@ export async function triggerEmergencyAlert(
     }
   }
 
-  // SMS via Edge Function — send regardless of whether contact is in the app
   console.log("[Alert] SMS check — smsEnabled:", smsEnabled, "contact_phone:", ec.contact_phone ? "yes" : "no");
   if (smsEnabled && ec.contact_phone) {
     await sendAutoSms(supabase, ec.contact_phone, driverName, location);

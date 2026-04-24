@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.17",
+    "three": "^0.170.0",
     "@snoozeguard/shared": "file:../../packages/shared",
     "@supabase/supabase-js": "^2.49.1",
     "dexie": "^4.0.11",
@@ -26,7 +27,9 @@
     "@eslint/js": "^9.39.4",
     "@types/node": "^24.12.0",
     "@types/react": "^19.2.14",
+    "@types/three": "^0.170.0",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.4.21",
     "eslint": "^9.39.4",
