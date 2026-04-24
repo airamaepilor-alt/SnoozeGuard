@@ -1,4 +1,5 @@
 // SimulationPage.tsx — full-screen driving simulation with wheel/pedal controller
+// Integrated drowsiness detection: face monitoring, yawn/head detection, sudden brake alerts
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -6,10 +7,157 @@ import { SimEngine } from "../lib/sim/SimEngine";
 import type { SimTickState } from "../lib/sim/SimEngine";
 import { GamepadDriver, DEFAULT_MAPPING } from "../lib/sim/GamepadDriver";
 import type { AxisMapping } from "../lib/sim/GamepadDriver";
+import { useWebFaceLandmarker } from "../hooks/useWebFaceLandmarker";
+import { createYawnDetector, createHeadDetector, createTiltDetector } from "../lib/ml/faceDetectors";
+import {
+  alertConfigForDrowsinessLevel,
+  computeLevelFromAlertMap,
+  parseAlertMap,
+  shouldAlertForLevel,
+} from "@snoozeguard/shared";
+import { playWebAlert, stopWebAlert } from "../lib/alerts/playWebAlert";
+import { useAuth } from "../context/AuthContext";
+import { offlineDb } from "../lib/offline/db";
 
 // ── Calibration modal ────────────────────────────────────────────────────────
 
 type CalibStep = "steer" | "throttle" | "brake" | "done";
+
+// ── End Session Confirmation Modal ────────────────────────────────────────────
+
+function EndSessionModal({
+  open,
+  sessionDuration,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  sessionDuration: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (!open) return null;
+
+  const mins = Math.floor(sessionDuration / 60);
+  const secs = sessionDuration % 60;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm pointer-events-auto">
+      <div className="rounded-2xl p-8 max-w-sm text-center border border-white/10 bg-black/80">
+        <span className="material-symbols-outlined text-amber-400 text-4xl mb-3 block" style={{ fontVariationSettings: "'FILL' 1" }}>
+          stop_circle
+        </span>
+        <h2 className="text-2xl font-bold text-white mb-2">End Simulation Session?</h2>
+        <p className="text-white/70 text-sm mb-6">
+          Session duration: <span className="font-mono font-bold text-white">{mins}:{secs.toString().padStart(2, "0")}</span>
+        </p>
+        <p className="text-white/60 text-xs mb-6">
+          This will save your drowsiness metrics to your driving history as a simulation session.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2.5 rounded-lg font-bold text-white/70 border border-white/10 hover:bg-white/5 transition-colors"
+          >
+            Continue Driving
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-lg font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30 transition-colors"
+          >
+            End Session
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Drowsiness Alert Overlay ──────────────────────────────────────────────────
+
+function SimDrowsinessAlert({
+  open,
+  level,
+  title,
+  onDismiss,
+}: {
+  open: boolean;
+  level: number;
+  title: string;
+  onDismiss: () => void;
+}) {
+  if (!open) return null;
+  
+  const levelColor =
+    level <= 4 ? "text-sky-400" : level <= 6 ? "text-amber-400" : "text-red-400";
+  const levelBg =
+    level <= 4 ? "bg-sky-500/10 border-sky-500/30" : level <= 6 ? "bg-amber-500/10 border-amber-500/30" : "bg-red-500/10 border-red-500/30";
+  
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto">
+      <div className={`rounded-2xl p-6 max-w-sm text-center border ${levelBg}`}>
+        <p className={`text-xs font-bold uppercase tracking-widest mb-2 ${levelColor}`}>
+          Alert Level {level}
+        </p>
+        <h2 className="text-2xl font-bold text-white mb-4">{title}</h2>
+        <p className="text-white/70 text-sm mb-6">
+          Drowsiness detected during simulation. Stay alert and focused on the road.
+        </p>
+        <button
+          onClick={onDismiss}
+          className={`px-6 py-2 rounded-lg font-bold text-white transition-colors ${
+            level <= 4
+              ? "bg-sky-500/20 hover:bg-sky-500/30"
+              : level <= 6
+                ? "bg-amber-500/20 hover:bg-amber-500/30"
+                : "bg-red-500/20 hover:bg-red-500/30"
+          }`}
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Special Alert (sudden brake, head tilt) ───────────────────────────────────
+
+function SimSpecialAlert({
+  open,
+  title,
+  message,
+  onDismiss,
+}: {
+  open: boolean;
+  title: string;
+  message: string;
+  onDismiss: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm pointer-events-auto">
+      <div className="rounded-2xl p-8 max-w-sm text-center border border-red-500/30 bg-red-950/80">
+        <div className="flex justify-center mb-4">
+          <span className="material-symbols-outlined text-red-400 text-5xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+            warning
+          </span>
+        </div>
+        <h2 className="text-2xl font-bold text-white mb-3">⚠ SAFETY ALERT</h2>
+        <p className="text-lg font-semibold text-red-300 mb-3">{title}</p>
+        <p className="text-white/70 text-sm mb-6 leading-relaxed">{message}</p>
+        <button
+          onClick={onDismiss}
+          className="w-full px-6 py-3 rounded-lg font-bold bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/50 transition-colors"
+        >
+          Understood — dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Calibration modal ────────────────────────────────────────────────────────
 
 function CalibrationModal({
   driver,
@@ -270,9 +418,19 @@ function PedalBar({ label, value, color }: { label: string; value: number; color
 
 export function SimulationPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const detectionVideoRef = useRef<HTMLVideoElement>(null);
   const engineRef = useRef<SimEngine | null>(null);
   const driverRef = useRef<GamepadDriver>(new GamepadDriver());
+  const { start: faceMlStart, stop: faceMlStop } = useWebFaceLandmarker();
+
+  // ── Session management ─────────────────────────────────────────────────────
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
+  const [sessionDuration, setSessionDuration] = useState(0);
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
+  const sessionTelemetryRef = useRef<any[]>([]);
 
   const [tick, setTick] = useState<SimTickState>({
     speedKph: 0,
@@ -284,6 +442,67 @@ export function SimulationPage() {
   const [showCalib, setShowCalib] = useState(false);
   const [engineReady, setEngineReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
+
+  // ── Detection state ────────────────────────────────────────────────────────
+  const [detectionEnabled, setDetectionEnabled] = useState(false);
+  const [cameraOn, setCameraOn] = useState(false);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  // ── Drowsiness metrics ─────────────────────────────────────────────────────
+  const [liveLevel, setLiveLevel] = useState(0);
+  const [liveYawns, setLiveYawns] = useState(0);
+  const [liveHeads, setLiveHeads] = useState(0);
+  const [liveTilts, setLiveTilts] = useState(0);
+
+  // ── Alert state ────────────────────────────────────────────────────────────
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [alertLevel, setAlertLevel] = useState(0);
+  const [alertTitle, setAlertTitle] = useState("");
+
+  // ── Special alerts (sudden brake, head tilt) ──────────────────────────────
+  const [specialAlertOpen, setSpecialAlertOpen] = useState(false);
+  const [specialAlertTitle, setSpecialAlertTitle] = useState("");
+  const [specialAlertMessage, setSpecialAlertMessage] = useState("");
+
+  // ── Face detection state ───────────────────────────────────────────────────
+  const [faceDetected, setFaceDetected] = useState(false);
+
+  // ── Admin config (threshold for alerts) ────────────────────────────────────
+  const adminRef = useRef({
+    trigger: 6,
+    map: parseAlertMap(undefined),
+  });
+
+  // ── Detectors and accumulators ─────────────────────────────────────────────
+  const yawnAccRef = useRef(0);
+  const headAccRef = useRef(0);
+  const headTiltAccRef = useRef(0);
+  const yawnLastTickRef = useRef(0);
+  const headLastTickRef = useRef(0);
+  const headTiltLastTickRef = useRef(0);
+  const suddenBrakeAccRef = useRef(0);
+  const suddenBrakeLastTickRef = useRef(0);
+  const lastBrakeValueRef = useRef(0);
+  const lastBrakeDetectionTimeRef = useRef(0);
+  const lastSpecialAlertTimeRef = useRef(0);
+
+  const yawnDetectorRef = useRef(createYawnDetector(() => { yawnAccRef.current += 1; }));
+  const headDetectorRef = useRef(createHeadDetector(() => { headAccRef.current += 1; }));
+  const tiltDetectorRef = useRef(createTiltDetector(() => { headTiltAccRef.current += 1; }));
+
+  // ── Alert refs ─────────────────────────────────────────────────────────────
+  const lastAlertRef = useRef<{ level: number; at: number } | null>(null);
+  const dismissedLevelsRef = useRef<Set<number>>(new Set());
+  const alertOpenRef = useRef(false);
+  const alertLevelRef = useRef(0);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    alertOpenRef.current = alertOpen;
+  }, [alertOpen]);
+  useEffect(() => {
+    alertLevelRef.current = alertLevel;
+  }, [alertLevel]);
 
   // Mount the 3D engine once the canvas is available
   useEffect(() => {
@@ -308,10 +527,186 @@ export function SimulationPage() {
     };
   }, []);
 
-  // Push camera mode into engine
+  // ── Camera management ──────────────────────────────────────────────────────
 
+  const stopCamera = useCallback(() => {
+    faceMlStop();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (detectionVideoRef.current) detectionVideoRef.current.srcObject = null;
+    setCameraOn(false);
+    setFaceDetected(false);
+  }, [faceMlStop]);
 
-  // Push time of day into engine
+  const startCamera = useCallback(async () => {
+    if (!window.isSecureContext) {
+      console.warn("Camera requires HTTPS");
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      console.warn("Camera API unavailable");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (detectionVideoRef.current) {
+        detectionVideoRef.current.srcObject = stream;
+        await detectionVideoRef.current.play();
+      }
+      setCameraOn(true);
+    } catch (e) {
+      console.error("Camera error:", e);
+      setCameraOn(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, [stopCamera]);
+
+  // ── Toggle detection (camera + ML) ─────────────────────────────────────────
+
+  useEffect(() => {
+    if (detectionEnabled) {
+      void startCamera();
+    } else {
+      stopCamera();
+      setDetectionEnabled(false);
+    }
+  }, [detectionEnabled, startCamera, stopCamera]);
+
+  // ── Face ML detection ──────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!cameraOn || !detectionEnabled) {
+      faceMlStop();
+      return;
+    }
+    const video = detectionVideoRef.current;
+    if (!video) return;
+
+    let cancelled = false;
+    void faceMlStart(video, (scores) => {
+      if (cancelled) return;
+      setFaceDetected(scores.faceDetected);
+      if (!scores.faceDetected) {
+        yawnDetectorRef.current.process(0);
+        headDetectorRef.current.process(0, 0);
+        tiltDetectorRef.current.process(0, 0);
+        return;
+      }
+
+      yawnDetectorRef.current.process(scores.jawOpen);
+      if (scores.jawOpen < 0.6) {
+        headDetectorRef.current.process(scores.pitchDeg, scores.rollDeg);
+        tiltDetectorRef.current.process(scores.pitchDeg, scores.rollDeg);
+      }
+    }).catch((err) => {
+      if (!cancelled) console.error("ML detection error:", err);
+    });
+
+    return () => {
+      cancelled = true;
+      faceMlStop();
+    };
+  }, [cameraOn, detectionEnabled, faceMlStart, faceMlStop]);
+
+  // ── Sudden brake detection (from gamepad) ──────────────────────────────────
+
+  useEffect(() => {
+    const { speedKph, gpState } = tick;
+    const currentBrake = gpState.brake;
+    const lastBrake = lastBrakeValueRef.current;
+    const now = Date.now();
+
+    // Sudden brake: large increase in brake pressure (delta > 0.3) with cooldown
+    const brakeDelta = currentBrake - lastBrake;
+    const timeSinceLastDetection = now - lastBrakeDetectionTimeRef.current;
+
+    if (
+      brakeDelta > 0.2 &&           // Sudden increase of 20%+ (more sensitive)
+      currentBrake > 0.2 &&         // Current brake pressure > 20%
+      speedKph > 5 &&               // Moving (> 5 km/h)
+      timeSinceLastDetection > 2000 // Cooldown: at least 2 seconds since last detection
+    ) {
+      suddenBrakeAccRef.current += 1;
+      lastBrakeDetectionTimeRef.current = now;
+      console.log(`[SimDrowsiness] Sudden brake detected! Delta: ${(brakeDelta * 100).toFixed(0)}%, Current: ${(currentBrake * 100).toFixed(0)}%, Speed: ${speedKph.toFixed(0)} km/h`);
+      
+      // Trigger special alert popup (with 1-second alert cooldown to prevent rapid re-triggers)
+      const timeSinceLastAlert = now - lastSpecialAlertTimeRef.current;
+      if (timeSinceLastAlert > 1000) {
+        lastSpecialAlertTimeRef.current = now;
+        console.log("[SimDrowsiness] Showing sudden brake alert popup");
+        setSpecialAlertTitle("Sudden brake detected — pull over safely.");
+        setSpecialAlertMessage("A sudden brake was detected. Please pull over safely and rest if needed.");
+        setSpecialAlertOpen(true);
+      }
+    }
+
+    lastBrakeValueRef.current = currentBrake;
+  }, [tick]);
+
+  // ── Main scoring tick (1-second interval) ──────────────────────────────────
+
+  useEffect(() => {
+    if (!detectionEnabled) {
+      if (tickRef.current) clearInterval(tickRef.current);
+      tickRef.current = null;
+      return;
+    }
+
+    tickRef.current = setInterval(() => {
+      const ar = adminRef.current;
+
+      yawnLastTickRef.current = yawnAccRef.current;
+      headLastTickRef.current = headAccRef.current;
+      headTiltLastTickRef.current = headTiltAccRef.current;
+      suddenBrakeLastTickRef.current = suddenBrakeAccRef.current;
+
+      const level = computeLevelFromAlertMap(yawnAccRef.current, headAccRef.current, false, ar.map);
+
+      setLiveLevel(level);
+      setLiveYawns(yawnAccRef.current);
+      setLiveHeads(headAccRef.current);
+      setLiveTilts(headTiltAccRef.current);
+
+      // Check if we should alert
+      const canAlert = (!alertOpenRef.current && shouldAlertForLevel(level, ar.trigger) && !dismissedLevelsRef.current.has(level));
+
+      if (canAlert) {
+        const band = alertConfigForDrowsinessLevel(level, ar.map);
+        const actions = band?.actions ?? ["voice"];
+        const label = band?.label ?? "Attention required";
+        const now = Date.now();
+        const prev = lastAlertRef.current;
+
+        if (!prev || now - prev.at > 35_000 || level > prev.level) {
+          stopWebAlert();
+          lastAlertRef.current = { level, at: now };
+          alertLevelRef.current = level;
+          setAlertLevel(level);
+          setAlertTitle(label);
+          setAlertOpen(true);
+
+          void playWebAlert(actions, level);
+        }
+      }
+    }, 1000);
+
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+      tickRef.current = null;
+    };
+  }, [detectionEnabled]);
+
+  // ── Time of day ────────────────────────────────────────────────────────────
   useEffect(() => {
     engineRef.current?.setTimeOfDay(timeOfDay);
   }, [timeOfDay]);
@@ -329,6 +724,139 @@ export function SimulationPage() {
       e.preventDefault();
     }
   }, []);
+
+  const dismissAlert = useCallback(() => {
+    dismissedLevelsRef.current.add(alertLevelRef.current);
+    stopWebAlert();
+    setAlertOpen(false);
+  }, []);
+
+  // ── Session start / end handlers ───────────────────────────────────────────
+
+  const startSimulationSession = useCallback(async () => {
+    if (!user) {
+      console.warn("Cannot start session: user not authenticated");
+      return;
+    }
+
+    const newSessionId = crypto.randomUUID();
+    const now = Date.now();
+
+    try {
+      await offlineDb.drivingSessionsLocal.add({
+        id: newSessionId,
+        userId: user.id,
+        startedAt: new Date().toISOString(),
+        deviceType: "web",
+        endedSynced: 0,
+      });
+      setSessionId(newSessionId);
+      setSessionStartTime(now);
+      setSessionDuration(0);
+      sessionTelemetryRef.current = [];
+    } catch (err) {
+      console.error("Failed to start simulation session:", err);
+    }
+  }, [user]);
+
+  const endSimulationSession = useCallback(async () => {
+    if (!sessionId || !sessionStartTime) {
+      setShowEndConfirm(false);
+      return;
+    }
+
+    const endTime = new Date().toISOString();
+
+    try {
+      // Update session end time
+      await offlineDb.drivingSessionsLocal.update(sessionId, {
+        endedAt: endTime,
+      });
+
+      // Record final telemetry point
+      if (sessionTelemetryRef.current.length === 0) {
+        await offlineDb.sessionTelemetryLocal.add({
+          localSessionId: sessionId,
+          recordedAt: endTime,
+          drowsinessLevel: liveLevel,
+          yawnCountDelta: 0,
+          headEventCountDelta: 0,
+          suddenBrake: 0,
+          source: "simulation",
+          remoteSynced: 0,
+        });
+      }
+
+      // Clear session state
+      setSessionId(null);
+      setSessionStartTime(null);
+      setSessionDuration(0);
+      sessionTelemetryRef.current = [];
+      setShowEndConfirm(false);
+
+      // Sync to Supabase before navigating so history shows correct duration immediately
+      await offlineDb.drivingSessionsLocal.update(sessionId, {
+      endedAt: endTime,
+    });
+
+      // Brief delay before navigation to ensure DB write completes
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      navigate("/drive");
+    } catch (err) {
+      console.error("Failed to end simulation session:", err);
+    }
+  }, [sessionId, sessionStartTime, liveLevel, user?.id, navigate]);
+
+  // ── Session duration timer ─────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!sessionStartTime) return;
+
+    const timer = setInterval(() => {
+      setSessionDuration(Math.floor((Date.now() - sessionStartTime) / 1000));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [sessionStartTime]);
+
+  // ── Record telemetry during session ────────────────────────────────────────
+
+  useEffect(() => {
+    if (!sessionId || !detectionEnabled) return;
+
+    const telemetryInterval = setInterval(() => {
+      void (async () => {
+        try {
+          const entry = {
+            localSessionId: sessionId,
+            recordedAt: new Date().toISOString(),
+            drowsinessLevel: liveLevel,
+            yawnCountDelta: 0,
+            headEventCountDelta: 0,
+            suddenBrake: 0,
+            source: "simulation",
+            remoteSynced: 0,
+          };
+          await offlineDb.sessionTelemetryLocal.add(entry);
+          sessionTelemetryRef.current.push(entry);
+        } catch (err) {
+          console.error("Failed to record telemetry:", err);
+        }
+      })();
+    }, 5000); // Record every 5 seconds
+
+    return () => clearInterval(telemetryInterval);
+  }, [sessionId, detectionEnabled, liveLevel]);
+
+  // ── Handle back button with confirmation ────────────────────────────────
+
+  const handleBackClick = useCallback(() => {
+    if (sessionId) {
+      setShowEndConfirm(true);
+    } else {
+      navigate(-1);
+    }
+  }, [sessionId, navigate]);
 
   const { speedKph, gpState, gear } = tick;
 
@@ -367,7 +895,7 @@ export function SimulationPage() {
           <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-3 pb-2 pointer-events-auto">
             {/* Back button */}
             <button
-              onClick={() => navigate(-1)}
+              onClick={handleBackClick}
               className="flex items-center gap-1.5 bg-black/50 hover:bg-black/70 backdrop-blur-sm border border-white/10 rounded-full px-3 py-2 text-white/80 hover:text-white text-xs font-bold transition-all active:scale-95"
             >
               <span className="material-symbols-outlined text-base">arrow_back</span>
@@ -395,7 +923,20 @@ export function SimulationPage() {
 
             {/* Right: camera + time of day + settings */}
             <div className="flex items-center gap-2">
-              
+              {/* Detection toggle */}
+              <button
+                onClick={() => setDetectionEnabled(!detectionEnabled)}
+                className={`transition-all ${
+                  detectionEnabled
+                    ? "bg-sky-500/20 hover:bg-sky-500/30 border-sky-500/50 text-sky-400"
+                    : "bg-black/50 hover:bg-black/70 border-white/10 text-white/50 hover:text-white/80"
+                } backdrop-blur-sm border rounded-full p-2`}
+                title={detectionEnabled ? "Disable detection" : "Enable drowsiness detection"}
+              >
+                <span className="material-symbols-outlined text-base">
+                  {detectionEnabled ? "videocam" : "videocam_off"}
+                </span>
+              </button>
 
               {/* Time of day toggle */}
               <div className="flex bg-black/50 backdrop-blur-sm border border-white/10 rounded-full overflow-hidden">
@@ -425,13 +966,75 @@ export function SimulationPage() {
             </div>
           </div>
 
-          {/* ── Bottom-left: speedometer ──────────────────────────────────────── */}
-          <div className="absolute bottom-6 left-6 flex flex-col items-center gap-1 pointer-events-none">
-            <SpeedometerArc kph={speedKph} />
-            {/* Gear indicator */}
-            <div className="bg-black/60 backdrop-blur-sm border border-white/10 rounded-lg px-3 py-1 text-white font-mono font-black text-lg -mt-1">
-              {gear}
+          {/* ── Bottom-left: speedometer + detection metrics ──────────────────── */}
+          <div className="absolute bottom-6 left-6 flex flex-col items-center gap-3 pointer-events-none">
+            <div className="flex flex-col items-center gap-1">
+              <SpeedometerArc kph={speedKph} />
+              {/* Gear indicator */}
+              <div className="bg-black/60 backdrop-blur-sm border border-white/10 rounded-lg px-3 py-1 text-white font-mono font-black text-lg -mt-1">
+                {gear}
+              </div>
             </div>
+
+            {/* Detection metrics (only show when detection enabled) */}
+            {detectionEnabled && (
+              <div className="bg-black/60 backdrop-blur-sm border border-white/10 rounded-xl p-3 text-xs space-y-2 min-w-fit">
+                {/* Session duration */}
+                {sessionId && (
+                  <div className="flex items-center justify-between gap-4 text-white/70 pb-2 border-b border-white/10">
+                    <div className="flex items-center gap-2">
+                      <span>Duration:</span>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400 uppercase tracking-wider">In Progress</span>
+                    </div>
+                    <span className="font-mono text-sky-400 font-bold">
+                      {Math.floor(sessionDuration / 60)}:{(sessionDuration % 60).toString().padStart(2, "0")}
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-4 text-white/70">
+                  <span>Level:</span>
+                  <span className={`font-bold ${liveLevel <= 4 ? "text-sky-400" : liveLevel <= 6 ? "text-amber-400" : "text-red-400"}`}>
+                    {liveLevel} / 10
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-4 text-white/70">
+                  <span>Yawns:</span>
+                  <span className="font-mono text-white/90">{liveYawns}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4 text-white/70">
+                  <span>Head:</span>
+                  <span className="font-mono text-white/90">{liveHeads}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4 text-white/70">
+                  <span>Tilts:</span>
+                  <span className="font-mono text-white/90">{liveTilts}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4 text-white/70">
+                  <span>Face:</span>
+                  <span className={`font-mono ${faceDetected ? "text-green-400" : "text-red-400"}`}>
+                    {faceDetected ? "✓" : "✗"}
+                  </span>
+                </div>
+
+                {/* Session buttons */}
+                {sessionId ? (
+                  <button
+                    onClick={() => setShowEndConfirm(true)}
+                    className="w-full mt-2 pt-2 border-t border-white/10 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded font-bold text-[10px] uppercase tracking-wider transition-colors pointer-events-auto"
+                  >
+                    End Session
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => void startSimulationSession()}
+                    className="w-full mt-2 pt-2 border-t border-white/10 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 rounded font-bold text-[10px] uppercase tracking-wider transition-colors pointer-events-auto"
+                  >
+                    Start Session
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ── Bottom-right: pedal bars + steer indicator ────────────────────── */}
@@ -474,6 +1077,40 @@ export function SimulationPage() {
           )}
         </div>
       )}
+
+      {/* ── Hidden detection video element ────────────────────────────────── */}
+      {detectionEnabled && (
+        <video
+          ref={detectionVideoRef}
+          className="hidden"
+          playsInline
+          muted
+        />
+      )}
+
+      {/* ── Special alert (sudden brake, head tilt) ───────────────────────── */}
+      <SimSpecialAlert
+        open={specialAlertOpen}
+        title={specialAlertTitle}
+        message={specialAlertMessage}
+        onDismiss={() => setSpecialAlertOpen(false)}
+      />
+
+      {/* ── Drowsiness alert overlay ──────────────────────────────────────── */}
+      <SimDrowsinessAlert
+        open={alertOpen}
+        level={alertLevel}
+        title={alertTitle}
+        onDismiss={dismissAlert}
+      />
+
+      {/* ── End session confirmation modal ─────────────────────────────────── */}
+      <EndSessionModal
+        open={showEndConfirm}
+        sessionDuration={sessionDuration}
+        onConfirm={() => void endSimulationSession()}
+        onCancel={() => setShowEndConfirm(false)}
+      />
 
       {/* ── Calibration modal ────────────────────────────────────────────────── */}
       {showCalib && (
