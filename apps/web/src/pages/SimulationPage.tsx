@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { SimEngine } from "../lib/sim/SimEngine";
-import type { CameraMode, SimTickState } from "../lib/sim/SimEngine";
+import type { SimTickState } from "../lib/sim/SimEngine";
 import { GamepadDriver, DEFAULT_MAPPING } from "../lib/sim/GamepadDriver";
 import type { AxisMapping } from "../lib/sim/GamepadDriver";
 
@@ -215,7 +215,6 @@ function SpeedometerArc({ kph }: { kph: number }) {
   const CX = 56;
   const CY = 56;
   const START_ANG = (210 * Math.PI) / 180;
-  const END_ANG = (330 * Math.PI) / 180; // 300° sweep
   const SWEEP = (300 * Math.PI) / 180;
 
   const arcPath = (fraction: number) => {
@@ -280,7 +279,7 @@ export function SimulationPage() {
     gpState: { steer: 0, throttle: 0, brake: 0, connected: false, deviceName: "" },
     gear: "N",
   });
-  const [cameraMode, setCameraMode] = useState<CameraMode>("third");
+
   const [timeOfDay, setTimeOfDay] = useState<"day" | "night">("night");
   const [showCalib, setShowCalib] = useState(false);
   const [engineReady, setEngineReady] = useState(false);
@@ -310,9 +309,7 @@ export function SimulationPage() {
   }, []);
 
   // Push camera mode into engine
-  useEffect(() => {
-    engineRef.current?.setCameraMode(cameraMode);
-  }, [cameraMode]);
+
 
   // Push time of day into engine
   useEffect(() => {
@@ -398,22 +395,7 @@ export function SimulationPage() {
 
             {/* Right: camera + time of day + settings */}
             <div className="flex items-center gap-2">
-              {/* Camera toggle */}
-              <div className="flex bg-black/50 backdrop-blur-sm border border-white/10 rounded-full overflow-hidden">
-                {(["third", "first"] as CameraMode[]).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setCameraMode(m)}
-                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                      cameraMode === m
-                        ? "bg-sky-500/20 text-sky-400"
-                        : "text-white/40 hover:text-white/70"
-                    }`}
-                  >
-                    {m === "third" ? "3rd" : "FPV"}
-                  </button>
-                ))}
-              </div>
+              
 
               {/* Time of day toggle */}
               <div className="flex bg-black/50 backdrop-blur-sm border border-white/10 rounded-full overflow-hidden">

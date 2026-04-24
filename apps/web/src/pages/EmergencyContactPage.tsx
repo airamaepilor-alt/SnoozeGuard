@@ -375,11 +375,8 @@ function MyGuardianTab() {
     setFormError(null);
     try {
       if (addEditOpen === "add") {
-        const { count } = await supabase
-          .from("emergency_contacts")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id);
-        const isFirst = (count ?? 0) === 0;
+     
+        // const isFirst = (count ?? 0) === 0;
         const { error: e } = await supabase.from("emergency_contacts").insert({
           user_id: user.id,
           contact_name: data.name,

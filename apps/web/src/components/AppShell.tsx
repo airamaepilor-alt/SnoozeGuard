@@ -75,17 +75,6 @@ function SideNavItem({
   );
 }
 
-function PlaceholderNavItem({ icon, label }: { icon: string; label: string }) {
-  return (
-    <div className="flex items-center gap-3 mx-2 px-4 py-3 rounded-lg text-slate-600 cursor-not-allowed select-none">
-      <span className="material-symbols-outlined shrink-0" style={{ fontVariationSettings: "'FILL' 0" }}>
-        {icon}
-      </span>
-      <span className="truncate">{label}</span>
-    </div>
-  );
-}
-
 function TopNavLink({ to, label, end }: { to: string; label: string; end?: boolean }) {
   return (
     <NavLink
@@ -189,8 +178,8 @@ export function AppShell() {
   const online = useOnlineStatus();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeAlertCount, setActiveAlertCount] = useState(0);
-  const [pendingEcCount, setPendingEcCount] = useState(0);
+  const [_activeAlertCount, setActiveAlertCount] = useState(0);
+  const [_pendingEcCount, setPendingEcCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifItems, setNotifItems] = useState<NotifItem[]>([]);
   const notifRef = useRef<HTMLDivElement>(null);
