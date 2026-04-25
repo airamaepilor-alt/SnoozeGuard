@@ -77,7 +77,7 @@ export async function playWebAlert(actions: string[], level?: number): Promise<v
         break;
       case "vibration":
         if (typeof navigator !== "undefined" && navigator.vibrate) {
-          navigator.vibrate([100, 80, 100]);
+          navigator.vibrate([0, 500, 300, 500, 300, 500, 300, 500, 300, 500]);
         }
         break;
       case "iot_led":

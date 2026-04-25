@@ -488,6 +488,67 @@ export function DashboardPage() {
         </Link>
       </div>
 
+      {/* ── Quick Actions Grid ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Real Driving Session */}
+        <Link
+          to="/drive"
+          className="group p-6 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 hover:border-primary/50 hover:shadow-lg transition-all active:scale-95"
+        >
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center group-hover:bg-primary/30 transition-colors">
+              <span className="material-symbols-outlined text-primary">directions_car</span>
+            </div>
+            <h3 className="text-sm font-bold text-on-surface">Real Driving</h3>
+          </div>
+          <p className="text-xs text-on-surface-variant">Monitor drowsiness on the road</p>
+        </Link>
+
+        {/* Simulation Practice */}
+        <Link
+          to="/simulation"
+          className="group p-6 rounded-2xl bg-gradient-to-br from-secondary/20 to-secondary/5 border border-secondary/20 hover:border-secondary/50 hover:shadow-lg transition-all active:scale-95"
+        >
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full bg-secondary/20 flex items-center justify-center group-hover:bg-secondary/30 transition-colors">
+              <span className="material-symbols-outlined text-secondary">sports_esports</span>
+            </div>
+            <h3 className="text-sm font-bold text-on-surface">Try Simulation</h3>
+          </div>
+          <p className="text-xs text-on-surface-variant">Practice detection in safe environment</p>
+        </Link>
+
+        {/* Safety Protocol */}
+        <Link
+          to="/safety-protocol"
+          className="group p-6 rounded-2xl bg-gradient-to-br from-tertiary/20 to-tertiary/5 border border-tertiary/20 hover:border-tertiary/50 hover:shadow-lg transition-all active:scale-95"
+        >
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full bg-tertiary/20 flex items-center justify-center group-hover:bg-tertiary/30 transition-colors">
+              <span className="material-symbols-outlined text-tertiary" style={{ fontVariationSettings: "'FILL' 1" }}>
+                emergency
+              </span>
+            </div>
+            <h3 className="text-sm font-bold text-on-surface">Safety Protocol</h3>
+          </div>
+          <p className="text-xs text-on-surface-variant">Configure alerts &amp; contacts</p>
+        </Link>
+
+        {/* Emergency Contacts */}
+        <Link
+          to="/guardians"
+          className="group p-6 rounded-2xl bg-gradient-to-br from-error/20 to-error/5 border border-error/20 hover:border-error/50 hover:shadow-lg transition-all active:scale-95"
+        >
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full bg-error/20 flex items-center justify-center group-hover:bg-error/30 transition-colors">
+              <span className="material-symbols-outlined text-error">contacts</span>
+            </div>
+            <h3 className="text-sm font-bold text-on-surface">Guardians</h3>
+          </div>
+          <p className="text-xs text-on-surface-variant">Manage emergency contacts</p>
+        </Link>
+      </div>
+
       {/* ── Time filter pills — same options as mobile ── */}
       <div className="flex gap-2 flex-wrap">
         {FILTER_OPTIONS.map((opt) => (

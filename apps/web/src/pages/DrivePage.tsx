@@ -17,6 +17,7 @@ import {
   shouldAlertForLevel,
 } from "@snoozeguard/shared";
 import { playWebAlert, stopWebAlert } from "../lib/alerts/playWebAlert";
+import { getEmergencyContact, triggerEmergencyAlert, acknowledgeEmergencyAlert, type EmergencyContact } from "../lib/emergencyNotify";
 import { createYawnDetector, createHeadDetector, createTiltDetector } from "../lib/ml/faceDetectors";
 import { DrowsinessAlertOverlay } from "./DrivePage.components";
 
@@ -127,8 +128,8 @@ export function DrivePage() {
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
 
-  const [useManualOverride, setUseManualOverride] = useState(false);
-  const [manualLevel, setManualLevel] = useState(4);
+  const useManualOverride = false;
+  const manualLevel = 4;
 
   // ── Alert state ─────────────────────────────────────────────────────────
   const [alertOpen, setAlertOpen] = useState(false);
@@ -140,6 +141,8 @@ export function DrivePage() {
   const [specialAlertTitle, setSpecialAlertTitle] = useState("");
   const [specialAlertMessage, setSpecialAlertMessage] = useState("");
   const [ecCountdown, setEcCountdown] = useState<number | null>(null);
+  const [emergencyContact, setEmergencyContact] = useState<EmergencyContact | null>(null);
+  const [ecSent, setEcSent] = useState(false);
 
   // ── Guardian Pulse History (real-time tracking) ──────────────────────────
   const [pulseHistory, setPulseHistory] = useState<number[]>([
@@ -208,6 +211,7 @@ export function DrivePage() {
   // ── Emergency contact ───────────────────────────────────────────────────
   const ecTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ecAutoFiredRef = useRef(false);
+  const activeAlertIdRef = useRef<string | null>(null);
 
   // ── Admin runtime (alert config) ────────────────────────────────────────
   const adminRef = useRef({
@@ -272,6 +276,15 @@ export function DrivePage() {
     setEcCountdown(null);
   }, []);
 
+  const fireEmergencyContact = useCallback(async () => {
+    stopEcTimer();
+    if (!user) return;
+    const driverName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? "Driver";
+    const { alertId } = await triggerEmergencyAlert(supabase, user.id, driverName, localSessionId, adminRef.current.smsEnabled);
+    activeAlertIdRef.current = alertId;
+    setEcSent(true);
+  }, [user, localSessionId, stopEcTimer]);
+
   const startEcCountdown = useCallback(() => {
     if (ecTimerRef.current) return;
     ecAutoFiredRef.current = false;
@@ -281,7 +294,7 @@ export function DrivePage() {
         if (prev === null || prev <= 1) {
           if (!ecAutoFiredRef.current) {
             ecAutoFiredRef.current = true;
-            console.log("[DrivePage] EC auto-fire after 120s countdown");
+            void fireEmergencyContact();
           }
           if (ecTimerRef.current) clearInterval(ecTimerRef.current);
           ecTimerRef.current = null;
@@ -290,7 +303,7 @@ export function DrivePage() {
         return prev - 1;
       });
     }, 1000);
-  }, []);
+  }, [fireEmergencyContact]);
 
   const stopTick = useCallback(() => {
     if (tickRef.current) clearInterval(tickRef.current);
@@ -379,6 +392,11 @@ export function DrivePage() {
   useEffect(() => {
     void loadAdminConfig();
   }, [loadAdminConfig]);
+
+  useEffect(() => {
+    if (!user) return;
+    void getEmergencyContact(supabase, user.id).then(setEmergencyContact);
+  }, [user]);
 
   useEffect(() => {
     if (online) {
@@ -729,13 +747,18 @@ export function DrivePage() {
     return () => {
       stopTick();
     };
-  }, [localSessionId, useManualOverride, manualLevel, user, online, browserMlOn, remoteSessionId, stopTick, startScoreResetTimer, stopAlertAudio]);
+  }, [localSessionId, user, online, browserMlOn, remoteSessionId, stopTick, startScoreResetTimer, stopAlertAudio]);
 
   const dismissAlert = useCallback(() => {
     dismissedLevelsRef.current.add(alertLevelRef.current);
     stopAlertAudio();
     stopEcTimer();
     if (alertLevelRef.current >= 10) startScoreResetTimer();
+    if (activeAlertIdRef.current) {
+      void acknowledgeEmergencyAlert(supabase, activeAlertIdRef.current);
+      activeAlertIdRef.current = null;
+    }
+    setEcSent(false);
     setAlertOpen(false);
   }, [stopAlertAudio, stopEcTimer, startScoreResetTimer]);
 
@@ -790,7 +813,7 @@ export function DrivePage() {
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col lg:flex-row lg:h-full lg:overflow-hidden bg-background text-on-surface font-body">
+    <div className="flex flex-col h-full overflow-y-auto lg:overflow-hidden lg:flex-row bg-background text-on-surface font-body">
       {/* Mobile back button — visible only when nav bars are hidden */}
       <button
         onClick={() => navigate(-1)}
@@ -809,6 +832,10 @@ export function DrivePage() {
         onDismiss={dismissAlert}
         flash={alertFlash}
         elapsedMs={elapsedMs}
+        emergencyContact={emergencyContact}
+        ecCountdown={ecCountdown}
+        ecSent={ecSent}
+        onNotifyNow={() => void fireEmergencyContact()}
       />
 
       {/* Special tilt alert */}
@@ -1238,59 +1265,6 @@ export function DrivePage() {
             </div>
           </div>
         </div>
-
-        {/* Demo / quick action buttons */}
-        {activeLocal && (
-          <div className="px-5 sm:px-6 lg:px-8 pb-4 shrink-0">
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { label: "+Yawn", icon: "sentiment_very_dissatisfied", onClick: () => { yawnAccRef.current += 1; } },
-                { label: "+Head Move", icon: "transfer_within_a_station", onClick: () => { headAccRef.current += 1; } },
-                { label: "+Long Tilt", icon: "rotate_90_degrees_cw", onClick: () => { headTiltAccRef.current += 1; } },
-                { label: "+Sudden Brake", icon: "emergency_brake", onClick: () => { suddenBrakeAccRef.current += 1; } },
-              ].map(({ label, icon, onClick }) => (
-                <button
-                  key={label}
-                  disabled={busy}
-                  onClick={onClick}
-                  className="py-4 bg-surface-container-highest hover:bg-surface-bright rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border border-outline-variant/10 active:scale-95 disabled:opacity-40 group"
-                >
-                  <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors text-xl">{icon}</span>
-                  <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">{label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Manual override (debug) */}
-        {activeLocal && (
-          <div className="px-5 sm:px-6 lg:px-8 pb-4 shrink-0">
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-on-surface-variant mb-2">
-              <input
-                type="checkbox"
-                checked={useManualOverride}
-                onChange={(e) => setUseManualOverride(e.target.checked)}
-                className="rounded border-outline-variant accent-primary"
-              />
-              Manual level override (debug alerts)
-            </label>
-            {useManualOverride && (
-              <div className="space-y-1">
-                <input
-                  type="range"
-                  min={0}
-                  max={10}
-                  step={1}
-                  value={manualLevel}
-                  onChange={(e) => setManualLevel(Number(e.target.value))}
-                  className="w-full accent-primary"
-                />
-                <span className="text-xs font-mono text-primary">{manualLevel}</span>
-              </div>
-            )}
-          </div>
-        )}
 
 
       </div>

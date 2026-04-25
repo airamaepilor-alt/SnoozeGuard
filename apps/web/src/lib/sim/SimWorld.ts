@@ -4,6 +4,12 @@ import * as THREE from "three";
 
 export type TimeOfDay = "day" | "night";
 
+export interface CollisionSphere {
+  x: number;
+  z: number;
+  radius: number;
+}
+
 const CIRCUIT_PTS: [number, number][] = [
   [0, 500], [0, 250], [80, 0], [200, -150],
   [380, -260], [500, -400], [430, -570], [250, -650],
@@ -85,6 +91,7 @@ export class SimWorld {
   private moonMesh!: THREE.Mesh;
 
   private currentTOD: TimeOfDay = "night";
+  private collisionObjects: CollisionSphere[] = [];
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -319,6 +326,7 @@ export class SimWorld {
       pos.set(tx, 1.4 * ts, tz);
       mat4.compose(pos, quat, scl);
       this.trunkMesh.setMatrixAt(i, mat4);
+      this.collisionObjects.push({ x: tx, z: tz, radius: 1.0 });
 
       pos.set(tx, 1.4 * ts * 2 + 2.5 * ts, tz);
       mat4.compose(pos, quat, scl);
@@ -375,6 +383,7 @@ export class SimWorld {
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.1, 8, 6), poleMat);
       pole.position.set(bx, 4, bz);
       this.scene.add(pole);
+      this.collisionObjects.push({ x: bx, z: bz, radius: 0.5 });
 
       const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.5, 5), poleMat);
       arm.position.set(bx - roadTmp.x * side * 1.2, 8.2, bz - roadTmp.z * side * 1.2);
@@ -429,6 +438,10 @@ export class SimWorld {
   }
 
   // ── Public helpers ─────────────────────────────────────────────────────────
+
+  getCollisionObjects(): readonly CollisionSphere[] {
+    return this.collisionObjects;
+  }
 
   getRoadStart(): { x: number; z: number; yaw: number } {
     const pt = this.roadCurve.getPoint(0);

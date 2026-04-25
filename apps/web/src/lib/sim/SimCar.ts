@@ -187,6 +187,10 @@ export class SimCar {
     return this.speed * 3.6;
   }
 
+  crashSlowdown() {
+    this.speed *= 0.1;
+  }
+
   getForward() {
     return new THREE.Vector3(
       -Math.sin(this.yaw),

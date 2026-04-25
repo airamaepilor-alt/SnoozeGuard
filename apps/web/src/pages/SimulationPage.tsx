@@ -18,6 +18,8 @@ import {
 import { playWebAlert, stopWebAlert } from "../lib/alerts/playWebAlert";
 import { useAuth } from "../context/AuthContext";
 import { offlineDb } from "../lib/offline/db";
+import { supabase } from "../lib/supabase";
+import { ensureRemoteSession, flushEndedSessions, flushPendingTelemetry } from "../lib/offline/sync";
 
 // ── Calibration modal ────────────────────────────────────────────────────────
 
@@ -114,6 +116,52 @@ function SimDrowsinessAlert({
           }`}
         >
           Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Crash Alert ───────────────────────────────────────────────────────────────
+
+function SimCrashAlert({
+  open,
+  speedKph,
+  onDismiss,
+}: {
+  open: boolean;
+  speedKph: number;
+  onDismiss: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm pointer-events-auto">
+      <div className="rounded-2xl p-8 max-w-sm w-full mx-4 text-center border border-red-500/40 bg-red-950/90 shadow-2xl shadow-red-900/50">
+        <div className="flex justify-center mb-4">
+          <div className="w-20 h-20 rounded-full bg-red-500/20 flex items-center justify-center animate-pulse">
+            <span
+              className="material-symbols-outlined text-red-400 text-5xl"
+              style={{ fontVariationSettings: "'FILL' 1" }}
+            >
+              car_crash
+            </span>
+          </div>
+        </div>
+        <p className="text-red-400 text-xs font-bold uppercase tracking-widest mb-2">Collision Detected</p>
+        <h2 className="text-3xl font-black text-white mb-2">Crash!</h2>
+        <p className="text-red-300 text-sm font-semibold mb-4">
+          {speedKph > 1 ? `Impact at ${Math.round(speedKph)} km/h` : "Vehicle left the road"}
+        </p>
+        <p className="text-white/60 text-xs mb-6 leading-relaxed">
+          Drowsy driving reduces reaction time and can cause loss of vehicle control.
+          Always pull over and rest if you feel fatigued.
+        </p>
+        <button
+          onClick={onDismiss}
+          className="w-full px-6 py-3 rounded-xl font-bold bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/50 transition-colors active:scale-95"
+        >
+          Continue Driving
         </button>
       </div>
     </div>
@@ -464,6 +512,11 @@ export function SimulationPage() {
   const [specialAlertTitle, setSpecialAlertTitle] = useState("");
   const [specialAlertMessage, setSpecialAlertMessage] = useState("");
 
+  // ── Crash alert ────────────────────────────────────────────────────────────
+  const [crashOpen, setCrashOpen] = useState(false);
+  const [crashSpeedKph, setCrashSpeedKph] = useState(0);
+  const [crashFlash, setCrashFlash] = useState(false);
+
   // ── Face detection state ───────────────────────────────────────────────────
   const [faceDetected, setFaceDetected] = useState(false);
 
@@ -471,7 +524,20 @@ export function SimulationPage() {
   const adminRef = useRef({
     trigger: 6,
     map: parseAlertMap(undefined),
+    scoreResetMinutes: 2,
+    smsEnabled: false,
   });
+
+  const loadAdminConfig = useCallback(async () => {
+    const { data } = await supabase.from("admin_config").select("*").eq("id", 1).maybeSingle();
+    if (!data) return;
+    adminRef.current = {
+      trigger: Number(data.drowsiness_trigger_level) || 6,
+      map: parseAlertMap(data.alert_map),
+      scoreResetMinutes: Number(data.score_reset_minutes) || 2,
+      smsEnabled: Boolean(data.sms_enabled),
+    };
+  }, []);
 
   // ── Detectors and accumulators ─────────────────────────────────────────────
   const yawnAccRef = useRef(0);
@@ -498,6 +564,10 @@ export function SimulationPage() {
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    void loadAdminConfig();
+  }, [loadAdminConfig]);
+
+  useEffect(() => {
     alertOpenRef.current = alertOpen;
   }, [alertOpen]);
   useEffect(() => {
@@ -513,6 +583,12 @@ export function SimulationPage() {
     try {
       engine = new SimEngine(canvas);
       engine.onTick = (state) => setTick(state);
+      engine.onCrash = (kph) => {
+        setCrashSpeedKph(kph);
+        setCrashOpen(true);
+        setCrashFlash(true);
+        setTimeout(() => setCrashFlash(false), 600);
+      };
       engine.start();
       engineRef.current = engine;
       setEngineReady(true);
@@ -760,23 +836,22 @@ export function SimulationPage() {
   }, [user]);
 
   const endSimulationSession = useCallback(async () => {
-    if (!sessionId || !sessionStartTime) {
+    if (!sessionId || !sessionStartTime || !user) {
       setShowEndConfirm(false);
       return;
     }
 
+    const sid = sessionId; // capture before state is cleared
     const endTime = new Date().toISOString();
 
     try {
-      // Update session end time
-      await offlineDb.drivingSessionsLocal.update(sessionId, {
-        endedAt: endTime,
-      });
+      // 1. Persist end time locally
+      await offlineDb.drivingSessionsLocal.update(sid, { endedAt: endTime });
 
-      // Record final telemetry point
+      // 2. Ensure at least one telemetry record exists for the session
       if (sessionTelemetryRef.current.length === 0) {
         await offlineDb.sessionTelemetryLocal.add({
-          localSessionId: sessionId,
+          localSessionId: sid,
           recordedAt: endTime,
           drowsinessLevel: liveLevel,
           yawnCountDelta: 0,
@@ -787,25 +862,24 @@ export function SimulationPage() {
         });
       }
 
-      // Clear session state
+      // 3. Sync to Supabase: create remote row if needed, then push ended_at + telemetry
+      await ensureRemoteSession(supabase, user.id, sid);
+      await flushEndedSessions(supabase, user.id);
+      await flushPendingTelemetry(supabase, user.id);
+
+      // 4. Clear local state then navigate
       setSessionId(null);
       setSessionStartTime(null);
       setSessionDuration(0);
       sessionTelemetryRef.current = [];
       setShowEndConfirm(false);
 
-      // Sync to Supabase before navigating so history shows correct duration immediately
-      await offlineDb.drivingSessionsLocal.update(sessionId, {
-      endedAt: endTime,
-    });
-
-      // Brief delay before navigation to ensure DB write completes
-      await new Promise((resolve) => setTimeout(resolve, 100));
       navigate("/drive");
     } catch (err) {
       console.error("Failed to end simulation session:", err);
+      setShowEndConfirm(false);
     }
-  }, [sessionId, sessionStartTime, liveLevel, user?.id, navigate]);
+  }, [sessionId, sessionStartTime, liveLevel, user, navigate]);
 
   // ── Session duration timer ─────────────────────────────────────────────────
 
@@ -892,65 +966,76 @@ export function SimulationPage() {
         <div className="absolute inset-0 pointer-events-none">
 
           {/* ── Top bar ──────────────────────────────────────────────────────── */}
-          <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-3 pb-2 pointer-events-auto">
-            {/* Back button */}
+          <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 pt-3 pb-2 gap-2 pointer-events-auto">
+            {/* Back button — icon-only on mobile, icon+text on sm+ */}
             <button
               onClick={handleBackClick}
-              className="flex items-center gap-1.5 bg-black/50 hover:bg-black/70 backdrop-blur-sm border border-white/10 rounded-full px-3 py-2 text-white/80 hover:text-white text-xs font-bold transition-all active:scale-95"
+              className="flex items-center gap-1.5 bg-black/50 hover:bg-black/70 backdrop-blur-sm border border-white/10 rounded-full p-2 sm:px-3 sm:py-2 text-white/80 hover:text-white text-xs font-bold transition-all active:scale-95 shrink-0"
             >
               <span className="material-symbols-outlined text-base">arrow_back</span>
-              Exit
+              <span className="hidden sm:inline">Exit</span>
             </button>
 
-            {/* Centre: title + controller badge */}
-            <div className="flex flex-col items-center gap-1">
-              <span className="text-[10px] font-black tracking-[0.25em] text-white/40 uppercase">
+            {/* Centre: controller badge (title hidden on mobile) */}
+            <div className="flex flex-col items-center gap-1 min-w-0 flex-1">
+              <span className="hidden sm:block text-[10px] font-black tracking-[0.25em] text-white/40 uppercase">
                 SnoozeGuard Sim
               </span>
               <div
-                className={`flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                className={`flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full border truncate max-w-full ${
                   gpState.connected
                     ? "bg-sky-500/10 text-sky-400 border-sky-500/30"
                     : "bg-white/5 text-white/30 border-white/10"
                 }`}
               >
                 <div
-                  className={`w-1.5 h-1.5 rounded-full ${gpState.connected ? "bg-sky-400 animate-pulse" : "bg-white/20"}`}
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${gpState.connected ? "bg-sky-400 animate-pulse" : "bg-white/20"}`}
                 />
-                {gpState.connected ? "Wheel Connected" : "Keyboard Mode  ↑↓←→"}
+                <span className="truncate">
+                  {gpState.connected ? "Wheel Connected" : <><span className="hidden xs:inline">Keyboard Mode </span>↑↓←→</>}
+                </span>
               </div>
             </div>
 
             {/* Right: camera + time of day + settings */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 shrink-0">
               {/* Detection toggle */}
               <button
                 onClick={() => setDetectionEnabled(!detectionEnabled)}
-                className={`transition-all ${
+                className={`flex items-center gap-1.5 backdrop-blur-sm border rounded-full px-2.5 py-1.5 text-[11px] font-bold transition-all active:scale-95 ${
                   detectionEnabled
-                    ? "bg-sky-500/20 hover:bg-sky-500/30 border-sky-500/50 text-sky-400"
-                    : "bg-black/50 hover:bg-black/70 border-white/10 text-white/50 hover:text-white/80"
-                } backdrop-blur-sm border rounded-full p-2`}
-                title={detectionEnabled ? "Disable detection" : "Enable drowsiness detection"}
+                    ? "bg-sky-500/20 hover:bg-sky-500/30 border-sky-500/40 text-sky-400"
+                    : "bg-white/10 hover:bg-white/15 border-white/25 text-white hover:border-white/40"
+                }`}
+                title={detectionEnabled ? "Disable drowsiness detection" : "Enable drowsiness detection"}
               >
-                <span className="material-symbols-outlined text-base">
-                  {detectionEnabled ? "videocam" : "videocam_off"}
+                {detectionEnabled ? (
+                  <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0" />
+                ) : (
+                  <span className="material-symbols-outlined text-[15px] leading-none shrink-0">
+                    videocam_off
+                  </span>
+                )}
+                <span className="leading-none">
+                  {detectionEnabled ? "Detecting" : <><span className="sm:hidden">Detect</span><span className="hidden sm:inline">Start Detection</span></>}
                 </span>
               </button>
 
-              {/* Time of day toggle */}
+              {/* Time of day toggle — icon-only on mobile, labeled on sm+ */}
               <div className="flex bg-black/50 backdrop-blur-sm border border-white/10 rounded-full overflow-hidden">
                 {(["day", "night"] as const).map((tod) => (
                   <button
                     key={tod}
                     onClick={() => setTimeOfDay(tod)}
-                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                    className={`px-2 py-1.5 sm:px-3 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                       timeOfDay === tod
                         ? "bg-sky-500/20 text-sky-400"
                         : "text-white/40 hover:text-white/70"
                     }`}
+                    title={tod === "day" ? "Day mode" : "Night mode"}
                   >
-                    {tod === "day" ? "☀️ Day" : "🌙 Night"}
+                    <span>{tod === "day" ? "☀️" : "🌙"}</span>
+                    <span className="hidden sm:inline ml-1">{tod === "day" ? "Day" : "Night"}</span>
                   </button>
                 ))}
               </div>
@@ -1087,6 +1172,22 @@ export function SimulationPage() {
           muted
         />
       )}
+
+      {/* ── Crash red flash ──────────────────────────────────────────────── */}
+      <div
+        className="fixed inset-0 z-30 pointer-events-none bg-red-600"
+        style={{
+          opacity: crashFlash ? 0.45 : 0,
+          transition: crashFlash ? "opacity 0s" : "opacity 0.6s ease-out",
+        }}
+      />
+
+      {/* ── Crash alert ──────────────────────────────────────────────────── */}
+      <SimCrashAlert
+        open={crashOpen}
+        speedKph={crashSpeedKph}
+        onDismiss={() => setCrashOpen(false)}
+      />
 
       {/* ── Special alert (sudden brake, head tilt) ───────────────────────── */}
       <SimSpecialAlert

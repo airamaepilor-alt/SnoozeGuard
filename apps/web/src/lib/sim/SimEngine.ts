@@ -65,7 +65,15 @@ export class SimEngine {
 
   private resizeObserver: ResizeObserver;
 
+  // Crash detection
+  private shakeTime = 0;
+  private crashCooldown = 0;
+  private readonly SHAKE_DURATION = 1.2;
+  private readonly SHAKE_INTENSITY = 0.14;
+  private readonly CAR_RADIUS = 0.95; // half the car body width
+
   onTick?: (state: SimTickState) => void;
+  onCrash?: (speedKph: number) => void;
 
   constructor(canvas: HTMLCanvasElement) {
     // Renderer
@@ -136,6 +144,9 @@ export class SimEngine {
     // Physics
     this.car.update(steer, throttle, brake, dt);
 
+    // Crash detection
+    this.checkCrash(dt);
+
     // Camera (FPV ONLY)
     this.updateFPVCamera();
 
@@ -163,6 +174,30 @@ export class SimEngine {
     });
   }
 
+  private checkCrash(dt: number) {
+    if (this.shakeTime > 0) this.shakeTime -= dt;
+    if (this.crashCooldown > 0) {
+      this.crashCooldown -= dt;
+      return;
+    }
+    const cx = this.car.position.x;
+    const cz = this.car.position.z;
+    for (const obj of this.world.getCollisionObjects()) {
+      const dx = cx - obj.x;
+      const dz = cz - obj.z;
+      const distSq = dx * dx + dz * dz;
+      const threshold = this.CAR_RADIUS + obj.radius;
+      if (distSq < threshold * threshold) {
+        const kph = this.car.getSpeedKph();
+        this.car.crashSlowdown();
+        this.shakeTime = this.SHAKE_DURATION;
+        this.crashCooldown = 5.0;
+        this.onCrash?.(kph);
+        return;
+      }
+    }
+  }
+
   // 🔥 PERFECT FPV CAMERA
   private updateFPVCamera() {
     const carPos = this.car.position;
@@ -186,6 +221,16 @@ export class SimEngine {
       eye.y - 0.75,
       eye.z + fwd.z * 60
     );
+
+    // Apply crash camera shake
+    if (this.shakeTime > 0) {
+      const t = this.shakeTime / this.SHAKE_DURATION;
+      const s = t * this.SHAKE_INTENSITY;
+      eye.x += (Math.random() - 0.5) * 2 * s;
+      eye.y += (Math.random() - 0.5) * s * 0.6;
+      look.x += (Math.random() - 0.5) * s * 3;
+      look.y += (Math.random() - 0.5) * s;
+    }
 
     this.camera.position.copy(eye);
     this.camera.lookAt(look);
