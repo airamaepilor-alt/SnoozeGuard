@@ -35,7 +35,7 @@ export async function ensureRemoteSession(supabase: SupabaseClient, userId: stri
   return data.id;
 }
 
-export async function flushPendingTelemetry(supabase: SupabaseClient, userId: string): Promise<number> {
+export async function flushPendingTelemetry(supabase: SupabaseClient, userId: string, onProgress?: () => void): Promise<number> {
   if (!(await isOnline())) return 0;
 
   const db = getDatabase();
@@ -76,6 +76,7 @@ export async function flushPendingTelemetry(supabase: SupabaseClient, userId: st
     if (!error) {
       db.runSync("UPDATE session_telemetry_local SET remote_synced = 1 WHERE id = ?", row.id);
       pushed += 1;
+      onProgress?.();
     }
   }
   return pushed;
@@ -157,7 +158,7 @@ export async function rehydrateSessions(supabase: SupabaseClient, userId: string
   }
 }
 
-export async function flushEndedSessions(supabase: SupabaseClient, userId: string): Promise<void> {
+export async function flushEndedSessions(supabase: SupabaseClient, userId: string, onProgress?: () => void): Promise<void> {
   if (!(await isOnline())) return;
   const db = getDatabase();
   const rows = db.getAllSync<{ id: string; remote_id: string | null; ended_at: string | null }>(
@@ -169,6 +170,7 @@ export async function flushEndedSessions(supabase: SupabaseClient, userId: strin
     const { error } = await supabase.from("driving_sessions").update({ ended_at: r.ended_at }).eq("id", r.remote_id);
     if (!error) {
       db.runSync("UPDATE driving_sessions_local SET ended_synced = 1 WHERE id = ?", r.id);
+      onProgress?.();
     }
   }
 }

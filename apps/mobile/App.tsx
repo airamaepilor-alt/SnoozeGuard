@@ -29,7 +29,7 @@ import { AnalyticsScreen } from "./screens/AnalyticsScreen";
 import { EmergencyAlertMapScreen } from "./screens/EmergencyAlertMapScreen";
 import { EmergencyContactSetupModal } from "./screens/EmergencyContactSetupModal";
 import { getEmergencyContact, registerPushToken } from "./lib/emergencyNotify";
-import { getDatabase, upsertLocalEC } from "./db/database";
+import { getDatabase, upsertLocalEC, getPref, setPref } from "./db/database";
 import { flushEndedSessions, flushPendingTelemetry, rehydrateSessions } from "./sync/flush";
 import { setPresenceIds } from "./lib/presenceStore";
 import { theme } from "./theme";
@@ -145,6 +145,7 @@ function AppDrawer({ visible, onClose, session, superAdmin, onSignOut, onGuard }
   const [myPhone, setMyPhone] = useState("");
   const [online, setOnline] = useState<boolean | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<number | null>(null);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
 
   // Real-time network status
@@ -175,11 +176,32 @@ function AppDrawer({ visible, onClose, session, superAdmin, onSignOut, onGuard }
 
   const handleSync = async () => {
     setSyncing(true);
+    setSyncProgress(0);
     try {
-      await flushEndedSessions(supabase, session.user.id);
-      await flushPendingTelemetry(supabase, session.user.id);
+      const db = getDatabase();
+      const n1 = db.getFirstSync<{ c: number }>(
+        "SELECT COUNT(*) as c FROM driving_sessions_local WHERE user_id = ? AND ended_at IS NOT NULL AND ended_synced = 0",
+        session.user.id,
+      )?.c ?? 0;
+      const n2 = db.getFirstSync<{ c: number }>(
+        `SELECT COUNT(*) as c FROM session_telemetry_local t
+         JOIN driving_sessions_local s ON s.id = t.local_session_id
+         WHERE t.remote_synced = 0 AND s.user_id = ?`,
+        session.user.id,
+      )?.c ?? 0;
+      const total = n1 + n2;
+      let done = 0;
+      const onProgress = () => {
+        done += 1;
+        setSyncProgress(total > 0 ? Math.round((done / total) * 100) : 100);
+      };
+      await flushEndedSessions(supabase, session.user.id, onProgress);
+      await flushPendingTelemetry(supabase, session.user.id, onProgress);
     } catch { /* silent */ }
-    finally { setSyncing(false); }
+    finally {
+      setSyncing(false);
+      setSyncProgress(null);
+    }
   };
 
   const guardedNav = (screenName: keyof MainTabParamList) => {
@@ -249,7 +271,11 @@ function AppDrawer({ visible, onClose, session, superAdmin, onSignOut, onGuard }
               </Text>
             )}
             <Text style={online ? styles.syncLabelOk : styles.syncLabelWarn}>
-              {syncing ? "Syncing…" : online === null ? "Checking…" : online ? "Online — tap to sync" : "Offline"}
+              {syncing
+                ? syncProgress !== null && syncProgress > 0
+                  ? `Syncing… ${syncProgress}%`
+                  : "Syncing…"
+                : online === null ? "Checking…" : online ? "Online — tap to sync" : "Offline"}
             </Text>
           </Pressable>
 
@@ -769,14 +795,52 @@ function AppInner() {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session ?? null);
-      setLoading(false);
-    });
+    let cancelled = false;
+    const OFFLINE_KEY = "offline_session";
+
+    const init = async () => {
+      let resolvedSession: Session | null = null;
+      try {
+        const { data } = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<{ data: { session: null } }>((resolve) =>
+            setTimeout(() => resolve({ data: { session: null } }), 5000)
+          ),
+        ]);
+        resolvedSession = data.session;
+      } catch { /* network error */ }
+
+      if (resolvedSession) {
+        try { setPref(OFFLINE_KEY, JSON.stringify(resolvedSession)); } catch { /* db not ready */ }
+      } else {
+        try {
+          const raw = getPref(OFFLINE_KEY);
+          if (raw) resolvedSession = JSON.parse(raw) as Session;
+        } catch { /* no cache */ }
+      }
+
+      if (!cancelled) {
+        setSession(resolvedSession);
+        setLoading(false);
+      }
+    };
+
+    void init();
+
     const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
-      setSession(next);
+      if (!cancelled) {
+        setSession(next);
+        try {
+          if (next) setPref(OFFLINE_KEY, JSON.stringify(next));
+          else setPref(OFFLINE_KEY, "");
+        } catch { /* silent */ }
+      }
     });
-    return () => sub.subscription.unsubscribe();
+
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   if (loading) {

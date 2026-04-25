@@ -66,11 +66,21 @@ export class GamepadDriver {
       if (m.steerInvert) steer = -steer;
       steer = Math.max(-1, Math.min(1, steer));
 
-      const rawT = gp.axes[m.throttleAxis] ?? m.throttleRange[0];
-      const throttle = normalizeAxis(rawT, m.throttleRange, m.throttleInvert);
+      let throttle: number;
+      let brake: number;
 
-      const rawB = gp.axes[m.brakeAxis] ?? m.brakeRange[0];
-      const brake = normalizeAxis(rawB, m.brakeRange, m.brakeInvert);
+      if (m.throttleAxis === m.brakeAxis) {
+        // Combined axis: split at zero — positive half → throttle, negative half → brake.
+        // This bypasses range/invert entirely so calibration timing can't corrupt the split.
+        const raw = gp.axes[m.throttleAxis] ?? 0;
+        throttle = Math.max(0, Math.min(1, raw));
+        brake    = Math.max(0, Math.min(1, -raw));
+      } else {
+        const rawT = gp.axes[m.throttleAxis] ?? m.throttleRange[0];
+        throttle = normalizeAxis(rawT, m.throttleRange, m.throttleInvert);
+        const rawB = gp.axes[m.brakeAxis] ?? m.brakeRange[0];
+        brake = normalizeAxis(rawB, m.brakeRange, m.brakeInvert);
+      }
 
       return { steer, throttle, brake, connected: true, deviceName: gp.id };
     }

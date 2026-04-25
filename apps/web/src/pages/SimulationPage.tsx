@@ -218,39 +218,69 @@ function CalibrationModal({
   const [rawAxes, setRawAxes] = useState<number[]>([]);
   const [mapping, setMapping] = useState<AxisMapping>(driver.getMapping());
   const rafRef = useRef<number>(0);
+  const rawAxesRef = useRef<number[]>([]);
+  const restingAxesRef = useRef<number[]>([]);
 
   // Poll gamepad axes live
   useEffect(() => {
     const poll = () => {
-      setRawAxes(driver.getRawAxes());
+      const axes = driver.getRawAxes();
+      rawAxesRef.current = axes;
+      setRawAxes(axes);
       rafRef.current = requestAnimationFrame(poll);
     };
     rafRef.current = requestAnimationFrame(poll);
     return () => cancelAnimationFrame(rafRef.current);
   }, [driver]);
 
+  // Capture resting axis values 400 ms after each step change so the user has
+  // time to release the previous pedal before we snapshot the rest position.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      restingAxesRef.current = [...rawAxesRef.current];
+    }, 400);
+    return () => clearTimeout(t);
+  }, [step]);
+
   const assignAxis = (axisIndex: number) => {
-    const current = rawAxes[axisIndex] ?? 0;
-    // Determine invert + range based on current resting value
-    // If resting near +1: axis is inverted (rest=+1, press=-1)
-    // If resting near -1: normal (rest=-1, press=+1)
-    // If resting near 0: standard (-1 to +1, no invert)
-    const isInverted = current > 0.6;
-    const range: [number, number] = [-1, 1];
+    const pressed = rawAxes[axisIndex] ?? 0;
+    const resting = restingAxesRef.current[axisIndex] ?? 0;
+    const delta = pressed - resting;
 
     setMapping((prev) => {
       const next = { ...prev };
       if (step === "steer") {
         next.steerAxis = axisIndex;
-        next.steerInvert = current > 0.3; // usually not inverted
+        next.steerInvert = pressed > 0.3;
       } else if (step === "throttle") {
         next.throttleAxis = axisIndex;
-        next.throttleInvert = isInverted;
-        next.throttleRange = range;
+        if (delta > 0.15) {
+          // Pressing moves axis up (e.g., combined axis: rest≈0 → +1 when pressed)
+          next.throttleInvert = false;
+          next.throttleRange = [resting, 1];
+        } else if (delta < -0.15) {
+          // Pressing moves axis down (e.g., Logitech G29: rest=+1 → -1 when pressed)
+          next.throttleInvert = true;
+          next.throttleRange = [-1, resting];
+        } else {
+          // No clear movement — fall back to resting-value heuristic
+          next.throttleInvert = resting > 0.5;
+          next.throttleRange = [-1, 1];
+        }
       } else if (step === "brake") {
         next.brakeAxis = axisIndex;
-        next.brakeInvert = isInverted;
-        next.brakeRange = range;
+        if (delta < -0.15) {
+          // Pressing moves axis down (combined: rest≈0 → -1, or G29 brake)
+          next.brakeInvert = true;
+          next.brakeRange = [-1, resting];
+        } else if (delta > 0.15) {
+          // Pressing moves axis up (unusual orientation)
+          next.brakeInvert = false;
+          next.brakeRange = [resting, 1];
+        } else {
+          next.brakeInvert = resting > 0.5;
+          next.brakeRange = [-1, 1];
+        }
       }
       return next;
     });
@@ -274,15 +304,15 @@ function CalibrationModal({
   const stepInfo: Record<Exclude<CalibStep, "done">, { title: string; instruction: string }> = {
     steer: {
       title: "Step 1 / 3 — Steering Wheel",
-      instruction: "Slowly turn your steering wheel fully left, then right. Click the axis that's moving.",
+      instruction: "Keep pedals released. Slowly turn your steering wheel left and right. Click the axis that highlights.",
     },
     throttle: {
       title: "Step 2 / 3 — Accelerator Pedal",
-      instruction: "Press the accelerator pedal fully down. Click the axis that changes.",
+      instruction: "Release all pedals first — then press ONLY the accelerator fully down. Click the highlighted axis.",
     },
     brake: {
       title: "Step 3 / 3 — Brake Pedal",
-      instruction: "Press the brake pedal fully down. Click the axis that changes.",
+      instruction: "Release all pedals first — then press ONLY the brake pedal fully down. Click the highlighted axis.",
     },
   };
 
@@ -321,37 +351,55 @@ function CalibrationModal({
               </div>
             ) : (
               <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                {rawAxes.map((val, i) => {
-                  const pct = ((val + 1) / 2) * 100;
-                  const isAssigned =
-                    (step === "throttle" && mapping.steerAxis === i) ||
-                    (step === "brake" &&
-                      (mapping.steerAxis === i || mapping.throttleAxis === i));
-                  return (
-                    <button
-                      key={i}
-                      onClick={() => assignAxis(i)}
-                      disabled={isAssigned}
-                      className="w-full flex items-center gap-3 bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:pointer-events-none rounded-lg p-3 transition-colors text-left group"
-                    >
-                      <span className="text-xs text-slate-400 w-12 shrink-0 font-mono">
-                        Axis {i}
-                      </span>
-                      <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-sky-400 rounded-full transition-all duration-75"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                      <span className="text-xs text-slate-400 w-12 text-right font-mono shrink-0">
-                        {val.toFixed(2)}
-                      </span>
-                      <span className="text-[10px] text-sky-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                        SELECT
-                      </span>
-                    </button>
+                {(() => {
+                  const deltas = rawAxes.map((v, idx) =>
+                    Math.abs(v - (restingAxesRef.current[idx] ?? v))
                   );
-                })}
+                  const maxDelta = Math.max(0.01, ...deltas);
+                  return rawAxes.map((val, i) => {
+                    const pct = ((val + 1) / 2) * 100;
+                    // Only disable the steer axis for pedal steps; throttle/brake may
+                    // share the same axis on combined pedal units.
+                    const isAssigned =
+                      (step === "throttle" && mapping.steerAxis === i) ||
+                      (step === "brake" && mapping.steerAxis === i);
+                    const isActive = !isAssigned && deltas[i] > 0.12 && deltas[i] === maxDelta;
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => assignAxis(i)}
+                        disabled={isAssigned}
+                        className={`w-full flex items-center gap-3 rounded-lg p-3 transition-colors text-left group disabled:opacity-30 disabled:pointer-events-none ${
+                          isActive
+                            ? "bg-sky-500/20 border border-sky-500/50 hover:bg-sky-500/30"
+                            : "bg-white/5 hover:bg-white/10 border border-transparent"
+                        }`}
+                      >
+                        <span className="text-xs text-slate-400 w-12 shrink-0 font-mono">
+                          Axis {i}
+                        </span>
+                        <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-75 ${isActive ? "bg-sky-400" : "bg-white/40"}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <span className={`text-xs w-12 text-right font-mono shrink-0 ${isActive ? "text-sky-300 font-bold" : "text-slate-400"}`}>
+                          {val.toFixed(2)}
+                        </span>
+                        {isActive ? (
+                          <span className="text-[10px] text-sky-400 font-bold shrink-0 animate-pulse">
+                            ← SELECT
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-sky-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                            SELECT
+                          </span>
+                        )}
+                      </button>
+                    );
+                  });
+                })()}
               </div>
             )}
           </>

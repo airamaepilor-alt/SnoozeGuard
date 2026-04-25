@@ -103,6 +103,7 @@ export class SimWorld {
     this.buildTrees();
     this.buildMountains();
     this.buildStreetlights();
+    this.buildCampusLandmark();
     this.buildSkyObjects();
   }
 
@@ -400,6 +401,275 @@ export class SimWorld {
         this.scene.add(pl);
       }
     }
+  }
+
+  // ── Campus Landmark: Divine Word College of Calapan ────────────────────────
+
+  private buildCampusLandmark() {
+    const startPoint = this.getRoadStart();
+    const campusX = startPoint.x - 45;
+    const campusZ = startPoint.z - 35;
+
+    // Green color scheme for the college
+    const darkGreenMat = new THREE.MeshPhongMaterial({ color: 0x1a4d2e });
+    const mediumGreenMat = new THREE.MeshPhongMaterial({ color: 0x2d5a20 });
+    const lightGreenMat = new THREE.MeshPhongMaterial({ color: 0x4a8a3a });
+    const roofMat = new THREE.MeshPhongMaterial({ color: 0x0d3b1f });
+
+    // ── Main Academic Building (center, prominent) ──────────────────────────
+
+    const mainBuilding = new THREE.Mesh(
+      new THREE.BoxGeometry(24, 10, 16),
+      mediumGreenMat
+    );
+    mainBuilding.position.set(campusX, 5, campusZ);
+    this.scene.add(mainBuilding);
+    this.collisionObjects.push({ x: campusX, z: campusZ, radius: 14 });
+
+    // Roof
+    const mainRoof = new THREE.Mesh(
+      new THREE.ConeGeometry(16, 3, 4),
+      roofMat
+    );
+    mainRoof.position.set(campusX, 10.5, campusZ);
+    this.scene.add(mainRoof);
+
+    // ── Left Administration Building ─────────────────────────────────────────
+
+    const adminBuilding = new THREE.Mesh(
+      new THREE.BoxGeometry(14, 8, 12),
+      darkGreenMat
+    );
+    adminBuilding.position.set(campusX - 22, 4, campusZ + 8);
+    this.scene.add(adminBuilding);
+    this.collisionObjects.push({ x: campusX - 22, z: campusZ + 8, radius: 10 });
+
+    const adminRoof = new THREE.Mesh(
+      new THREE.ConeGeometry(10, 2.5, 4),
+      roofMat
+    );
+    adminRoof.position.set(campusX - 22, 8.8, campusZ + 8);
+    this.scene.add(adminRoof);
+
+    // ── Right Library Building ───────────────────────────────────────────────
+
+    const libraryBuilding = new THREE.Mesh(
+      new THREE.BoxGeometry(16, 9, 11),
+      lightGreenMat
+    );
+    libraryBuilding.position.set(campusX + 22, 4.5, campusZ + 6);
+    this.scene.add(libraryBuilding);
+    this.collisionObjects.push({ x: campusX + 22, z: campusZ + 6, radius: 11 });
+
+    const libraryRoof = new THREE.Mesh(
+      new THREE.ConeGeometry(11, 2.8, 4),
+      roofMat
+    );
+    libraryRoof.position.set(campusX + 22, 9.5, campusZ + 6);
+    this.scene.add(libraryRoof);
+
+    // ── Campus Gate/Entrance (pair of pillars) ──────────────────────────────
+
+    const gateLeft = new THREE.Mesh(
+      new THREE.BoxGeometry(2, 6, 1.5),
+      darkGreenMat
+    );
+    gateLeft.position.set(campusX - 15, 3, campusZ - 20);
+    this.scene.add(gateLeft);
+
+    const gateRight = new THREE.Mesh(
+      new THREE.BoxGeometry(2, 6, 1.5),
+      darkGreenMat
+    );
+    gateRight.position.set(campusX + 15, 3, campusZ - 20);
+    this.scene.add(gateRight);
+
+    // Gate top connector
+    const gateTop = new THREE.Mesh(
+      new THREE.BoxGeometry(32, 1, 1.5),
+      mediumGreenMat
+    );
+    gateTop.position.set(campusX, 6.2, campusZ - 20);
+    this.scene.add(gateTop);
+
+    // ── Large Signboard with College Name and Logo ─────────────────────────────
+
+    const signboardBase = new THREE.Mesh(
+      new THREE.BoxGeometry(28, 0.5, 2),
+      darkGreenMat
+    );
+    signboardBase.position.set(campusX - 26, 5, campusZ - 18);
+    this.scene.add(signboardBase);
+
+    // Create canvas texture for signboard with text and logo
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d')!;
+
+    // Green background
+    ctx.fillStyle = '#1a4d2e';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // White border
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 12;
+    ctx.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
+
+    // Draw circular logo on the left
+    const logoX = 120;
+    const logoY = canvas.height / 2;
+    const logoRadius = 80;
+
+    // Outer circle (white)
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(logoX, logoY, logoRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Inner green circle
+    ctx.fillStyle = '#1a4d2e';
+    ctx.beginPath();
+    ctx.arc(logoX, logoY, logoRadius - 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Lighter green inner area
+    ctx.fillStyle = '#2d5a20';
+    ctx.beginPath();
+    ctx.arc(logoX, logoY, logoRadius - 16, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Logo text (simplified seal elements)
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DWCC', logoX, logoY - 12);
+    ctx.fillText('CALAPAN', logoX, logoY + 12);
+
+    // Draw decorative elements (wings/leaf shapes)
+    ctx.fillStyle = '#4a8a3a';
+    // Left wing
+    ctx.beginPath();
+    ctx.ellipse(logoX - 30, logoY - 50, 15, 25, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    // Right wing
+    ctx.beginPath();
+    ctx.ellipse(logoX + 30, logoY - 50, 15, 25, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Main heading - College Name
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 52px Arial';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Divine Word College', 280, canvas.height / 2 - 40);
+
+    // Subtitle
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 48px Arial';
+    ctx.fillText('of Calapan', 280, canvas.height / 2 + 35);
+
+    // Tagline
+    ctx.fillStyle = '#d0d0d0';
+    ctx.font = '18px Arial';
+    ctx.fillText('Oriental Mindoro', 280, canvas.height / 2 + 85);
+
+    // Create texture from canvas
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearFilter;
+    const signboardMat = new THREE.MeshBasicMaterial({ map: texture });
+
+    const signboardPanel = new THREE.Mesh(
+      new THREE.BoxGeometry(26, 5, 0.4),
+      signboardMat
+    );
+    signboardPanel.position.set(campusX - 26, 7.5, campusZ - 18);
+    this.scene.add(signboardPanel);
+    this.collisionObjects.push({ x: campusX - 26, z: campusZ - 18, radius: 4 });
+
+    // Signboard border (green frame)
+    const signboardBorder = new THREE.Mesh(
+      new THREE.BoxGeometry(26.5, 5.5, 0.2),
+      darkGreenMat
+    );
+    signboardBorder.position.set(campusX - 26, 7.5, campusZ - 17.9);
+    this.scene.add(signboardBorder);
+
+    // ── Campus Fence ────────────────────────────────────────────────────────
+
+    const fenceHeight = 2;
+    const fencePositions = [
+      { x: campusX - 40, z: campusZ - 25 },
+      { x: campusX - 40, z: campusZ },
+      { x: campusX - 40, z: campusZ + 25 },
+      { x: campusX + 40, z: campusZ - 25 },
+      { x: campusX + 40, z: campusZ },
+      { x: campusX + 40, z: campusZ + 25 },
+    ];
+
+    fencePositions.forEach((pos) => {
+      const fencePost = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.3, 0.4, fenceHeight, 8),
+        mediumGreenMat
+      );
+      fencePost.position.set(pos.x, fenceHeight / 2, pos.z);
+      this.scene.add(fencePost);
+    });
+
+    // Fence rails
+    const fenceRail1 = new THREE.Mesh(
+      new THREE.BoxGeometry(80, 0.3, 0.3),
+      mediumGreenMat
+    );
+    fenceRail1.position.set(campusX, 0.8, campusZ - 25);
+    this.scene.add(fenceRail1);
+
+    const fenceRail2 = new THREE.Mesh(
+      new THREE.BoxGeometry(80, 0.3, 0.3),
+      mediumGreenMat
+    );
+    fenceRail2.position.set(campusX, 0.8, campusZ + 25);
+    this.scene.add(fenceRail2);
+
+    // ── Landscaping: Green shrubs/bushes around buildings ─────────────────────
+
+    const shrubPositions = [
+      { x: campusX - 35, z: campusZ - 10 },
+      { x: campusX + 35, z: campusZ - 12 },
+      { x: campusX, z: campusZ - 25 },
+      { x: campusX - 20, z: campusZ + 15 },
+      { x: campusX + 20, z: campusZ + 18 },
+    ];
+
+    shrubPositions.forEach((pos) => {
+      const shrub = new THREE.Mesh(
+        new THREE.SphereGeometry(3, 8, 8),
+        lightGreenMat
+      );
+      shrub.scale.set(1, 0.8, 1);
+      shrub.position.set(pos.x, 2.5, pos.z);
+      this.scene.add(shrub);
+    });
+
+    // ── Flagpole with accent (near main building) ────────────────────────────
+
+    const flagpoleMat = new THREE.MeshPhongMaterial({ color: 0x666666 });
+    const flagpole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.15, 0.2, 10, 6),
+      flagpoleMat
+    );
+    flagpole.position.set(campusX + 12, 5, campusZ + 8);
+    this.scene.add(flagpole);
+
+    // Flag (green)
+    const flag = new THREE.Mesh(
+      new THREE.BoxGeometry(4, 2.5, 0.1),
+      mediumGreenMat
+    );
+    flag.position.set(campusX + 14.5, 8.5, campusZ + 8);
+    this.scene.add(flag);
   }
 
   // ── Time of day ────────────────────────────────────────────────────────────
