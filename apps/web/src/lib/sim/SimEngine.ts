@@ -122,6 +122,10 @@ export class SimEngine {
     this.world.setTimeOfDay(tod);
   }
 
+  resetSpeed() {
+    this.car.speed = 0;
+  }
+
   start() {
     this.lastTime = performance.now();
     this.tick(this.lastTime);

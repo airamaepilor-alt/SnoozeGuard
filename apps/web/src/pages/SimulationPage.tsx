@@ -1251,7 +1251,7 @@ export function SimulationPage() {
       <SimCrashAlert
         open={crashOpen}
         speedKph={crashSpeedKph}
-        onDismiss={() => setCrashOpen(false)}
+        onDismiss={() => { engineRef.current?.resetSpeed(); setCrashOpen(false); }}
       />
 
       {/* ── Special alert (sudden brake, head tilt) ───────────────────────── */}
@@ -1259,7 +1259,7 @@ export function SimulationPage() {
         open={specialAlertOpen}
         title={specialAlertTitle}
         message={specialAlertMessage}
-        onDismiss={() => setSpecialAlertOpen(false)}
+        onDismiss={() => { engineRef.current?.resetSpeed(); setSpecialAlertOpen(false); }}
       />
 
       {/* ── Drowsiness alert overlay ──────────────────────────────────────── */}

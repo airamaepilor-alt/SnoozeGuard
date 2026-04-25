@@ -13,13 +13,13 @@ export class SimCar {
   yaw = 0;
   speed = 0;
 
-  private readonly MAX_SPEED = 50;       // m/s ≈ 180 km/h ceiling
-  private readonly ACCEL_RATE = 5 / 3.6; // +5 km/h per second at full throttle
-  private readonly DECEL_RATE = 5 / 3.6; // −5 km/h per second when coasting
-  private readonly BRAKE_RATE = 25 / 3.6;// −25 km/h per second under braking
-  private readonly MAX_STEER_RATE = 1.7;
-  private readonly MAX_STEERING_ANGLE = Math.PI / 4; // ±45 degrees
-  private readonly STEERING_WHEEL_RESPONSE = 3.5; // rad/sec (speed of steering input response)
+  private readonly MAX_SPEED = 50;        // m/s ≈ 180 km/h ceiling
+  private readonly ACCEL_RATE = 10 / 3.6; // +10 km/h per second (linear phase)
+  private readonly DECEL_RATE = 5 / 3.6;  // −5 km/h per second when coasting
+  private readonly BRAKE_RATE = 25 / 3.6; // −25 km/h per second under braking
+  private readonly MAX_STEER_RATE = 0.85; // halved — less twitchy at speed
+  private readonly MAX_STEERING_ANGLE = Math.PI / 4;
+  private readonly STEERING_WHEEL_RESPONSE = 1.8; // slower wheel weight feel
   private readonly STEERING_WHEEL_GEAR_RATIO = 15; // wheel rotation multiplier
 
   private interior: THREE.Group;
@@ -159,15 +159,24 @@ export class SimCar {
     const t = pedal(throttle, 0.10);
     const b = pedal(brake,    0.05);
 
+    // ── Throttle / coast (two-phase model, accelerator only) ──────────
     if (t > 0) {
-      // Holding accelerator: +5 km/h per second, scaled by how hard you press
-      this.speed += t * this.ACCEL_RATE * dt;
-    } else if (b > 0) {
-      // Braking: −25 km/h per second, scaled by pedal pressure
-      this.speed -= b * this.BRAKE_RATE * dt;
+      const kph = this.speed * 3.6;
+      // 0–50 km/h: linear +10 km/h/s (≈ first 5 s at full throttle).
+      // 50–70 km/h: blend into quadratic.
+      // 70+ km/h: quadratic only — gradually harder to gain speed.
+      const phase = Math.min(1, Math.max(0, (kph - 50) / 20));
+      const rate = (1 - phase) * (t * this.ACCEL_RATE)
+                 + phase        * (t * t * 0.35 * this.ACCEL_RATE);
+      this.speed += rate * dt;
     } else {
-      // Coasting: −5 km/h per second naturally
+      // Releasing accelerator: coast down at fixed rate
       this.speed -= this.DECEL_RATE * dt;
+    }
+
+    // ── Brake (fully independent of throttle model) ────────────────────
+    if (b > 0) {
+      this.speed -= b * this.BRAKE_RATE * dt;
     }
 
     this.speed = Math.max(0, Math.min(this.MAX_SPEED, this.speed));
