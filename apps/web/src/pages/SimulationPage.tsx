@@ -215,6 +215,7 @@ function CalibrationModal({
   onClose: () => void;
 }) {
   const [step, setStep] = useState<CalibStep>("steer");
+  const [steerOnly, setSteerOnly] = useState(false);
   const [rawAxes, setRawAxes] = useState<number[]>([]);
   const [mapping, setMapping] = useState<AxisMapping>(driver.getMapping());
   const rafRef = useRef<number>(0);
@@ -286,7 +287,9 @@ function CalibrationModal({
     });
 
     const order: CalibStep[] = ["steer", "throttle", "brake", "done"];
-    const next = order[order.indexOf(step) + 1] ?? "done";
+    const next = (steerOnly && step === "steer")
+      ? "done"
+      : (order[order.indexOf(step) + 1] ?? "done");
     setStep(next);
   };
 
@@ -415,8 +418,22 @@ function CalibrationModal({
               Steer → Axis {mapping.steerAxis} &nbsp;·&nbsp; Throttle → Axis{" "}
               {mapping.throttleAxis} &nbsp;·&nbsp; Brake → Axis {mapping.brakeAxis}
             </p>
+            <div className="flex gap-2 mt-2 mb-3 justify-center">
+              <button
+                onClick={() => setMapping((prev) => ({ ...prev, steerInvert: !prev.steerInvert }))}
+                className="px-3 py-1.5 text-xs rounded-lg border transition-colors bg-white/5 hover:bg-white/10 border-white/10 text-slate-300"
+              >
+                {mapping.steerInvert ? "Steer: Inverted" : "Steer: Normal"} — flip
+              </button>
+              <button
+                onClick={() => { setSteerOnly(true); setStep("steer"); }}
+                className="px-3 py-1.5 text-xs rounded-lg border transition-colors bg-sky-500/10 hover:bg-sky-500/20 border-sky-500/20 text-sky-400"
+              >
+                Reconfigure Steer Only
+              </button>
+            </div>
             <p className="text-slate-500 text-xs">
-              Settings saved in your browser. Redo this if your mapping feels wrong.
+              Steering reversed? Flip it above, or re-run the steer step without touching the pedals.
             </p>
           </div>
         )}
