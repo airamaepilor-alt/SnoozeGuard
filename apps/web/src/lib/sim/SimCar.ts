@@ -13,10 +13,10 @@ export class SimCar {
   yaw = 0;
   speed = 0;
 
-  private readonly MAX_SPEED = 50;
-  private readonly ACCELERATION = 22;
-  private readonly BRAKE_DECEL = 45;
-  private readonly DRAG = 0.38;
+  private readonly MAX_SPEED = 50;       // m/s ≈ 180 km/h ceiling
+  private readonly ACCEL_RATE = 5 / 3.6; // +5 km/h per second at full throttle
+  private readonly DECEL_RATE = 5 / 3.6; // −5 km/h per second when coasting
+  private readonly BRAKE_RATE = 25 / 3.6;// −25 km/h per second under braking
   private readonly MAX_STEER_RATE = 1.7;
   private readonly MAX_STEERING_ANGLE = Math.PI / 4; // ±45 degrees
   private readonly STEERING_WHEEL_RESPONSE = 3.5; // rad/sec (speed of steering input response)
@@ -153,10 +153,23 @@ export class SimCar {
   // UPDATE LOOP
   // ─────────────────────────────────────────
   update(steer: number, throttle: number, brake: number, dt: number) {
-    if (throttle > 0.02) this.speed += throttle * this.ACCELERATION * dt;
-    if (brake > 0.02) this.speed -= brake * this.BRAKE_DECEL * dt;
+    const pedal = (raw: number, dz: number) =>
+      raw <= dz ? 0 : (raw - dz) / (1 - dz);
 
-    this.speed -= this.DRAG * this.speed * dt;
+    const t = pedal(throttle, 0.10);
+    const b = pedal(brake,    0.05);
+
+    if (t > 0) {
+      // Holding accelerator: +5 km/h per second, scaled by how hard you press
+      this.speed += t * this.ACCEL_RATE * dt;
+    } else if (b > 0) {
+      // Braking: −25 km/h per second, scaled by pedal pressure
+      this.speed -= b * this.BRAKE_RATE * dt;
+    } else {
+      // Coasting: −5 km/h per second naturally
+      this.speed -= this.DECEL_RATE * dt;
+    }
+
     this.speed = Math.max(0, Math.min(this.MAX_SPEED, this.speed));
 
     // Update steering angle smoothly (accumulate steering input)
