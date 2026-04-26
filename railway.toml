@@ -1,0 +1,6 @@
+[build]
+buildCommand = "npm run build --workspace=@snoozeguard/shared && npm run build --workspace=@snoozeguard/api"
+installCommand = "npm install --ignore-scripts --no-audit"
+
+[deploy]
+startCommand = "npm run start --workspace=@snoozeguard/api"
