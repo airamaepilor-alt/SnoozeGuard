@@ -1056,17 +1056,52 @@ export function DriveScreen() {
             </View>
           </View>
           {iotSavedId ? (
-            <View style={styles.iotSavedRow}>
-              <Text style={styles.iotDeviceId} numberOfLines={1}>{iotSavedId}</Text>
-              <Pressable onPress={() => {
-                void supabase.from("user_iot_devices").delete().eq("user_id", user.id).then(() => {
-                  setIotSavedId(null);
-                  setIotInput("");
-                  setIotLastSeen(null);
-                  iotDeviceIdRef.current = null;
-                });
-              }}>
-                <Text style={styles.iotUnlink}>Unlink</Text>
+            <View>
+              <View style={styles.iotSavedRow}>
+                <Text style={styles.iotDeviceId} numberOfLines={1}>{iotSavedId}</Text>
+                <Pressable onPress={() => {
+                  disconnectBle();
+                  void supabase.from("user_iot_devices").delete().eq("user_id", user.id).then(() => {
+                    setIotSavedId(null);
+                    setIotInput("");
+                    setIotLastSeen(null);
+                    iotDeviceIdRef.current = null;
+                  });
+                }}>
+                  <Text style={styles.iotUnlink}>Unlink</Text>
+                </Pressable>
+              </View>
+              {/* BLE connect/disconnect */}
+              <Pressable
+                style={[
+                  styles.bleBtnRow,
+                  bleStatus === "connected" && styles.bleBtnConnected,
+                  bleStatus === "error"     && styles.bleBtnError,
+                  bleStatus === "scanning"  && styles.bleBtnScanning,
+                ]}
+                disabled={bleStatus === "scanning"}
+                onPress={() => {
+                  if (bleStatus === "connected") disconnectBle();
+                  else connectBle(iotSavedId);
+                }}
+              >
+                <View style={[
+                  styles.bleDot,
+                  bleStatus === "connected" && { backgroundColor: t.primary },
+                  bleStatus === "scanning"  && { backgroundColor: t.secondary },
+                  bleStatus === "error"     && { backgroundColor: t.tertiary },
+                ]} />
+                <Text style={[
+                  styles.bleBtnText,
+                  bleStatus === "connected" && { color: t.primary },
+                  bleStatus === "error"     && { color: t.tertiary },
+                  bleStatus === "scanning"  && { color: t.secondary },
+                ]}>
+                  {bleStatus === "idle"      && "Connect via Bluetooth"}
+                  {bleStatus === "scanning"  && "Scanning for device…"}
+                  {bleStatus === "connected" && "BLE Connected — tap to disconnect"}
+                  {bleStatus === "error"     && "BLE failed — tap to retry"}
+                </Text>
               </Pressable>
             </View>
           ) : (
@@ -1224,4 +1259,17 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     borderRadius: 10, borderWidth: 1, borderColor: `${t.primary}44`, justifyContent: "center",
   },
   iotLinkText: { color: t.primary, fontSize: 12, fontWeight: "700" },
+
+  bleBtnRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginTop: 8, paddingVertical: 8, paddingHorizontal: 10,
+    borderRadius: 10, borderWidth: 1,
+    borderColor: `${t.outlineVariant}33`,
+    backgroundColor: `${t.outlineVariant}11`,
+  },
+  bleBtnConnected: { borderColor: `${t.primary}44`, backgroundColor: `${t.primary}11` },
+  bleBtnError:     { borderColor: `${t.tertiary}44`, backgroundColor: `${t.tertiary}11` },
+  bleBtnScanning:  { borderColor: `${t.secondary}44`, backgroundColor: `${t.secondary}11` },
+  bleDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: t.outlineVariant },
+  bleBtnText: { fontSize: 11, fontWeight: "600", color: t.onSurfaceVariant, flex: 1 },
 });

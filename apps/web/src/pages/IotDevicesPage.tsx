@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
-import { useThemeToggle } from "../context/ThemeContext";
 import { supabase } from "../lib/supabase";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 
@@ -13,8 +12,7 @@ type IotDevice = {
 
 export function IotDevicesPage() {
   const { user } = useAuth();
-  const { isDark } = useThemeToggle();
-  const { isOnline } = useOnlineStatus();
+  const isOnline = useOnlineStatus();
 
   const [devices, setDevices] = useState<IotDevice[]>([]);
   const [loading, setLoading] = useState(true);

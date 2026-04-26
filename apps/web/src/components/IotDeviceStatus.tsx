@@ -20,14 +20,12 @@ interface IotDeviceStatusProps {
  */
 export function IotDeviceStatus({ userId, compact = false, showManageLink = true }: IotDeviceStatusProps) {
   const [device, setDevice] = useState<IotDevice | null>(null);
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
 
     const loadDevice = async () => {
       try {
-        setLoading(true);
         const { data } = await supabase
           .from("user_iot_devices")
           .select("*")
@@ -37,8 +35,6 @@ export function IotDeviceStatus({ userId, compact = false, showManageLink = true
         setDevice(data || null);
       } catch (e) {
         console.error("Failed to load IoT device:", e);
-      } finally {
-        setLoading(false);
       }
     };
 
