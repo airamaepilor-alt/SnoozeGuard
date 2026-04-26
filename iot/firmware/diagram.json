@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "author": "SnoozeGuard",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-esp32-devkit-v1",
+      "id": "esp",
+      "top": 200,
+      "left": 100,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_red",
+      "top": 80,
+      "left": 350,
+      "attrs": { "color": "red", "label": "Alert LED GPIO27" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_red",
+      "top": 160,
+      "left": 350,
+      "rotate": 90,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_blue",
+      "top": 80,
+      "left": 430,
+      "attrs": { "color": "blue", "label": "BLE LED GPIO33" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_blue",
+      "top": 160,
+      "left": 430,
+      "rotate": 90,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_vib",
+      "top": 80,
+      "left": 510,
+      "attrs": { "color": "yellow", "label": "Vibration GPIO25" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_vib",
+      "top": 160,
+      "left": 510,
+      "rotate": 90,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "buz",
+      "top": 80,
+      "left": 590,
+      "attrs": { "label": "Buzzer GPIO26" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn",
+      "top": 460,
+      "left": 220,
+      "attrs": { "label": "Dismiss GPIO32" }
+    }
+  ],
+  "connections": [
+    ["esp:D27", "r_red:2",    "red",    []],
+    ["r_red:1", "led_red:A",  "red",    []],
+    ["led_red:C", "esp:GND.2","black",  []],
+
+    ["esp:D33", "r_blue:2",   "blue",   []],
+    ["r_blue:1","led_blue:A", "blue",   []],
+    ["led_blue:C","esp:GND.2","black",  []],
+
+    ["esp:D25", "r_vib:2",    "yellow", []],
+    ["r_vib:1", "led_vib:A",  "yellow", []],
+    ["led_vib:C","esp:GND.2", "black",  []],
+
+    ["esp:D26", "buz:1",      "orange", []],
+    ["buz:2",   "esp:GND.2",  "black",  []],
+
+    ["esp:D32", "btn:1.l",    "purple", []],
+    ["btn:2.l", "esp:GND.1",  "black",  []]
+  ]
+}

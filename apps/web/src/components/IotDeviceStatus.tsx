@@ -20,7 +20,7 @@ interface IotDeviceStatusProps {
  */
 export function IotDeviceStatus({ userId, compact = false, showManageLink = true }: IotDeviceStatusProps) {
   const [device, setDevice] = useState<IotDevice | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
 
   useEffect(() => {
     if (!userId) return;

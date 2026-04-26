@@ -31,6 +31,7 @@
  *
  * Copy include/secrets.example.h → include/secrets.h and fill in your values.
  * Flash: pio run -t upload
+ * Simulate (Wokwi, BLE disabled): pio run -e sg_sim
  */
 
 #include <Arduino.h>
@@ -39,14 +40,39 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
+#include <DFRobotDFPlayerMini.h>
+#include <SPIFFS.h>
+#include <time.h>
+
+#ifndef NO_BLE
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
-#include <DFRobotDFPlayerMini.h>
-#include <time.h>
+#endif
 
 #include "secrets.h"
+
+// ── File logger (writes to /log.txt on SPIFFS) ────────────────────────────────
+static File logFile;
+static void logInit() {
+  if (SPIFFS.begin(true)) {
+    logFile = SPIFFS.open("/log.txt", FILE_WRITE);
+  }
+}
+static void LOG(const char *msg) {
+  Serial.println(msg);
+  Serial.flush();
+  if (logFile) { logFile.println(msg); logFile.flush(); }
+}
+static void logDump() {
+  File f = SPIFFS.open("/log.txt", FILE_READ);
+  if (!f) return;
+  Serial.println("=== /log.txt ===");
+  while (f.available()) Serial.write(f.read());
+  Serial.println("=== END ===");
+  f.close();
+}
 
 // ── Pin / config defaults (override in secrets.h) ─────────────────────────────
 #ifndef IOT_DEVICE_ID
@@ -117,13 +143,17 @@ static uint32_t vibTimer           = 0;
 // LED flash state (level 10 only)
 static bool     ledFlash           = false;
 static uint32_t ledFlashTimer      = 0;
+static bool     dfPlayerReady      = false;
 
 // ── Hardware ──────────────────────────────────────────────────────────────────
-static HardwareSerial    dfSerial(2);
+static HardwareSerial      dfSerial(2);
 static DFRobotDFPlayerMini dfPlayer;
-static WiFiClientSecure  mqttWifi;
-static PubSubClient      mqtt(mqttWifi);
-static BLECharacteristic *pEventChar = nullptr;
+static WiFiClientSecure    mqttWifi;
+static PubSubClient        mqtt(mqttWifi);
+
+#ifndef NO_BLE
+static BLECharacteristic  *pEventChar = nullptr;
+#endif
 
 // ── Alert helpers ─────────────────────────────────────────────────────────────
 
@@ -131,15 +161,15 @@ static void stopAllOutputs() {
   digitalWrite(IOT_BUZZER_PIN,    LOW);
   digitalWrite(IOT_LED_PIN,       LOW);
   digitalWrite(IOT_VIBRATION_PIN, LOW);
-  dfPlayer.stop();
-  vibLeft = 0;
-  vibOn   = false;
+  if (dfPlayerReady) dfPlayer.stop();
+  vibLeft  = 0;
+  vibOn    = false;
   ledFlash = false;
 }
 
 static void clearAlert() {
-  alertActive      = false;
-  currentLevel     = 0;
+  alertActive       = false;
+  currentLevel      = 0;
   currentAlertId[0] = '\0';
   stopAllOutputs();
 }
@@ -147,7 +177,6 @@ static void clearAlert() {
 static void triggerAlert(int level, const char *alertId) {
   if (level < 6) return;
 
-  // Stop any ongoing alert before starting new one
   stopAllOutputs();
 
   alertActive  = true;
@@ -155,11 +184,9 @@ static void triggerAlert(int level, const char *alertId) {
   strncpy(currentAlertId, alertId, sizeof(currentAlertId) - 1);
   currentAlertId[sizeof(currentAlertId) - 1] = '\0';
 
-  // Voice: track index = level - 5  (level 6 → track 1, level 10 → track 5)
-  dfPlayer.play(level - 5);
+  if (dfPlayerReady) dfPlayer.play(level - 5);
 
   if (level >= 9) {
-    // Continuous: buzzer + vibration + LED (level 10 also flashes LED)
     digitalWrite(IOT_BUZZER_PIN,    HIGH);
     digitalWrite(IOT_VIBRATION_PIN, HIGH);
     if (level == 10) {
@@ -170,7 +197,6 @@ static void triggerAlert(int level, const char *alertId) {
       digitalWrite(IOT_LED_PIN, HIGH);
     }
   } else {
-    // Pulse pattern for levels 6–8
     const VibPattern &p = kVib[level];
     vibLeft  = p.pulses;
     vibOn    = true;
@@ -213,6 +239,7 @@ static void handleLedFlash(uint32_t now) {
 
 // ── BLE callbacks ─────────────────────────────────────────────────────────────
 
+#ifndef NO_BLE
 class SgServerCb : public BLEServerCallbacks {
   void onConnect(BLEServer *s) override {
     bleConnected = true;
@@ -249,10 +276,10 @@ static void initBle() {
   snprintf(name, sizeof(name), "SG-%s", IOT_DEVICE_ID);
   BLEDevice::init(name);
 
-  BLEServer  *pSrv  = BLEDevice::createServer();
+  BLEServer  *pSrv = BLEDevice::createServer();
   pSrv->setCallbacks(new SgServerCb());
 
-  BLEService *pSvc  = pSrv->createService(SG_SERVICE_UUID);
+  BLEService *pSvc = pSrv->createService(SG_SERVICE_UUID);
 
   BLECharacteristic *pCmd = pSvc->createCharacteristic(
     SG_CMD_CHAR_UUID,
@@ -276,6 +303,7 @@ static void initBle() {
 
   Serial.printf("BLE: advertising as %s\n", name);
 }
+#endif // NO_BLE
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
@@ -359,9 +387,13 @@ static void reconnectMqtt() {
 
 void setup() {
   Serial.begin(115200);
-  delay(500);
+  delay(200);
+  Serial.println("BOOT TEST");
+   delay(5000);
+  logInit();
+  LOG("\n\n===== SG BOOT START =====");
 
-  // GPIO
+  LOG("[1] GPIO init...");
   pinMode(IOT_BUZZER_PIN,    OUTPUT);
   pinMode(IOT_LED_PIN,       OUTPUT);
   pinMode(IOT_VIBRATION_PIN, OUTPUT);
@@ -369,43 +401,55 @@ void setup() {
   pinMode(IOT_BUTTON_PIN,    INPUT_PULLUP);
   stopAllOutputs();
   digitalWrite(IOT_BLE_LED_PIN, LOW);
+  LOG("[1] GPIO OK");
 
-  // DFPlayer Mini (UART2)
+#ifdef NO_BLE
+  LOG("[SIM] BLE disabled — simulation mode");
+#endif
+
+  LOG("[2] DFPlayer init...");
   dfSerial.begin(9600, SERIAL_8N1, DFPLAYER_RX_PIN, DFPLAYER_TX_PIN);
-  delay(1000); // DFPlayer needs time to boot
+  delay(1000);
   if (!dfPlayer.begin(dfSerial, /*isACK=*/true, /*doReset=*/true)) {
-    Serial.println("DFPlayer init failed — check SD card and wiring");
+    LOG("[2] DFPlayer FAILED (no SD card in sim — OK)");
   } else {
-    dfPlayer.volume(25); // 0–30
-    Serial.println("DFPlayer ready");
+    dfPlayerReady = true;
+    dfPlayer.volume(25);
+    LOG("[2] DFPlayer ready");
   }
 
-  // WiFi
+  LOG("[3] WiFi connecting...");
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.print("Connecting WiFi");
+  WiFi.begin(WIFI_SSID, WIFI_PASS, WIFI_CHANNEL);
   uint32_t t0 = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - t0 < 20000) {
-    delay(500); Serial.print(".");
+    delay(500); Serial.print("."); Serial.flush();
   }
   Serial.println();
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("IP: %s\n", WiFi.localIP().toString().c_str());
+    char ipMsg[64];
+    snprintf(ipMsg, sizeof(ipMsg), "[3] WiFi OK — IP: %s", WiFi.localIP().toString().c_str());
+    LOG(ipMsg);
     configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    LOG("[4] MQTT setup...");
     mqttWifi.setInsecure();
     mqtt.setServer(MQTT_BROKER, MQTT_PORT);
     mqtt.setCallback(onMqttMessage);
     reconnectMqtt();
   } else {
-    Serial.println("WiFi unavailable — BLE-only mode");
+    LOG("[3] WiFi FAILED — BLE-only mode");
   }
 
-  // BLE always starts (fallback path)
+#ifndef NO_BLE
+  LOG("[5] BLE init...");
   initBle();
+#endif
+
+  LOG("===== SG BOOT DONE =====");
+  logDump();
 }
 
 void loop() {
-  // MQTT keepalive
   if (WiFi.status() == WL_CONNECTED) {
     if (!mqtt.connected()) reconnectMqtt();
     mqtt.loop();
@@ -413,27 +457,24 @@ void loop() {
 
   uint32_t now = millis();
 
-  // Heartbeat ping every 5 s (connection indicator in app)
   if (WiFi.status() == WL_CONNECTED && now - lastPing >= 5000) {
     lastPing = now;
     postPing();
   }
 
-  // Non-blocking alert effects
   handleVibPulse(now);
   handleLedFlash(now);
 
-  // Dome button: dismiss active alert
   if (alertActive && digitalRead(IOT_BUTTON_PIN) == LOW && now - lastButton > 300) {
     lastButton = now;
     Serial.println("Button — dismiss");
-    // Notify connected BLE client so the app dismisses too
+#ifndef NO_BLE
     if (bleConnected && pEventChar) {
       String ev = "{\"event\":\"dismiss\"}";
       pEventChar->setValue(ev.c_str());
       pEventChar->notify();
     }
-    // Tell API so Supabase Realtime propagates dismiss to web + mobile
+#endif
     postDismiss(currentAlertId);
     clearAlert();
   }
