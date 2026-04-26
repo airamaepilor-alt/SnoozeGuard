@@ -1,3 +1,136 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { supabase } from "../lib/supabase";
+
+// ─── IotDevicePanel ───────────────────────────────────────────────────────────
+
+export function IotDevicePanel({
+  userId,
+  onDeviceBound,
+}: {
+  userId: string | undefined;
+  onDeviceBound: (deviceId: string | null) => void;
+}) {
+  const [deviceId, setDeviceId] = useState("");
+  const [savedDeviceId, setSavedDeviceId] = useState<string | null>(null);
+  const [lastSeen, setLastSeen] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  const isConnected = lastSeen !== null && Date.now() - new Date(lastSeen).getTime() < 15_000;
+
+  const load = useCallback(async () => {
+    if (!userId) return;
+    const { data } = await supabase
+      .from("user_iot_devices")
+      .select("device_id, last_seen")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (data) {
+      setSavedDeviceId(data.device_id);
+      setDeviceId(data.device_id);
+      setLastSeen(data.last_seen ?? null);
+      onDeviceBound(data.device_id);
+    }
+  }, [userId, onDeviceBound]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // Realtime: refresh last_seen whenever the heartbeat updates the row
+  useEffect(() => {
+    if (!userId) return;
+    channelRef.current = supabase
+      .channel(`iot-device-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "user_iot_devices", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          const row = payload.new as { device_id: string; last_seen: string | null };
+          setLastSeen(row.last_seen ?? null);
+        },
+      )
+      .subscribe();
+    return () => {
+      if (channelRef.current) void supabase.removeChannel(channelRef.current);
+    };
+  }, [userId]);
+
+  const linkDevice = async () => {
+    if (!userId || !deviceId.trim()) return;
+    setSaving(true);
+    await supabase.from("user_iot_devices").upsert(
+      { user_id: userId, device_id: deviceId.trim() },
+      { onConflict: "user_id" },
+    );
+    setSavedDeviceId(deviceId.trim());
+    onDeviceBound(deviceId.trim());
+    setSaving(false);
+  };
+
+  const unlinkDevice = async () => {
+    if (!userId) return;
+    await supabase.from("user_iot_devices").delete().eq("user_id", userId);
+    setSavedDeviceId(null);
+    setDeviceId("");
+    setLastSeen(null);
+    onDeviceBound(null);
+  };
+
+  return (
+    <div className="border border-outline-variant/10 rounded-2xl p-4 bg-surface-container-lowest">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[9px] font-bold text-on-surface-variant tracking-widest uppercase">
+          IoT Buzzer Device
+        </span>
+        <div className="flex items-center gap-1.5">
+          <div
+            className={`w-2 h-2 rounded-full ${
+              savedDeviceId
+                ? isConnected
+                  ? "bg-primary shadow-[0_0_6px_rgba(123,208,255,0.7)]"
+                  : "bg-outline-variant"
+                : "bg-outline-variant/40"
+            }`}
+          />
+          <span className={`text-[9px] font-bold ${savedDeviceId ? (isConnected ? "text-primary" : "text-on-surface-variant") : "text-on-surface-variant/40"}`}>
+            {savedDeviceId ? (isConnected ? "Connected" : "Disconnected") : "No device"}
+          </span>
+        </div>
+      </div>
+
+      {savedDeviceId ? (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-on-surface font-mono flex-1 truncate">{savedDeviceId}</span>
+          <button
+            onClick={() => void unlinkDevice()}
+            className="text-[10px] font-bold text-on-surface-variant hover:text-tertiary transition-colors"
+          >
+            Unlink
+          </button>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={deviceId}
+            onChange={(e) => setDeviceId(e.target.value)}
+            placeholder="Device ID (e.g. esp32cam-001)"
+            className="flex-1 bg-surface-container-high text-on-surface text-xs rounded-lg px-3 py-2 border border-outline-variant/20 outline-none focus:border-primary/40"
+          />
+          <button
+            onClick={() => void linkDevice()}
+            disabled={saving || !deviceId.trim()}
+            className="px-3 py-2 bg-primary/10 text-primary text-xs font-bold rounded-lg border border-primary/20 hover:bg-primary/20 transition-all disabled:opacity-40"
+          >
+            {saving ? "…" : "Link"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function getAlertHint(level: number): string {
   if (level === 6) return "Stay alert and active — you can continue driving.";
   if (level === 7) return "Consider pulling over and taking a rest break.";

@@ -22,6 +22,7 @@ import { DriveScreen } from "./screens/DriveScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { EmergencyContactScreen } from "./screens/EmergencyContactScreen";
 import { AccountScreen } from "./screens/AccountScreen";
+import { IotDevicesScreen } from "./screens/IotDevicesScreen";
 import { AboutScreen } from "./screens/AboutScreen";
 import { TermsScreen } from "./screens/TermsScreen";
 import { AdminScreen } from "./screens/AdminScreen";
@@ -218,6 +219,7 @@ function AppDrawer({ visible, onClose, session, superAdmin, onSignOut, onGuard }
   const navItems: NavItem[] = [
     { name: "EmergencyContact", icon: "emergency", label: "Emergency Contact" },
     { name: "Account", icon: "manage-accounts", label: "Account" },
+    { name: "IotDevices", icon: "devices-other", label: "IoT Devices" },
     { name: "About", icon: "info-outline", label: "About SnoozeGuard" },
     { name: "Terms", icon: "gavel", label: "Terms & Privacy" },
     ...(superAdmin ? [{ name: "Admin" as keyof MainTabParamList, icon: "admin-panel-settings", label: "Admin Config" }] : []),
@@ -742,6 +744,12 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
           >
             {() => <AccountScreen onSignOut={onSignOut} />}
           </Tab.Screen>
+
+          <Tab.Screen
+            name="IotDevices"
+            component={IotDevicesScreen}
+            options={{ title: "IoT Devices", tabBarItemStyle: { display: "none" } }}
+          />
 
           <Tab.Screen
             name="About"

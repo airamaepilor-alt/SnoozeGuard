@@ -123,6 +123,7 @@ function SidebarContent({
         <SideNavItem to="/history" icon="history" label="Fatigue Logs" onNavigate={onNavigate} />
         <SideNavItem to="/account" icon="manage_accounts" label="Account" onNavigate={onNavigate} />
         <SideNavItem to="/guardians" icon="shield" label="Emergency Contact" onNavigate={onNavigate} />
+        <SideNavItem to="/iot-devices" icon="devices_other" label="IoT Devices" onNavigate={onNavigate} />
         <SideNavItem to="/about" icon="info" label="About" onNavigate={onNavigate} />
         <SideNavItem to="/terms" icon="policy" label="Terms & Privacy" onNavigate={onNavigate} />
         <SideNavItem to="/safety-protocol" icon="security" label="Safety Protocol" onNavigate={onNavigate} />
@@ -412,6 +413,7 @@ export function AppShell() {
             <TopNavLink to="/analytics" label="Analytics" />
             <TopNavLink to="/history" label="History" />
             <TopNavLink to="/drive" label="Drive" />
+            <TopNavLink to="/iot-devices" label="IoT Devices" />
             <TopNavLink to="/simulation" label="Simulation" />
           </nav>
         </div>
@@ -421,6 +423,12 @@ export function AppShell() {
           {/* Safety Protocol — hidden on small screens */}
           <Link to="/safety-protocol" className="hidden sm:flex items-center gap-2 bg-primary/10 text-primary px-3 lg:px-4 py-2 rounded-lg font-bold text-xs lg:text-sm hover:bg-primary/20 transition-all border border-primary/20 whitespace-nowrap">
             Safety Protocol
+          </Link>
+
+          {/* IoT Devices — quick access */}
+          <Link to="/iot-devices" className="hidden md:flex items-center gap-2 bg-secondary/10 text-secondary px-3 lg:px-4 py-2 rounded-lg font-bold text-xs lg:text-sm hover:bg-secondary/20 transition-all border border-secondary/20 whitespace-nowrap" title="Manage IoT devices">
+            <span className="material-symbols-outlined text-sm">devices_other</span>
+            <span className="hidden lg:inline">IoT</span>
           </Link>
 
           {/* Theme toggle */}

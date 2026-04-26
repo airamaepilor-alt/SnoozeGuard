@@ -35,7 +35,7 @@ export function AboutScreen() {
           <Text style={styles.rowIcon}>😮</Text>
           <View style={styles.rowText}>
             <Text style={styles.rowTitle}>Yawn Detection</Text>
-            <Text style={styles.rowBody}>Camera captures mouth-open events using MediaPipe face landmarks.</Text>
+            <Text style={styles.rowBody}>Camera captures mouth-open events using Face Geometry Machine Learning to identify drowsiness.</Text>
           </View>
         </View>
         <View style={styles.row}>
@@ -90,7 +90,7 @@ export function AboutScreen() {
         <Text style={styles.body}>
           Your Focus Score (0–100) is calculated as{" "}
           <Text style={styles.code}>100 − (avg_drowsiness × 10)</Text> across all sessions in the selected period.
-          A score above 75 is healthy. Below 50 means consistent fatigue — consider adjusting your sleep schedule.
+          A score above 75 is healthy. Below 50 means consistent drowsiness — consider adjusting your sleep schedule.
         </Text>
       </View>
 
@@ -98,7 +98,7 @@ export function AboutScreen() {
         <Text style={styles.sectionTitle}>THESIS CONTEXT</Text>
         <Text style={styles.body}>
           SnoozeGuard is a thesis project developed to address road accidents caused by driver fatigue.
-          The system integrates mobile AI (MediaPipe), IoT hardware, and cloud infrastructure (Supabase)
+          The system integrates mobile AI (Face Geometry Machine Learning), IoT hardware, and cloud infrastructure (Cloud Database)
           to provide a complete, real-world drowsiness detection solution.
         </Text>
       </View>
@@ -109,7 +109,7 @@ export function AboutScreen() {
       </Pressable>
 
       <Text style={styles.footer}>
-        Built with React Native · Expo · MediaPipe · Supabase
+        Built with Mobile App Framework · Face Geometry Machine Learning · Cloud Database
       </Text>
     </ScrollView>
   );

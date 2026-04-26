@@ -147,7 +147,7 @@ function IncidentRow({ incident }: { incident: SessionIncident }) {
   const icon = isCritical ? "event_busy" : isWarning ? "warning" : "verified";
   const iconColor = isCritical ? "text-error" : isWarning ? "text-secondary" : "text-primary";
   const bgColor = isCritical ? "bg-error/10" : isWarning ? "bg-secondary/10" : "bg-primary/10";
-  const label = isCritical ? "Critical Fatigue Session" : isWarning ? "Elevated Drowsiness" : "Safe Session";
+  const label = isCritical ? "Critical Drowsiness Session" : isWarning ? "Elevated Drowsiness" : "Safe Session";
 
   const date = new Date(incident.started_at);
   const dateStr = date.toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" });
@@ -464,7 +464,7 @@ export function DashboardPage() {
             Systems Online
           </h2>
           <p className="text-on-surface-variant font-body max-w-md text-sm sm:text-base">
-            Real-time driver fatigue monitoring active for{" "}
+            Real-time driver drowsiness monitoring active for{" "}
             <span className="text-primary font-semibold">{name}</span>. Local database synced.
             {!online && (
               <span className="ml-2 text-secondary font-semibold">· Offline mode</span>
@@ -765,11 +765,11 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Recent Fatigue Incidents ── */}
+      {/* ── Recent Drowsiness Incidents ── */}
       <div className="bg-surface-container-lowest p-8 rounded-2xl border border-outline-variant/10">
         <div className="flex justify-between items-center mb-8">
           <h4 className="text-xl font-headline font-bold text-on-surface">
-            Recent Fatigue Incidents
+            Recent Drowsiness Incidents
           </h4>
           <Link
             to="/history"

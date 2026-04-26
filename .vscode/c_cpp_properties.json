@@ -1,0 +1,29 @@
+{
+  "configurations": [
+    {
+      "name": "PlatformIO (ESP32 sg_alert)",
+      "includePath": [
+        "${workspaceFolder}/iot/firmware/include",
+        "${workspaceFolder}/iot/firmware/src",
+        "${env:USERPROFILE}/.platformio/packages/framework-arduinoespressif32/cores/esp32",
+        "${env:USERPROFILE}/.platformio/packages/framework-arduinoespressif32/variants/esp32",
+        "${env:USERPROFILE}/.platformio/packages/framework-arduinoespressif32/libraries/**",
+        "${env:USERPROFILE}/.platformio/packages/framework-arduinoespressif32/**",
+        "${env:USERPROFILE}/.platformio/packages/toolchain-xtensa-esp32/xtensa-esp32-elf/include"
+      ],
+      "defines": [
+        "ARDUINO=10813",
+        "ARDUINO_ESP32_DEV",
+        "ARDUINO_ARCH_ESP32",
+        "ESP32",
+        "ESP_PLATFORM",
+        "F_CPU=240000000L",
+        "HAVE_CONFIG_H"
+      ],
+      "cStandard": "gnu11",
+      "cppStandard": "gnu++17",
+      "intelliSenseMode": "windows-gcc-x64"
+    }
+  ],
+  "version": 4
+}

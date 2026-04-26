@@ -15,6 +15,7 @@ import { HistoryPage } from "./pages/HistoryPage";
 import { SessionDetailPage } from "./pages/SessionDetailPage";
 import { LoginPage } from "./pages/LoginPage";
 import { SimulationPage } from "./pages/SimulationPage";
+import { IotDevicesPage } from "./pages/IotDevicesPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth();
@@ -48,6 +49,7 @@ function AppRoutes() {
         <Route path="admin" element={<AdminPage />} />
         <Route path="account" element={<AccountPage />} />
         <Route path="guardians" element={<EmergencyContactPage />} />
+        <Route path="iot-devices" element={<IotDevicesPage />} />
         <Route path="about" element={<AboutPage />} />
         <Route path="terms" element={<TermsPage />} />
       </Route>

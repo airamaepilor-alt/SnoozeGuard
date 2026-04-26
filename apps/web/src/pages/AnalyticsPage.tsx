@@ -148,7 +148,7 @@ function AreaChart({ data, filter }: { data: DailyAvg[]; filter: Filter; loading
       <div className="flex justify-between items-start">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-xl font-headline font-bold text-on-surface">Fatigue Fluctuations</h3>
+            <h3 className="text-xl font-headline font-bold text-on-surface">Drowsiness Fluctuations</h3>
             <span
               className="material-symbols-outlined text-on-surface-variant text-sm cursor-default"
               title="Average drowsiness level (0-10) expressed as a percentage, per day"
@@ -347,7 +347,7 @@ function SessionActivityBar({ counts, loading }: { counts: number[]; loading: bo
   );
 }
 
-// ─── Hourly Fatigue Distribution ──────────────────────────────────────────────
+// ─── Hourly Drowsiness Distribution ──────────────────────────────────────────────
 
 function HourlyDistribution({ hourly, loading }: { hourly: number[]; loading: boolean }) {
   const max = Math.max(1, ...hourly);
@@ -356,7 +356,7 @@ function HourlyDistribution({ hourly, loading }: { hourly: number[]; loading: bo
     <div className="space-y-6">
       <div>
         <div className="flex items-center gap-2 mb-1">
-          <h3 className="text-xl font-headline font-bold text-on-surface">Hourly Fatigue Distribution</h3>
+          <h3 className="text-xl font-headline font-bold text-on-surface">Hourly Drowsiness Distribution</h3>
           <span
             className="material-symbols-outlined text-on-surface-variant text-sm cursor-default"
             title="Average drowsiness level across circadian time blocks"
@@ -445,7 +445,7 @@ function DonutChart({
           <h3 className="text-xl font-headline font-bold text-on-surface">Detection Breakdown</h3>
           <span
             className="material-symbols-outlined text-on-surface-variant text-sm cursor-default"
-            title="Composition of fatigue trigger events over the selected period"
+            title="Composition of drowsiness trigger events over the selected period"
           >
             info
           </span>
@@ -535,7 +535,7 @@ function RiskBanner({ hourly, onReviewAlert }: { hourly: number[]; onReviewAlert
 
   const message =
     riskPct !== null && riskPct > 0
-      ? `Analysis indicates a ${riskPct}% fatigue increase during night shifts (22:00–04:00). Consider scheduling breaks.`
+      ? `Analysis indicates a ${riskPct}% drowsiness increase during night shifts (22:00–04:00). Consider scheduling breaks.`
       : "No significant circadian risk pattern detected in this period. Alertness levels appear stable.";
 
   return (
@@ -651,7 +651,7 @@ export function AnalyticsPage() {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div className="space-y-1">
           <h2 className="text-3xl sm:text-4xl font-headline font-black text-on-surface tracking-tight">
-            Driver Fatigue Analytics
+            Driver Drowsiness Analytics
           </h2>
           <p className="text-on-surface-variant font-body text-base">
             Systemized monitoring of cognitive state across the fleet.
@@ -679,7 +679,7 @@ export function AnalyticsPage() {
 
       {/* ── Row 1: Area chart + Session activity bar ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
-        {/* Fatigue Fluctuations area chart (2/3 width) */}
+        {/* Drowsiness Fluctuations area chart (2/3 width) */}
         <div className="lg:col-span-2 bg-surface-container rounded-2xl lg:rounded-[2rem] p-5 sm:p-8 flex flex-col gap-6 relative overflow-hidden">
           <AreaChart data={dailyAvg} filter={filter} loading={loading} />
           {/* Ambient glow */}

@@ -19,7 +19,9 @@ import {
 import { playWebAlert, stopWebAlert } from "../lib/alerts/playWebAlert";
 import { getEmergencyContact, triggerEmergencyAlert, acknowledgeEmergencyAlert, type EmergencyContact } from "../lib/emergencyNotify";
 import { createYawnDetector, createHeadDetector, createTiltDetector } from "../lib/ml/faceDetectors";
-import { DrowsinessAlertOverlay } from "./DrivePage.components";
+import { DrowsinessAlertOverlay, IotDevicePanel } from "./DrivePage.components";
+
+const IOT_API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? "";
 
 // ─── Helper components ─────────────────────────────────────────────────────
 
@@ -212,6 +214,10 @@ export function DrivePage() {
   const ecTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ecAutoFiredRef = useRef(false);
   const activeAlertIdRef = useRef<string | null>(null);
+
+  // ── IoT device ──────────────────────────────────────────────────────────────
+  const iotDeviceIdRef = useRef<string | null>(null);
+  const iotAlertIdRef = useRef<string | null>(null);
 
   // ── Admin runtime (alert config) ────────────────────────────────────────
   const adminRef = useRef({
@@ -570,6 +576,7 @@ export function DrivePage() {
     setSessionStartedAt(null);
     setElapsedMs(0);
     setNote("Session ended.");
+    iotAlertIdRef.current = null;
 
     // Background sync — fire-and-forget
     void (async () => {
@@ -740,6 +747,36 @@ export function DrivePage() {
             });
           }
           void playWebAlert(actions, level);
+
+          // Signal IoT buzzer + LED for level 9/10
+          if (user && iotDeviceIdRef.current && actions.some((a: string) => a === "iot_buzzer")) {
+            void supabase
+              .from("iot_alerts")
+              .insert({ device_id: iotDeviceIdRef.current, user_id: user.id, drowsiness_level: level })
+              .select("id")
+              .single()
+              .then(({ data }) => {
+                if (!data?.id) return;
+                iotAlertIdRef.current = data.id;
+                if (IOT_API_URL) {
+                  void supabase.auth.getSession().then(({ data: { session } }) => {
+                    if (!session) return;
+                    void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${session.access_token}`,
+                      },
+                      body: JSON.stringify({
+                        device_id: iotDeviceIdRef.current,
+                        alert_id: data.id,
+                        level,
+                      }),
+                    });
+                  });
+                }
+              });
+          }
         }
       }
     }, 1000);
@@ -759,8 +796,53 @@ export function DrivePage() {
       activeAlertIdRef.current = null;
     }
     setEcSent(false);
+    if (iotAlertIdRef.current && iotDeviceIdRef.current) {
+      const id = iotAlertIdRef.current;
+      const dev = iotDeviceIdRef.current;
+      iotAlertIdRef.current = null;
+      void supabase.from("iot_alerts").update({
+        status: "dismissed", dismissed_by: "driver", dismissed_at: new Date().toISOString(),
+      }).eq("id", id);
+      if (IOT_API_URL) {
+        void supabase.auth.getSession().then(({ data: { session } }) => {
+          if (!session) return;
+          void fetch(`${IOT_API_URL}/v1/iot/dismiss`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ device_id: dev, alert_id: id }),
+          });
+        });
+      }
+    }
     setAlertOpen(false);
   }, [stopAlertAudio, stopEcTimer, startScoreResetTimer]);
+
+  // ── IoT Realtime: auto-dismiss when physical button pressed ─────────────
+  useEffect(() => {
+    if (!localSessionId || !user) return;
+    const ch = supabase
+      .channel(`iot-alerts-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "iot_alerts", filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          const row = payload.new as { id: string; status: string; dismissed_by: string };
+          if (
+            row.status === "dismissed" &&
+            row.dismissed_by === "iot_button" &&
+            row.id === iotAlertIdRef.current
+          ) {
+            dismissAlert();
+            iotAlertIdRef.current = null;
+          }
+        },
+      )
+      .subscribe();
+    return () => { void supabase.removeChannel(ch); };
+  }, [localSessionId, user?.id, dismissAlert]);
 
   // ── Computed state ──────────────────────────────────────────────────────
 
@@ -1147,6 +1229,14 @@ export function DrivePage() {
               <span className="material-symbols-outlined text-sm">psychology</span>
               Face ML
             </label>
+          </div>
+
+          {/* IoT device pairing */}
+          <div className="mb-3">
+            <IotDevicePanel
+              userId={user?.id}
+              onDeviceBound={(id) => { iotDeviceIdRef.current = id; }}
+            />
           </div>
 
           {/* Start / Stop */}

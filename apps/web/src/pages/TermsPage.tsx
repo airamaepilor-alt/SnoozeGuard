@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+
 
 const EFFECTIVE_DATE = "April 18, 2026";
 
@@ -22,7 +21,7 @@ const LEGAL_SECTIONS = [
     num: "3",
     title: "Camera and Sensor Use",
     content: [
-      "The App uses your front-facing camera during active driving sessions to monitor facial landmarks (eye openness, yawning, head position). Camera frames are processed locally on your device using MediaPipe; no video or images are transmitted to any server.",
+      "The App uses your front-facing camera during active driving sessions to monitor facial landmarks (eye openness, yawning, head position). Camera frames are processed locally on your device using Face Geometry Machine Learning; no video or images are transmitted to any server.",
       "Motion sensor data (accelerometer) is used to detect sudden braking events. This data is also processed locally and only aggregated statistics are stored.",
     ],
   },
@@ -30,7 +29,7 @@ const LEGAL_SECTIONS = [
     num: "4",
     title: "Location Data",
     content: [
-      "Location access is requested only when a critical drowsiness alert is triggered and goes unacknowledged for 2 minutes. At that point, your current GPS coordinates are sent to your designated emergency contact via the Supabase backend. Location is not continuously tracked or stored.",
+      "Location access is requested only when a critical drowsiness alert is triggered and goes unacknowledged for 2 minutes. At that point, your current GPS coordinates are sent to your designated emergency contact via the cloud database backend. Location is not continuously tracked or stored.",
     ],
   },
   {
@@ -40,7 +39,7 @@ const LEGAL_SECTIONS = [
       "The following data is collected and stored:",
     ],
     bullets: [
-      "Account information (email, display name) via Supabase Auth",
+      "Account information (email, display name) via cloud database authentication",
       "Driving session metadata (timestamps, device type)",
       "Drowsiness telemetry (aggregated event counts and levels per session)",
       "Emergency contact details (name, phone, email) you voluntarily provide",
@@ -61,7 +60,7 @@ const LEGAL_SECTIONS = [
     num: "7",
     title: "Data Storage and Security",
     content: [
-      "Your data is stored on Supabase (cloud) and locally on your device via SQLite. Local data enables offline access to your history and emergency contact information. Supabase applies industry-standard encryption in transit (TLS) and at rest.",
+      "Your data is stored on a cloud database and locally on your device via SQLite. Local data enables offline access to your history and emergency contact information. The cloud database applies industry-standard encryption in transit (TLS) and at rest.",
       "We do not sell, rent, or share your personal data with third parties, except as required for the emergency notification feature or by law.",
     ],
   },
@@ -102,15 +101,6 @@ const LEGAL_SECTIONS = [
 ];
 
 export function TermsPage() {
-  const [agreed, setAgreed] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
-  const navigate = useNavigate();
-
-  function handleConfirm() {
-    if (!agreed) return;
-    setConfirmed(true);
-    setTimeout(() => navigate(-1), 1200);
-  }
 
   return (
     <div className="max-w-5xl mx-auto font-body text-on-surface space-y-12 pb-16">
@@ -144,7 +134,7 @@ export function TermsPage() {
               </h2>
             </div>
             <p className="text-on-surface-variant mb-6 leading-relaxed text-sm">
-              SnoozeGuard utilizes real-time camera monitoring to detect signs of driver fatigue.
+              SnoozeGuard utilizes real-time camera monitoring to detect signs of driver drowsiness.
               By enabling Vigilant Mode, you consent to:
             </p>
             <ul className="space-y-3 text-on-surface text-sm">
@@ -200,7 +190,7 @@ export function TermsPage() {
           </div>
           <p className="text-on-surface-variant mb-6 leading-relaxed text-sm">
             Precise GPS data is required for emergency dispatch accuracy. SnoozeGuard logs location
-            coordinates only when a Level 9–10 fatigue alert is triggered and goes unacknowledged
+            coordinates only when a Level 9–10 drowsiness alert is triggered and goes unacknowledged
             for 2 minutes.
           </p>
           <div className="bg-surface-container-highest p-5 rounded-2xl">
@@ -300,40 +290,6 @@ export function TermsPage() {
             </div>
           ))}
         </div>
-      </div>
-
-      {/* ── Acceptance action ── */}
-      <div className="flex flex-col items-center gap-6 pt-4">
-        {confirmed ? (
-          <div className="flex items-center gap-3 text-emerald-400 font-semibold">
-            <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
-              check_circle
-            </span>
-            Confirmed — returning you to the app…
-          </div>
-        ) : (
-          <>
-            <label className="flex items-start gap-3 cursor-pointer group max-w-md w-full">
-              <input
-                type="checkbox"
-                checked={agreed}
-                onChange={(e) => setAgreed(e.target.checked)}
-                className="mt-0.5 w-5 h-5 rounded accent-primary shrink-0 cursor-pointer"
-              />
-              <span className="text-sm text-on-surface-variant group-hover:text-on-surface transition-colors leading-relaxed">
-                I have read and agree to the Terms of Service and Privacy Policy.
-              </span>
-            </label>
-            <button
-              type="button"
-              onClick={handleConfirm}
-              disabled={!agreed}
-              className="w-full max-w-md h-16 rounded-2xl bg-primary text-on-primary font-headline font-extrabold text-xl shadow-[0_20px_40px_rgba(123,208,255,0.15)] hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-40 disabled:scale-100 disabled:cursor-not-allowed"
-            >
-              Confirm &amp; Continue
-            </button>
-          </>
-        )}
       </div>
 
       {/* ── Footer ── */}

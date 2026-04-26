@@ -11,7 +11,7 @@ export type AlertLevelConfig = {
 export type AlertMap = Record<string, AlertLevelConfig>;
 
 export const DEFAULT_ALERT_MAP: AlertMap = {
-  "6":  { label: "Mild fatigue",        actions: ["voice"],                                           yawn_count: 3,  head_count: 20  },
+  "6":  { label: "Mild drowsiness",      actions: ["voice"],                                           yawn_count: 3,  head_count: 20  },
   "7":  { label: "Moderate fatigue",    actions: ["voice", "vibration"],                              yawn_count: 5,  head_count: 35  },
   "8":  { label: "High fatigue",        actions: ["vibration", "voice"],                              yawn_count: 8,  head_count: 55  },
   "9":  { label: "Severe — pull over",  actions: ["voice", "vibration", "iot_led", "iot_buzzer"],    yawn_count: 12, head_count: 80  },

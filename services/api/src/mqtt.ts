@@ -7,6 +7,13 @@ import type { createServiceClient } from "./supabase.js";
 
 type Supabase = ReturnType<typeof createServiceClient>;
 
+let _mqttClient: mqtt.MqttClient | null = null;
+
+export function publishMqttCommand(topic: string, payload: object): void {
+  if (!_mqttClient?.connected) return;
+  _mqttClient.publish(topic, JSON.stringify(payload), { qos: 1 });
+}
+
 export function startMqttIngestIfConfigured(env: Env, supabase: Supabase, log: FastifyBaseLogger): void {
   const url = env.MQTT_BROKER_URL;
   const topic = env.MQTT_TOPIC;
@@ -26,6 +33,8 @@ export function startMqttIngestIfConfigured(env: Env, supabase: Supabase, log: F
     log.error({ err }, "MQTT connect failed");
     return;
   }
+
+  _mqttClient = client;
 
   client.on("connect", () => {
     log.info({ topic }, "MQTT connected; subscribing");

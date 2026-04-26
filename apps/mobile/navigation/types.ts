@@ -6,6 +6,7 @@ export type MainTabParamList = {
   Analytics: undefined;
   EmergencyContact: undefined;
   Account: undefined;
+  IotDevices: undefined;
   About: undefined;
   Admin: undefined;
   Terms: undefined;

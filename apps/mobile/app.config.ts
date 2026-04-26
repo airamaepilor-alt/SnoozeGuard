@@ -41,7 +41,15 @@ const config: ExpoConfig = {
     package: "com.snoozeguard.app",
     // @ts-expect-error minSdkVersion is a valid Expo Android config field; type definition gap in SDK 54 types
     minSdkVersion: 26,
-    permissions: ["CAMERA", "ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
+    permissions: [
+      "CAMERA",
+      "ACCESS_FINE_LOCATION",
+      "ACCESS_COARSE_LOCATION",
+      "BLUETOOTH",
+      "BLUETOOTH_ADMIN",
+      "BLUETOOTH_SCAN",
+      "BLUETOOTH_CONNECT",
+    ],
     intentFilters: [
       {
         action: "android.intent.action.VIEW",
@@ -82,6 +90,14 @@ const config: ExpoConfig = {
         icon: "./assets/icon.png",
         color: "#0b1326",
         sounds: [],
+      },
+    ],
+    [
+      "react-native-ble-plx",
+      {
+        isBackgroundEnabled: false,
+        modes: [],
+        bluetoothAlwaysPermission: "SnoozeGuard needs Bluetooth to connect to the IoT buzzer device.",
       },
     ],
   ],

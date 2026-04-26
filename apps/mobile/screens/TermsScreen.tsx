@@ -44,7 +44,7 @@ export function TermsScreen() {
         <Text style={styles.body}>
           The App uses your front-facing camera during active driving sessions to monitor facial landmarks
           (eye openness, yawning, head position). Camera frames are processed locally on your device using
-          MediaPipe; no video or images are transmitted to any server.
+          Face Geometry Machine Learning; no video or images are transmitted to any server.
         </Text>
         <Text style={[styles.body, styles.bodyMargin]}>
           Motion sensor data (accelerometer) is used to detect sudden braking events.
@@ -56,7 +56,7 @@ export function TermsScreen() {
         <Text style={styles.body}>
           Location access is requested only when a critical drowsiness alert is triggered and
           goes unacknowledged for 2 minutes. At that point, your current GPS coordinates are
-          sent to your designated emergency contact via the Supabase backend. Location is not
+          sent to your designated emergency contact via the cloud database backend. Location is not
           continuously tracked or stored.
         </Text>
       </Section>
@@ -64,7 +64,7 @@ export function TermsScreen() {
       <Section title="5. DATA WE COLLECT AND STORE" styles={styles}>
         <Text style={styles.body}>The following data is collected and stored:</Text>
         <View style={styles.bulletList}>
-          <Text style={styles.bullet}>• Account information (email, display name) via Supabase Auth</Text>
+          <Text style={styles.bullet}>• Account information (email, display name) via cloud database authentication</Text>
           <Text style={styles.bullet}>• Driving session metadata (timestamps, device type)</Text>
           <Text style={styles.bullet}>• Drowsiness telemetry (aggregated event counts and levels per session)</Text>
           <Text style={styles.bullet}>• Emergency contact details (name, phone, email) you voluntarily provide</Text>
@@ -90,9 +90,9 @@ export function TermsScreen() {
 
       <Section title="7. DATA STORAGE AND SECURITY" styles={styles}>
         <Text style={styles.body}>
-          Your data is stored on Supabase (cloud) and locally on your device via SQLite.
+          Your data is stored on a cloud database and locally on your device via SQLite.
           Local data enables offline access to your history and emergency contact information.
-          Supabase applies industry-standard encryption in transit (TLS) and at rest.
+          The cloud database applies industry-standard encryption in transit (TLS) and at rest.
         </Text>
         <Text style={[styles.body, styles.bodyMargin]}>
           We do not sell, rent, or share your personal data with third parties, except as required

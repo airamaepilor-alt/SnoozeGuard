@@ -76,7 +76,7 @@ function AreaChart({ points, width, height, t }: { points: DayPoint[]; width: nu
       </View>
       <Svg width={width} height={height}>
         <Defs>
-          <LinearGradient id="fatigueGrad" x1="0" y1="0" x2="0" y2="1">
+          <LinearGradient id="drowsinessGrad" x1="0" y1="0" x2="0" y2="1">
             <Stop offset="0" stopColor={t.primary} stopOpacity="0.45" />
             <Stop offset="1" stopColor={t.primary} stopOpacity="0.02" />
           </LinearGradient>
@@ -85,7 +85,7 @@ function AreaChart({ points, width, height, t }: { points: DayPoint[]; width: nu
           <Line key={v} x1={pad.left} y1={yOf(v)} x2={pad.left + cw} y2={yOf(v)}
             stroke={t.outlineVariant} strokeWidth="0.5" strokeDasharray="3,4" />
         ))}
-        <Path d={fillPath} fill="url(#fatigueGrad)" />
+        <Path d={fillPath} fill="url(#drowsinessGrad)" />
         <Path d={d} stroke={t.primary} strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
         {linePts.map((pt, i) => (
           <Circle key={i} cx={pt.x} cy={pt.y} r="3.5" fill={t.primary} />
@@ -195,24 +195,24 @@ function DonutChart({ data, size, t }: { data: { label: string; value: number; c
   );
 }
 
-type AnalyticsTooltipKey = "fatigue" | "activity" | "hourly" | "detection" | null;
+type AnalyticsTooltipKey = "drowsiness" | "activity" | "hourly" | "detection" | null;
 
 const ANALYTICS_TOOLTIPS: Record<NonNullable<AnalyticsTooltipKey>, { title: string; body: string }> = {
-  fatigue: {
-    title: "Fatigue Fluctuations",
-    body: "Shows your average drowsiness level (0–10) for each day. Higher values mean more fatigue was detected that day. A flat low line is ideal. Spikes indicate days you were especially tired while driving.",
+  drowsiness: {
+    title: "Drowsiness Fluctuations",
+    body: "Shows your average drowsiness level (0–10) for each day. Higher values mean more drowsiness was detected that day. A flat low line is ideal. Spikes indicate days you were especially tired while driving.",
   },
   activity: {
     title: "Session Activity",
     body: "How many driving sessions you started on each day of the week. Helps identify which days you drive most — consider extra rest on those days.",
   },
   hourly: {
-    title: "Hourly Fatigue Pattern",
-    body: "Average drowsiness level grouped by 4-hour circadian blocks. Early morning (00-04) shows baseline fatigue, while evening (20-24) may peak. Peaks reveal your highest-risk times to drive.",
+    title: "Hourly Drowsiness Pattern",
+    body: "Average drowsiness level grouped by 4-hour circadian blocks. Early morning (00-04) shows baseline drowsiness, while evening (20-24) may peak. Peaks reveal your highest-risk times to drive.",
   },
   detection: {
     title: "Detection Breakdown",
-    body: "Total drowsiness signals captured this period:\n• Yawns — mouth open wide\n• Head drops — head nodding down\n• Tilts — sustained head tilt sideways\n• Brakes — sudden hard braking\n\nA large slice of any category indicates a recurring fatigue pattern.",
+    body: "Total drowsiness signals captured this period:\n• Yawns — mouth open wide\n• Head drops — head nodding down\n• Tilts — sustained head tilt sideways\n• Brakes — sudden hard braking\n\nA large slice of any category indicates a recurring drowsiness pattern.",
   },
 };
 
@@ -335,7 +335,7 @@ export function AnalyticsScreen() {
       )}
 
       <Text style={styles.title}>Analytics</Text>
-      <Text style={styles.sub}>Your driving fatigue insights</Text>
+      <Text style={styles.sub}>Your driving drowsiness insights</Text>
 
       <View style={styles.filterRow}>
         {FILTER_OPTIONS.map((o) => (
@@ -347,8 +347,8 @@ export function AnalyticsScreen() {
 
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>Fatigue Fluctuations</Text>
-          <Pressable onPress={() => setTooltip("fatigue")} hitSlop={8}>
+          <Text style={styles.cardTitle}>Drowsiness Fluctuations</Text>
+          <Pressable onPress={() => setTooltip("drowsiness")} hitSlop={8}>
             <MaterialIcons name="info-outline" size={16} color={theme.onSurfaceVariant} />
           </Pressable>
         </View>
@@ -369,7 +369,7 @@ export function AnalyticsScreen() {
 
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>Hourly Fatigue Pattern</Text>
+          <Text style={styles.cardTitle}>Hourly Drowsiness Pattern</Text>
           <Pressable onPress={() => setTooltip("hourly")} hitSlop={8}>
             <MaterialIcons name="info-outline" size={16} color={theme.onSurfaceVariant} />
           </Pressable>

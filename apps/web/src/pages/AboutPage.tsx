@@ -9,7 +9,7 @@ const VECTORS = [
     hoverText: "group-hover:text-on-primary",
     title: "Yawn Detection",
     description:
-      "Camera captures mouth-open events using MediaPipe face landmarks. The system continuously monitors oral aperture dynamics to distinguish fatigue-induced yawning from normal speech.",
+      "Camera captures mouth-open events using Face Geometry Machine Learning. The system continuously monitors oral aperture dynamics to distinguish drowsiness-induced yawning from normal speech.",
     layer: "Biometric Layer",
     layerColor: "text-primary",
     code: "V-01",
@@ -89,7 +89,7 @@ export function AboutPage() {
 
           {/* Tech stack badges */}
           <div className="flex flex-wrap gap-3 pt-2">
-            {["React Native", "Expo", "MediaPipe", "Supabase", "ESP32-CAM"].map((tech) => (
+            {["Mobile App Framework", "Face Geometry Machine Learning", "Cloud Database", "IoT Hardware"].map((tech) => (
               <span
                 key={tech}
                 className="px-3 py-1.5 rounded-lg bg-surface-container-low text-on-surface-variant text-xs font-semibold border border-outline-variant/20"
@@ -214,11 +214,11 @@ export function AboutPage() {
             </div>
             <div className="bg-surface-container-high rounded-2xl p-4 text-center">
               <p className="font-headline font-black text-2xl text-error">{"<50"}</p>
-              <p className="text-xs text-on-surface-variant mt-1">Consistent fatigue risk</p>
+              <p className="text-xs text-on-surface-variant mt-1">Consistent drowsiness risk</p>
             </div>
           </div>
           <p className="text-[11px] text-on-surface-variant italic pt-1">
-            A score below 50 means consistent fatigue — consider adjusting your sleep schedule.
+            A score below 50 means consistent drowsiness — consider adjusting your sleep schedule.
           </p>
         </div>
       </section>
@@ -285,9 +285,9 @@ export function AboutPage() {
         <div className="flex justify-center gap-3 flex-wrap">
           {[
             { icon: "shield", label: "SnoozeGuard" },
-            { icon: "smartphone", label: "React Native · Expo" },
-            { icon: "visibility", label: "MediaPipe" },
-            { icon: "cloud", label: "Supabase" },
+            { icon: "smartphone", label: "Mobile App Framework" },
+            { icon: "visibility", label: "Face Geometry Machine Learning" },
+            { icon: "cloud", label: "Cloud Database" },
           ].map((item) => (
             <div
               key={item.label}

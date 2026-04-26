@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
+  TextInput,
   Pressable,
   StyleSheet,
   ActivityIndicator,
@@ -40,6 +41,12 @@ import {
 } from "../ml/faceDetection";
 import { ensureRemoteSession, flushEndedSessions, flushPendingTelemetry, isOnline } from "../sync/flush";
 import type { Theme } from "../theme";
+import type { BleError, Characteristic, Device, Subscription } from "react-native-ble-plx";
+import { getBleManager, bleDeviceName, SG_SERVICE_UUID, SG_CMD_CHAR_UUID, SG_EVENT_CHAR_UUID } from "../lib/ble";
+
+const IOT_API_URL = (process.env.EXPO_PUBLIC_API_URL as string | undefined) ?? "";
+
+type BleStatus = "idle" | "scanning" | "connected" | "error";
 
 type AdminRuntime = {
   trigger: number;
@@ -258,6 +265,15 @@ export function DriveScreen() {
   const ecAutoFiredRef = useRef(false);
   const activeAlertIdRef = useRef<string | null>(null);
 
+  // IoT device pairing
+  const iotDeviceIdRef = useRef<string | null>(null);
+  const iotAlertIdRef = useRef<string | null>(null);
+  const [iotSavedId, setIotSavedId] = useState<string | null>(null);
+  const [iotInput, setIotInput] = useState("");
+  const [iotLastSeen, setIotLastSeen] = useState<string | null>(null);
+  const [iotSaving, setIotSaving] = useState(false);
+  const iotRealtimeRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
   // Detectors
   const yawnDetectorRef = useRef(createYawnDetector(() => { yawnAccRef.current += 1; }));
   const headDetectorRef = useRef(createHeadDetector(() => { headAccRef.current += 1; }));
@@ -383,6 +399,39 @@ export function DriveScreen() {
 
   useEffect(() => { void loadAdminConfig(); }, [loadAdminConfig]);
 
+  // Load paired IoT device + subscribe to heartbeat updates
+  useEffect(() => {
+    void supabase
+      .from("user_iot_devices")
+      .select("device_id, last_seen")
+      .eq("user_id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setIotSavedId(data.device_id);
+          setIotInput(data.device_id);
+          setIotLastSeen(data.last_seen ?? null);
+          iotDeviceIdRef.current = data.device_id;
+        }
+      });
+
+    iotRealtimeRef.current = supabase
+      .channel(`iot-device-mobile-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "user_iot_devices", filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          const row = payload.new as { device_id: string; last_seen: string | null };
+          setIotLastSeen(row.last_seen ?? null);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      if (iotRealtimeRef.current) void supabase.removeChannel(iotRealtimeRef.current);
+    };
+  }, [user.id]);
+
   useEffect(() => {
     const unsub = NetInfo.addEventListener((s) => {
       setNetLabel(s.isConnected ? (s.isInternetReachable === false ? "no internet" : "online") : "offline");
@@ -440,6 +489,105 @@ export function DriveScreen() {
     else stopEcTimer();
   }, [alertOpen, alertLevel, startEcCountdown, stopEcTimer]);
 
+  // IoT Realtime: auto-dismiss when ESP32 physical button pressed (WiFi path)
+  useEffect(() => {
+    if (!localSessionId) return;
+    const ch = supabase
+      .channel(`iot-alerts-mobile-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "iot_alerts", filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          const row = payload.new as { id: string; status: string; dismissed_by: string };
+          if (
+            row.status === "dismissed" &&
+            row.dismissed_by === "iot_button" &&
+            row.id === iotAlertIdRef.current
+          ) {
+            dismissedLevelsRef.current.add(alertLevelRef.current);
+            stopAlertAudio();
+            stopEcTimer();
+            if (alertLevelRef.current >= 10) startScoreResetTimer();
+            iotAlertIdRef.current = null;
+            setAlertOpen(false);
+          }
+        },
+      )
+      .subscribe();
+    return () => { void supabase.removeChannel(ch); };
+  }, [localSessionId, user.id, stopAlertAudio, stopEcTimer, startScoreResetTimer]);
+
+  // ── BLE ──────────────────────────────────────────────────────────────────────
+
+  const [bleStatus, setBleStatus] = useState<BleStatus>("idle");
+  const bleDeviceRef = useRef<Device | null>(null);
+  const bleSubRef = useRef<Subscription | null>(null);
+
+  const disconnectBle = useCallback(() => {
+    bleSubRef.current?.remove();
+    bleSubRef.current = null;
+    void bleDeviceRef.current?.cancelConnection().catch(() => {});
+    bleDeviceRef.current = null;
+    setBleStatus("idle");
+  }, []);
+
+  const connectBle = useCallback((targetDeviceId: string) => {
+    const mgr = getBleManager();
+    setBleStatus("scanning");
+
+    let found = false;
+    const targetName = bleDeviceName(targetDeviceId);
+
+    mgr.startDeviceScan(null, { allowDuplicates: false }, (err: BleError | null, device: Device | null) => {
+      if (err || found) return;
+      if (device?.name !== targetName) return;
+      found = true;
+      mgr.stopDeviceScan();
+
+      device
+        .connect({ autoConnect: false })
+        .then((d: Device) => d.discoverAllServicesAndCharacteristics())
+        .then((d: Device) => {
+          bleDeviceRef.current = d;
+          // Subscribe to event notifications (ESP32 button dismiss → BLE path)
+          bleSubRef.current = d.monitorCharacteristicForService(
+            SG_SERVICE_UUID, SG_EVENT_CHAR_UUID,
+            (monErr: BleError | null, char: Characteristic | null) => {
+              if (monErr) { disconnectBle(); return; }
+              if (!char?.value) return;
+              try {
+                const payload = JSON.parse(atob(char.value)) as { event?: string };
+                if (payload.event === "dismiss") {
+                  dismissedLevelsRef.current.add(alertLevelRef.current);
+                  stopAlertAudio();
+                  stopEcTimer();
+                  if (alertLevelRef.current >= 10) startScoreResetTimer();
+                  iotAlertIdRef.current = null;
+                  setAlertOpen(false);
+                }
+              } catch { /* ignore malformed payload */ }
+            },
+          );
+          setBleStatus("connected");
+        })
+        .catch(() => setBleStatus("error"));
+    });
+
+    // Stop scanning after 15 s if device not found
+    setTimeout(() => {
+      if (!found) { mgr.stopDeviceScan(); setBleStatus((s) => s === "scanning" ? "idle" : s); }
+    }, 15_000);
+  }, [disconnectBle, stopAlertAudio, stopEcTimer, startScoreResetTimer]);
+
+  const bleSend = useCallback(async (cmd: object) => {
+    if (!bleDeviceRef.current) return;
+    try {
+      await bleDeviceRef.current.writeCharacteristicWithResponseForService(
+        SG_SERVICE_UUID, SG_CMD_CHAR_UUID, btoa(JSON.stringify(cmd)),
+      );
+    } catch { /* BLE write failures are non-fatal — WiFi/MQTT path still active */ }
+  }, []);
+
   const startSession = useCallback(async () => {
     setBusy(true);
     setStatus(null);
@@ -488,6 +636,8 @@ export function DriveScreen() {
     level10BaseYawnRef.current = null;
     level10BaseHeadRef.current = null;
     dismissedLevelsRef.current.clear();
+    iotAlertIdRef.current = null;
+    disconnectBle();
 
     // Write ended_at synchronously — no network needed
     try {
@@ -650,6 +800,35 @@ export function DriveScreen() {
             trigger_level: ar.trigger, alert_label: label, source: "mobile_drive",
           });
           void playMobileAlertActions(actions, level, currentSoundRef);
+
+          // Signal IoT buzzer + LED for level 9/10
+          if (iotDeviceIdRef.current && actions.some((a: string) => a === "iot_buzzer")) {
+            void supabase
+              .from("iot_alerts")
+              .insert({ device_id: iotDeviceIdRef.current, user_id: user.id, drowsiness_level: level })
+              .select("id")
+              .single()
+              .then(({ data: iotRow }) => {
+                if (!iotRow?.id) return;
+                iotAlertIdRef.current = iotRow.id;
+                // BLE path (works offline)
+                void bleSend({ cmd: "buzz", level, alert_id: iotRow.id });
+                // WiFi/API path
+                if (IOT_API_URL) {
+                  void supabase.auth.getSession().then(({ data: { session } }) => {
+                    if (!session) return;
+                    void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${session.access_token}`,
+                      },
+                      body: JSON.stringify({ device_id: iotDeviceIdRef.current, alert_id: iotRow.id, level }),
+                    });
+                  });
+                }
+              });
+          }
         }
       }
     }, 1000);
@@ -769,6 +948,24 @@ export function DriveScreen() {
               if (alertLevelRef.current >= 10) startScoreResetTimer();
               if (activeAlertIdRef.current)
                 void acknowledgeEmergencyAlert(supabase, activeAlertIdRef.current);
+              if (iotAlertIdRef.current && iotDeviceIdRef.current) {
+                const iotId = iotAlertIdRef.current;
+                const dev = iotDeviceIdRef.current;
+                iotAlertIdRef.current = null;
+                void supabase.from("iot_alerts").update({
+                  status: "dismissed", dismissed_by: "driver", dismissed_at: new Date().toISOString(),
+                }).eq("id", iotId);
+                if (IOT_API_URL) {
+                  void supabase.auth.getSession().then(({ data: { session } }) => {
+                    if (!session) return;
+                    void fetch(`${IOT_API_URL}/v1/iot/dismiss`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+                      body: JSON.stringify({ device_id: dev, alert_id: iotId }),
+                    });
+                  });
+                }
+              }
               setAlertOpen(false);
             }}>
               <Text style={styles.btnTextPrimary}>I'm alert — dismiss</Text>
@@ -835,6 +1032,73 @@ export function DriveScreen() {
         )}
 
         <Text style={styles.metaSmall}>Network: {netLabel}</Text>
+
+        {/* IoT device pairing */}
+        <View style={styles.iotCard}>
+          <View style={styles.iotHeader}>
+            <Text style={styles.iotLabel}>IoT Buzzer Device</Text>
+            <View style={styles.iotStatusRow}>
+              <View style={[
+                styles.iotDot,
+                iotSavedId
+                  ? (iotLastSeen && Date.now() - new Date(iotLastSeen).getTime() < 15_000)
+                    ? styles.iotDotConnected
+                    : styles.iotDotOff
+                  : styles.iotDotNone,
+              ]} />
+              <Text style={styles.iotStatusText}>
+                {iotSavedId
+                  ? (iotLastSeen && Date.now() - new Date(iotLastSeen).getTime() < 15_000)
+                    ? "Connected"
+                    : "Disconnected"
+                  : "No device"}
+              </Text>
+            </View>
+          </View>
+          {iotSavedId ? (
+            <View style={styles.iotSavedRow}>
+              <Text style={styles.iotDeviceId} numberOfLines={1}>{iotSavedId}</Text>
+              <Pressable onPress={() => {
+                void supabase.from("user_iot_devices").delete().eq("user_id", user.id).then(() => {
+                  setIotSavedId(null);
+                  setIotInput("");
+                  setIotLastSeen(null);
+                  iotDeviceIdRef.current = null;
+                });
+              }}>
+                <Text style={styles.iotUnlink}>Unlink</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.iotInputRow}>
+              <TextInput
+                style={styles.iotInput}
+                value={iotInput}
+                onChangeText={setIotInput}
+                placeholder="Device ID (e.g. esp32cam-001)"
+                placeholderTextColor={t.onSurfaceVariant + "88"}
+                autoCapitalize="none"
+              />
+              <Pressable
+                style={[styles.iotLinkBtn, (!iotInput.trim() || iotSaving) && styles.btnDisabled]}
+                disabled={!iotInput.trim() || iotSaving}
+                onPress={() => {
+                  setIotSaving(true);
+                  void supabase.from("user_iot_devices")
+                    .upsert({ user_id: user.id, device_id: iotInput.trim() }, { onConflict: "user_id" })
+                    .then(() => {
+                      const id = iotInput.trim();
+                      setIotSavedId(id);
+                      iotDeviceIdRef.current = id;
+                      setIotSaving(false);
+                    });
+                }}
+              >
+                <Text style={styles.iotLinkText}>{iotSaving ? "…" : "Link"}</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
 
         <View style={styles.row}>
           {!localSessionId ? (
@@ -933,4 +1197,31 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   mountCancelBtn: { alignItems: "center", paddingVertical: 10 },
   mountCancelText: { color: t.onSurfaceVariant, fontSize: 14, fontWeight: "600" },
+
+  iotCard: {
+    borderWidth: 1, borderColor: `${t.outlineVariant}22`, borderRadius: 14,
+    padding: 10, backgroundColor: t.background,
+  },
+  iotHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  iotLabel: { fontSize: 9, fontWeight: "700", color: t.onSurfaceVariant, letterSpacing: 2, textTransform: "uppercase" },
+  iotStatusRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  iotDot: { width: 7, height: 7, borderRadius: 4 },
+  iotDotConnected: { backgroundColor: t.primary },
+  iotDotOff: { backgroundColor: t.outlineVariant },
+  iotDotNone: { backgroundColor: `${t.outlineVariant}55` },
+  iotStatusText: { fontSize: 9, fontWeight: "700", color: t.onSurfaceVariant },
+  iotSavedRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  iotDeviceId: { fontSize: 12, color: t.onSurface, fontFamily: "monospace", flex: 1, marginRight: 8 },
+  iotUnlink: { fontSize: 11, fontWeight: "700", color: t.onSurfaceVariant },
+  iotInputRow: { flexDirection: "row", gap: 8 },
+  iotInput: {
+    flex: 1, backgroundColor: t.surfaceContainerHigh,
+    color: t.onSurface, fontSize: 12, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8,
+    borderWidth: 1, borderColor: `${t.outlineVariant}33`,
+  },
+  iotLinkBtn: {
+    paddingHorizontal: 14, paddingVertical: 8, backgroundColor: `${t.primary}22`,
+    borderRadius: 10, borderWidth: 1, borderColor: `${t.primary}44`, justifyContent: "center",
+  },
+  iotLinkText: { color: t.primary, fontSize: 12, fontWeight: "700" },
 });
