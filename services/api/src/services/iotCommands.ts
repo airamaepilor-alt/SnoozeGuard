@@ -10,8 +10,8 @@ export async function updateDeviceHeartbeat(supabase: Supabase, deviceId: string
     .eq("device_id", deviceId);
 }
 
-export function signalIotBuzz(deviceId: string, alertId: string, level: number): void {
-  publishMqttCommand(`snoozeguard/commands/${deviceId}`, {
+export function signalIotBuzz(deviceId: string, alertId: string, level: number): boolean {
+  return publishMqttCommand(`snoozeguard/commands/${deviceId}`, {
     command: "buzz",
     alert_id: alertId,
     level,

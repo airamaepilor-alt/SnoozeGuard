@@ -90,7 +90,7 @@ export function IotDevicesPage() {
       return;
     }
 
-    const trimmedId = newDeviceId.trim().toUpperCase();
+    const trimmedId = newDeviceId.trim().toLowerCase();
 
     try {
       setAdding(true);

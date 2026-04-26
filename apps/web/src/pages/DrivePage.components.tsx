@@ -100,14 +100,21 @@ export function IotDevicePanel({
       </div>
 
       {savedDeviceId ? (
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-on-surface font-mono flex-1 truncate">{savedDeviceId}</span>
-          <button
-            onClick={() => void unlinkDevice()}
-            className="text-[10px] font-bold text-on-surface-variant hover:text-tertiary transition-colors"
-          >
-            Unlink
-          </button>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-on-surface font-mono flex-1 truncate">{savedDeviceId}</span>
+            <button
+              onClick={() => void unlinkDevice()}
+              className="text-[10px] font-bold text-on-surface-variant hover:text-tertiary transition-colors"
+            >
+              Unlink
+            </button>
+          </div>
+          {!import.meta.env.VITE_API_URL && (
+            <p className="text-[9px] text-secondary leading-tight">
+              ⚠ VITE_API_URL not set — buzzer signal will not reach device.
+            </p>
+          )}
         </div>
       ) : (
         <div className="flex gap-2">

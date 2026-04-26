@@ -1,0 +1,16 @@
+# nixpacks.toml — Railway build config for the SnoozeGuard API service
+# Skips mobile-only postinstall scripts and native module compilation.
+
+[phases.install]
+cmds = [
+  "npm install --ignore-scripts --no-audit"
+]
+
+[phases.build]
+cmds = [
+  "npm run build --workspace=@snoozeguard/shared",
+  "npm run build --workspace=@snoozeguard/api"
+]
+
+[start]
+cmd = "npm run start --workspace=@snoozeguard/api"

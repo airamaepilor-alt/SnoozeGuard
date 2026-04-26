@@ -73,8 +73,8 @@ export function iotRoutes(env: Env, supabase: Supabase): FastifyPluginAsync {
         return reply.code(400).send({ error: "invalid_body" });
       }
 
-      signalIotBuzz(parsed.data.device_id, parsed.data.alert_id, parsed.data.level);
-      return { ok: true };
+      const published = signalIotBuzz(parsed.data.device_id, parsed.data.alert_id, parsed.data.level);
+      return { ok: true, mqtt_published: published };
     });
 
     // ── Dismiss: ESP32 button OR app driver dismiss

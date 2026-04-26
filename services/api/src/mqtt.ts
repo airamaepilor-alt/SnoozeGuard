@@ -9,9 +9,10 @@ type Supabase = ReturnType<typeof createServiceClient>;
 
 let _mqttClient: mqtt.MqttClient | null = null;
 
-export function publishMqttCommand(topic: string, payload: object): void {
-  if (!_mqttClient?.connected) return;
+export function publishMqttCommand(topic: string, payload: object): boolean {
+  if (!_mqttClient?.connected) return false;
   _mqttClient.publish(topic, JSON.stringify(payload), { qos: 1 });
+  return true;
 }
 
 export function startMqttIngestIfConfigured(env: Env, supabase: Supabase, log: FastifyBaseLogger): void {
