@@ -45,8 +45,10 @@
 #include <BLE2902.h>
 #include <DFRobotDFPlayerMini.h>
 #include <time.h>
+#include <cstring> // Ensure strlen is available
 
 #include "secrets.h"
+#include "root_ca.h"
 
 // ── Pin / config defaults (override in secrets.h) ─────────────────────────────
 #ifndef IOT_DEVICE_ID
@@ -64,8 +66,8 @@
 #ifndef DFPLAYER_TX_PIN
 #define DFPLAYER_TX_PIN    17
 #endif
-#ifndef IOT_VIBRATION_PIN
-#define IOT_VIBRATION_PIN  25
+#ifndef IOT_BUTTON_PIN
+#define IOT_BUTTON_PIN     25
 #endif
 #ifndef IOT_BUZZER_PIN
 #define IOT_BUZZER_PIN     26
@@ -73,8 +75,8 @@
 #ifndef IOT_LED_PIN
 #define IOT_LED_PIN        27
 #endif
-#ifndef IOT_BUTTON_PIN
-#define IOT_BUTTON_PIN     32
+#ifndef IOT_LED2_PIN
+#define IOT_LED2_PIN       32
 #endif
 #ifndef IOT_BLE_LED_PIN
 #define IOT_BLE_LED_PIN    33
@@ -120,7 +122,7 @@ static uint32_t ledFlashTimer      = 0;
 
 // ── Hardware ──────────────────────────────────────────────────────────────────
 static HardwareSerial    dfSerial(2);
-static DFRobotDFPlayerMini dfPlayer;
+static DFRobotDFPlayerMini *dfPlayer = nullptr;
 static WiFiClientSecure  mqttWifi;
 static PubSubClient      mqtt(mqttWifi);
 static BLECharacteristic *pEventChar = nullptr;
@@ -130,8 +132,9 @@ static BLECharacteristic *pEventChar = nullptr;
 static void stopAllOutputs() {
   digitalWrite(IOT_BUZZER_PIN,    LOW);
   digitalWrite(IOT_LED_PIN,       LOW);
-  digitalWrite(IOT_VIBRATION_PIN, LOW);
-  dfPlayer.stop();
+  digitalWrite(IOT_LED2_PIN,      LOW);
+  digitalWrite(IOT_BLE_LED_PIN,   LOW);
+  if (dfPlayer) dfPlayer->stop();
   vibLeft = 0;
   vibOn   = false;
   ledFlash = false;
@@ -156,26 +159,30 @@ static void triggerAlert(int level, const char *alertId) {
   currentAlertId[sizeof(currentAlertId) - 1] = '\0';
 
   // Voice: track index = level - 5  (level 6 → track 1, level 10 → track 5)
-  dfPlayer.play(level - 5);
+  if (dfPlayer) dfPlayer->play(level - 5);
 
   if (level >= 9) {
-    // Continuous: buzzer + vibration + LED (level 10 also flashes LED)
+    // Continuous: buzzer + LEDs (level 10 also flashes LED)
     digitalWrite(IOT_BUZZER_PIN,    HIGH);
-    digitalWrite(IOT_VIBRATION_PIN, HIGH);
+    digitalWrite(IOT_LED_PIN,       HIGH);
+    digitalWrite(IOT_LED2_PIN,      HIGH);
     if (level == 10) {
       ledFlash      = true;
       ledFlashTimer = millis();
       digitalWrite(IOT_LED_PIN, HIGH);
+      digitalWrite(IOT_LED2_PIN, HIGH);
     } else {
       digitalWrite(IOT_LED_PIN, HIGH);
+      digitalWrite(IOT_LED2_PIN, HIGH);
     }
   } else {
-    // Pulse pattern for levels 6–8
+    // Pulse pattern for levels 6–8 (use LEDs instead of vibration)
     const VibPattern &p = kVib[level];
     vibLeft  = p.pulses;
     vibOn    = true;
     vibTimer = millis();
-    digitalWrite(IOT_VIBRATION_PIN, HIGH);
+    digitalWrite(IOT_LED_PIN, HIGH);
+    digitalWrite(IOT_LED2_PIN, HIGH);
   }
 
   Serial.printf("Alert: level=%d id=%s\n", level, alertId);
@@ -191,13 +198,15 @@ static void handleVibPulse(uint32_t now) {
       vibOn = false;
       vibTimer = now;
       vibLeft--;
-      digitalWrite(IOT_VIBRATION_PIN, LOW);
+      digitalWrite(IOT_LED_PIN, LOW);
+      digitalWrite(IOT_LED2_PIN, LOW);
     }
   } else if (vibLeft > 0) {
     if (now - vibTimer >= p.offMs) {
       vibOn = true;
       vibTimer = now;
-      digitalWrite(IOT_VIBRATION_PIN, HIGH);
+      digitalWrite(IOT_LED_PIN, HIGH);
+      digitalWrite(IOT_LED2_PIN, HIGH);
     }
   }
 }
@@ -290,37 +299,75 @@ static WiFiClientSecure _httpsClient;
 
 static bool httpPost(const char *path, const String &body) {
   if (WiFi.status() != WL_CONNECTED) return false;
+
+  Serial.println("\n[HTTP] Starting HTTPS request...");
+
+  WiFiClientSecure client;
   HTTPClient http;
-#ifdef API_USE_HTTPS
-  _httpsClient.setInsecure(); // skips cert verification (OK for thesis/dev)
-  String url = String("https://") + API_HOST + path;
-  http.begin(_httpsClient, url);
-#else
-  WiFiClient client;
-  String url = String("http://") + API_HOST + ":" + API_PORT + path;
+
+  // ✔ SAFE MODE (for Railway / Cloudflare / proxy TLS)
+  client.setInsecure();   // IMPORTANT: avoids ESP32 cert issues
+  client.setTimeout(15000);
+  client.setHandshakeTimeout(30);
+
+  // Use HTTP on port 8080 (Railway assigned port)
+  String url = String("http://") + API_HOST + path;
+
+  Serial.printf("[HTTP] URL: %s\n", url.c_str());
+  Serial.printf("[HTTP] Body: %s\n", body.c_str());
+  http.useHTTP10(true);
+  http.setReuse(false);
   http.begin(client, url);
-#endif
+
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-snoozeguard-device-key", IOT_INGEST_SECRET);
+
   int code = http.POST(body);
-  Serial.printf("POST %s → %d\n", path, code);
+
+  Serial.printf("[HTTP] Response code: %d\n", code);
+
+  if (code < 0) {
+    
+    Serial.printf("[HTTP] Error: %s\n", http.errorToString(code).c_str());
+  }
+  IPAddress ip;
+  if (WiFi.hostByName(API_HOST, ip)) {
+    Serial.print("[DNS] ");
+    Serial.println(ip);
+  } else {
+    Serial.println("[DNS] Failed");
+  }
   http.end();
   return code >= 200 && code < 300;
 }
 
 static void postPing() {
+  if (!mqtt.connected()) return;
+  
   JsonDocument doc;
   doc["device_id"] = IOT_DEVICE_ID;
+  doc["timestamp"] = millis();
   String body; serializeJson(doc, body);
-  httpPost("/v1/iot/ping", body);
+  
+  char topic[128];
+  snprintf(topic, sizeof(topic), "snoozeguard/ping/%s", IOT_DEVICE_ID);
+  mqtt.publish(topic, body.c_str());
+  Serial.printf("[MQTT] Published ping to %s\n", topic);
 }
 
 static void postDismiss(const char *alertId) {
+  if (!mqtt.connected()) return;
+  
   JsonDocument doc;
   doc["device_id"] = IOT_DEVICE_ID;
   doc["alert_id"]  = alertId;
+  doc["timestamp"] = millis();
   String body; serializeJson(doc, body);
-  httpPost("/v1/iot/dismiss", body);
+  
+  char topic[128];
+  snprintf(topic, sizeof(topic), "snoozeguard/dismiss/%s", IOT_DEVICE_ID);
+  mqtt.publish(topic, body.c_str());
+  Serial.printf("[MQTT] Published dismiss to %s\n", topic);
 }
 
 // ── MQTT ──────────────────────────────────────────────────────────────────────
@@ -332,9 +379,13 @@ static void onMqttMessage(char *topic, byte *payload, unsigned int len) {
   buf[len] = '\0';
   JsonDocument doc;
   if (deserializeJson(doc, buf) != DeserializationError::Ok) return;
+  
   const char *cmd     = doc["command"] | "";
   const char *alertId = doc["alert_id"] | "";
   int         level   = doc["level"]   | 0;
+  const char *type    = doc["type"]     | "";
+  
+  // Handle command messages (buzz/all_clear)
   if (strcmp(cmd, "buzz") == 0) {
     triggerAlert(level, alertId);
     Serial.printf("MQTT BUZZ level=%d\n", level);
@@ -342,11 +393,22 @@ static void onMqttMessage(char *topic, byte *payload, unsigned int len) {
     clearAlert();
     Serial.println("MQTT ALL_CLEAR");
   }
+  // Handle ping response
+  else if (strcmp(type, "ping_response") == 0) {
+    Serial.println("[MQTT] Ping acknowledged by backend");
+  }
+  // Handle dismiss response
+  else if (strcmp(type, "dismiss_response") == 0) {
+    Serial.println("[MQTT] Dismiss acknowledged by backend");
+  }
 }
 
 static void reconnectMqtt() {
-  if (WiFi.status() != WL_CONNECTED || mqtt.connected()) return;
-  Serial.print("MQTT connecting...");
+  if (WiFi.status() != WL_CONNECTED || mqtt.connected()) {
+    if (mqtt.connected()) Serial.println("[MQTT] Already connected");
+    return;
+  }
+  Serial.print("[MQTT] Connecting...");
   bool ok;
 #if defined(MQTT_USERNAME)
   ok = mqtt.connect(IOT_DEVICE_ID, MQTT_USERNAME, MQTT_PASSWORD);
@@ -354,12 +416,25 @@ static void reconnectMqtt() {
   ok = mqtt.connect(IOT_DEVICE_ID);
 #endif
   if (ok) {
-    char t[128];
-    snprintf(t, sizeof(t), "snoozeguard/commands/%s", IOT_DEVICE_ID);
-    mqtt.subscribe(t);
-    Serial.printf("OK → %s\n", t);
+    // Subscribe to command topic (receive buzz/all_clear from backend)
+    char cmdTopic[128];
+    snprintf(cmdTopic, sizeof(cmdTopic), "snoozeguard/commands/%s", IOT_DEVICE_ID);
+    mqtt.subscribe(cmdTopic);
+    Serial.printf(" [MQTT] Subscribed to %s\n", cmdTopic);
+    
+    // Subscribe to ping response topic
+    char pingTopic[128];
+    snprintf(pingTopic, sizeof(pingTopic), "snoozeguard/ping/response/%s", IOT_DEVICE_ID);
+    mqtt.subscribe(pingTopic);
+    Serial.printf(" [MQTT] Subscribed to %s\n", pingTopic);
+    
+    // Subscribe to dismiss response topic
+    char dismissTopic[128];
+    snprintf(dismissTopic, sizeof(dismissTopic), "snoozeguard/dismiss/response/%s", IOT_DEVICE_ID);
+    mqtt.subscribe(dismissTopic);
+    Serial.printf(" [MQTT] Subscribed to %s\n", dismissTopic);
   } else {
-    Serial.printf("failed rc=%d\n", mqtt.state());
+    Serial.printf(" [MQTT] Connect failed rc=%d\n", mqtt.state());
   }
 }
 
@@ -372,7 +447,7 @@ void setup() {
   // GPIO
   pinMode(IOT_BUZZER_PIN,    OUTPUT);
   pinMode(IOT_LED_PIN,       OUTPUT);
-  pinMode(IOT_VIBRATION_PIN, OUTPUT);
+  pinMode(IOT_LED2_PIN,      OUTPUT);
   pinMode(IOT_BLE_LED_PIN,   OUTPUT);
   pinMode(IOT_BUTTON_PIN,    INPUT_PULLUP);
   stopAllOutputs();
@@ -381,10 +456,11 @@ void setup() {
   // DFPlayer Mini (UART2)
   dfSerial.begin(9600, SERIAL_8N1, DFPLAYER_RX_PIN, DFPLAYER_TX_PIN);
   delay(1000); // DFPlayer needs time to boot
-  if (!dfPlayer.begin(dfSerial, /*isACK=*/true, /*doReset=*/true)) {
+  dfPlayer = new DFRobotDFPlayerMini();
+  if (!dfPlayer->begin(dfSerial, /*isACK=*/true, /*doReset=*/true)) {
     Serial.println("DFPlayer init failed — check SD card and wiring");
   } else {
-    dfPlayer.volume(25); // 0–30
+    dfPlayer->volume(25); // 0–30
     Serial.println("DFPlayer ready");
   }
 
@@ -398,12 +474,18 @@ void setup() {
   }
   Serial.println();
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("IP: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("WiFi connected! IP: %s\n", WiFi.localIP().toString().c_str());
     configTime(0, 0, "pool.ntp.org", "time.nist.gov");
     mqttWifi.setInsecure();
     mqtt.setServer(MQTT_BROKER, MQTT_PORT);
     mqtt.setCallback(onMqttMessage);
+    Serial.println("Attempting MQTT connection...");
     reconnectMqtt();
+    if (mqtt.connected()) {
+      Serial.println("MQTT connected!");
+    } else {
+      Serial.println("MQTT connection failed.");
+    }
   } else {
     Serial.println("WiFi unavailable — BLE-only mode");
   }
