@@ -28,43 +28,43 @@ const client = mqtt.connect(env.MQTT_BROKER_URL, {
 });
 
 client.on("connect", () => {
-  console.log(`[mqtt-bridge] ✅ Connected to MQTT broker`);
-  console.log(`[mqtt-bridge] Subscribing to topics...`);
+  console.log(`[MQTT BRIDGE CONNECTED] Connected to MQTT broker at ${env.MQTT_BROKER_URL}`);
+  console.log(`[MQTT BRIDGE] Subscribing to topics...`);
   
   // Subscribe to device commands (buzz/all_clear)
   client.subscribe(env.MQTT_TOPIC, (err) => {
-    if (err) console.error("[mqtt-bridge] ❌ subscribe error:", err);
-    else console.log(`[mqtt-bridge] ✅ subscribed to ${env.MQTT_TOPIC}`);
+    if (err) console.error(`[MQTT BRIDGE SUBSCRIBE ERROR] ${env.MQTT_TOPIC}:`, err);
+    else console.log(`[MQTT BRIDGE SUBSCRIBED] Topic: ${env.MQTT_TOPIC}`);
   });
   
   // Subscribe to ping topics (all devices)
   client.subscribe("snoozeguard/ping/+", (err) => {
-    if (err) console.error("[mqtt-bridge] ❌ ping subscribe error:", err);
-    else console.log("[mqtt-bridge] ✅ subscribed to snoozeguard/ping/+");
+    if (err) console.error("[MQTT BRIDGE SUBSCRIBE ERROR] snoozeguard/ping/+:", err);
+    else console.log("[MQTT BRIDGE SUBSCRIBED] Topic: snoozeguard/ping/+");
   });
   
   // Subscribe to dismiss topics (all devices)
   client.subscribe("snoozeguard/dismiss/+", (err) => {
-    if (err) console.error("[mqtt-bridge] ❌ dismiss subscribe error:", err);
-    else console.log("[mqtt-bridge] ✅ subscribed to snoozeguard/dismiss/+");
+    if (err) console.error("[MQTT BRIDGE SUBSCRIBE ERROR] snoozeguard/dismiss/+:", err);
+    else console.log("[MQTT BRIDGE SUBSCRIBED] Topic: snoozeguard/dismiss/+");
   });
 });
 
 client.on("error", (err) => {
-  console.error("[mqtt-bridge] ❌ MQTT error:", err);
+  console.error("[MQTT BRIDGE ERROR]", err);
 });
 
 client.on("offline", () => {
-  console.log("[mqtt-bridge] ⚠️ MQTT offline");
+  console.log("[MQTT BRIDGE OFFLINE] Connection lost");
 });
 
 client.on("reconnect", () => {
-  console.log("[mqtt-bridge] 🔄 MQTT reconnecting...");
+  console.log("[MQTT BRIDGE RECONNECTING]");
 });
 
 client.on("message", async (topic, payload) => {
-  console.log(`[mqtt-bridge] 📥 Received on topic: ${topic}`);
-  console.log(`[mqtt-bridge] 📦 Payload: ${payload.toString()}`);
+  console.log(`[MQTT MESSAGE RECEIVED] Topic: ${topic}`);
+  console.log(`[MQTT MESSAGE RECEIVED] Payload (${payload.length} bytes):`, payload.toString());
   
   let json: unknown;
   try {
@@ -77,12 +77,14 @@ client.on("message", async (topic, payload) => {
   // Handle ping messages
   if (topic.startsWith("snoozeguard/ping/")) {
     const deviceId = topic.split("/")[2];
-    console.log(`[mqtt-bridge] 📌 Handling ping from device: ${deviceId}`);
+    console.log(`[MQTT PING RECEIVED] Topic: ${topic}`);
+    console.log(`[MQTT PING RECEIVED] Device ID: ${deviceId}`);
+    console.log(`[MQTT PING RECEIVED] Payload:`, JSON.stringify(json));
     
     // Forward to API
     const url = new URL("/v1/iot/ping", env.SNOOZEGUARD_API_URL).toString();
-    console.log(`[mqtt-bridge] 📤 Forwarding to: ${url}`);
-    console.log(`[mqtt-bridge] 📤 Body:`, JSON.stringify(json));
+    console.log(`[MQTT PING FORWARD] URL: ${url}`);
+    console.log(`[MQTT PING FORWARD] Body:`, JSON.stringify(json));
     
     try {
       const res = await fetch(url, {
@@ -94,17 +96,23 @@ client.on("message", async (topic, payload) => {
         body: JSON.stringify(json),
       });
       
-      console.log(`[mqtt-bridge] 📥 API Response status: ${res.status}`);
       const responseText = await res.text();
-      console.log(`[mqtt-bridge] 📥 API Response body: ${responseText}`);
+      console.log(`[MQTT PING API RESPONSE] Status: ${res.status}`);
+      console.log(`[MQTT PING API RESPONSE] Body: ${responseText}`);
+      
+      if (res.ok) {
+        console.log(`[MQTT PING SUCCESS] Device ${deviceId} ping accepted by API`);
+      } else {
+        console.error(`[MQTT PING FAILED] API returned ${res.status}: ${responseText}`);
+      }
       
       // Send response acknowledgment
       const responseTopic = `snoozeguard/ping/response/${deviceId}`;
       const response = { type: "ping_response", success: res.ok };
       client.publish(responseTopic, JSON.stringify(response));
-      console.log(`[mqtt-bridge] ✅ Published ping response to ${responseTopic}`);
+      console.log(`[MQTT PING RESPONSE PUBLISHED] Topic: ${responseTopic}`);
     } catch (e) {
-      console.error("[mqtt-bridge] ❌ API call failed:", e);
+      console.error(`[MQTT PING ERROR] Failed to forward ping for device ${deviceId}:`, e);
     }
     return;
   }
@@ -112,11 +120,12 @@ client.on("message", async (topic, payload) => {
   // Handle dismiss messages
   if (topic.startsWith("snoozeguard/dismiss/")) {
     const deviceId = topic.split("/")[2];
-    console.log(`[mqtt-bridge] 📌 Handling dismiss from device: ${deviceId}`);
+    console.log(`[MQTT DISMISS RECEIVED] Device ID: ${deviceId}`);
+    console.log(`[MQTT DISMISS RECEIVED] Payload:`, JSON.stringify(json));
     
     // Forward to API
     const url = new URL("/v1/iot/dismiss", env.SNOOZEGUARD_API_URL).toString();
-    console.log(`[mqtt-bridge] 📤 Forwarding to: ${url}`);
+    console.log(`[MQTT DISMISS FORWARD] URL: ${url}`);
     
     try {
       const res = await fetch(url, {
@@ -128,26 +137,35 @@ client.on("message", async (topic, payload) => {
         body: JSON.stringify(json),
       });
       
-      console.log(`[mqtt-bridge] 📥 API Response status: ${res.status}`);
+      const responseText = await res.text();
+      console.log(`[MQTT DISMISS API RESPONSE] Status: ${res.status} | Body: ${responseText}`);
+      
+      if (res.ok) {
+        console.log(`[MQTT DISMISS SUCCESS] Device ${deviceId} dismiss accepted by API`);
+      } else {
+        console.error(`[MQTT DISMISS FAILED] API returned ${res.status}`);
+      }
       
       // Send response acknowledgment
       const responseTopic = `snoozeguard/dismiss/response/${deviceId}`;
       const response = { type: "dismiss_response", success: res.ok };
       client.publish(responseTopic, JSON.stringify(response));
-      console.log(`[mqtt-bridge] ✅ Published dismiss response to ${responseTopic}`);
+      console.log(`[MQTT DISMISS RESPONSE PUBLISHED] Topic: ${responseTopic}`);
     } catch (e) {
-      console.error("[mqtt-bridge] ❌ API call failed:", e);
+      console.error(`[MQTT DISMISS ERROR] Failed to forward dismiss for device ${deviceId}:`, e);
     }
     return;
   }
   
   // Handle command messages (buzz/all_clear) - existing telemetry logic
+  console.log(`[MQTT TELEMETRY RECEIVED] Attempting to parse as telemetry...`);
   const parsed = iotBodySchema.safeParse(json);
   if (!parsed.success) {
-    console.warn("[mqtt-bridge] skip: schema", parsed.error.flatten());
+    console.warn(`[TELEMETRY PARSE ERROR] Schema validation failed:`, parsed.error.flatten());
     return;
   }
   const url = new URL("/v1/iot/telemetry", env.SNOOZEGUARD_API_URL).toString();
+  console.log(`[MQTT TELEMETRY FORWARD] URL: ${url} | Device: ${parsed.data.device_id}`);
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -158,10 +176,10 @@ client.on("message", async (topic, payload) => {
   });
   if (!res.ok) {
     const text = await res.text();
-    console.error("[mqtt-bridge] forward failed", res.status, text);
+    console.error(`[MQTT TELEMETRY FAILED] Status: ${res.status} | Body: ${text}`);
   } else {
-    console.log("[mqtt-bridge] forwarded", parsed.data.device_id);
+    console.log(`[MQTT TELEMETRY SUCCESS] Device: ${parsed.data.device_id} | Status: ${res.status}`);
   }
 });
 
-client.on("error", (err) => console.error("[mqtt-bridge] mqtt error", err));
+client.on("error", (err) => console.error("[MQTT BRIDGE FATAL ERROR]", err));

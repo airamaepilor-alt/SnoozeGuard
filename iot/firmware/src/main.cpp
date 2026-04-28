@@ -342,7 +342,10 @@ static bool httpPost(const char *path, const String &body) {
 }
 
 static void postPing() {
-  if (!mqtt.connected()) return;
+  if (!mqtt.connected()) {
+    Serial.println("[MQTT PING] ERROR: Not connected to MQTT — ping skipped");
+    return;
+  }
   
   JsonDocument doc;
   doc["device_id"] = IOT_DEVICE_ID;
@@ -351,8 +354,8 @@ static void postPing() {
   
   char topic[128];
   snprintf(topic, sizeof(topic), "snoozeguard/ping/%s", IOT_DEVICE_ID);
-  mqtt.publish(topic, body.c_str());
-  Serial.printf("[MQTT] Published ping to %s\n", topic);
+  bool published = mqtt.publish(topic, body.c_str());
+  Serial.printf("[MQTT PING] Topic: %s | Body: %s | Published: %s\n", topic, body.c_str(), published ? "YES" : "NO");
 }
 
 static void postDismiss(const char *alertId) {

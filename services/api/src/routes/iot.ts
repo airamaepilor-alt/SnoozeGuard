@@ -46,17 +46,25 @@ export function iotRoutes(env: Env, supabase: Supabase): FastifyPluginAsync {
 
     // ── Heartbeat: ESP32 → server every 5s to update last_seen ──────────────
     app.post("/v1/iot/ping", async (req, reply) => {
+      console.log("[API PING] Received ping request");
+      console.log("[API PING] Headers:", req.headers);
+      console.log("[API PING] Body:", req.body);
+      
       const key = req.headers["x-snoozeguard-device-key"] as string | undefined;
       if (!key || key !== env.IOT_INGEST_SECRET) {
+        console.error("[API PING] Unauthorized: missing or invalid device key");
         return reply.code(401).send({ error: "unauthorized" });
       }
 
       const parsed = pingBodySchema.safeParse(req.body);
       if (!parsed.success) {
+        console.error("[API PING] Invalid body schema:", parsed.error.flatten());
         return reply.code(400).send({ error: "invalid_body" });
       }
 
+      console.log(`[API PING] Updating heartbeat for device: ${parsed.data.device_id}`);
       await updateDeviceHeartbeat(supabase, parsed.data.device_id);
+      console.log(`[API PING] Heartbeat updated successfully for ${parsed.data.device_id}`);
       return { ok: true };
     });
 

@@ -4,10 +4,20 @@ import { publishMqttCommand } from "../mqtt.js";
 type Supabase = ReturnType<typeof createServiceClient>;
 
 export async function updateDeviceHeartbeat(supabase: Supabase, deviceId: string): Promise<void> {
-  await supabase
+  const timestamp = new Date().toISOString();
+  console.log(`[HEARTBEAT UPDATE] Device: ${deviceId} | Timestamp: ${timestamp}`);
+  
+  const { error, data } = await supabase
     .from("user_iot_devices")
-    .update({ last_seen: new Date().toISOString() })
-    .eq("device_id", deviceId);
+    .update({ last_seen: timestamp })
+    .eq("device_id", deviceId)
+    .select();
+  
+  if (error) {
+    console.error(`[HEARTBEAT UPDATE FAILED] Device: ${deviceId} | Error:`, error.message);
+  } else {
+    console.log(`[HEARTBEAT UPDATE SUCCESS] Device: ${deviceId} | Rows updated:`, data?.length ?? 0);
+  }
 }
 
 export function signalIotBuzz(deviceId: string, alertId: string, level: number): boolean {
