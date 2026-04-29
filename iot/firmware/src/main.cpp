@@ -290,16 +290,10 @@ static WiFiClientSecure _httpsClient;
 
 static bool httpPost(const char *path, const String &body) {
   if (WiFi.status() != WL_CONNECTED) return false;
+  _httpsClient.setInsecure();
   HTTPClient http;
-#ifdef API_USE_HTTPS
-  _httpsClient.setInsecure(); // skips cert verification (OK for thesis/dev)
   String url = String("https://") + API_HOST + path;
   http.begin(_httpsClient, url);
-#else
-  WiFiClient client;
-  String url = String("http://") + API_HOST + ":" + API_PORT + path;
-  http.begin(client, url);
-#endif
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-snoozeguard-device-key", IOT_INGEST_SECRET);
   int code = http.POST(body);
