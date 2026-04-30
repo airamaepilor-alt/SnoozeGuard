@@ -20,6 +20,9 @@ import { useAuth } from "../context/AuthContext";
 import { offlineDb } from "../lib/offline/db";
 import { supabase } from "../lib/supabase";
 import { ensureRemoteSession, flushEndedSessions, flushPendingTelemetry } from "../lib/offline/sync";
+import { IotDevicePanel } from "./DrivePage.components";
+
+const IOT_API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? "";
 
 // ── Calibration modal ────────────────────────────────────────────────────────
 
@@ -585,6 +588,10 @@ export function SimulationPage() {
   // ── Face detection state ───────────────────────────────────────────────────
   const [faceDetected, setFaceDetected] = useState(false);
 
+  // ── IoT device ─────────────────────────────────────────────────────────────
+  const iotDeviceIdRef = useRef<string | null>(null);
+  const iotAlertIdRef  = useRef<string | null>(null);
+
   // ── Admin config (threshold for alerts) ────────────────────────────────────
   const adminRef = useRef({
     trigger: 6,
@@ -837,6 +844,32 @@ export function SimulationPage() {
           setAlertOpen(true);
 
           void playWebAlert(actions, level);
+
+          // Signal IoT device when iot_buzzer is in actions (any level)
+          if (user && iotDeviceIdRef.current && actions.some((a: string) => a === "iot_buzzer")) {
+            void supabase
+              .from("iot_alerts")
+              .insert({ device_id: iotDeviceIdRef.current, user_id: user.id, drowsiness_level: level })
+              .select("id")
+              .single()
+              .then(({ data }) => {
+                if (!data?.id) return;
+                iotAlertIdRef.current = data.id;
+                if (IOT_API_URL) {
+                  void supabase.auth.getSession().then(({ data: { session } }) => {
+                    if (!session) return;
+                    void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${session.access_token}`,
+                      },
+                      body: JSON.stringify({ device_id: iotDeviceIdRef.current, alert_id: data.id, level }),
+                    });
+                  });
+                }
+              });
+          }
         }
       }
     }, 1000);
@@ -870,6 +903,22 @@ export function SimulationPage() {
     dismissedLevelsRef.current.add(alertLevelRef.current);
     stopWebAlert();
     setAlertOpen(false);
+    if (iotAlertIdRef.current && iotDeviceIdRef.current && IOT_API_URL) {
+      const alertId = iotAlertIdRef.current;
+      const deviceId = iotDeviceIdRef.current;
+      iotAlertIdRef.current = null;
+      void supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!session) return;
+        void fetch(`${IOT_API_URL}/v1/iot/dismiss`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ device_id: deviceId, alert_id: alertId }),
+        });
+      });
+    }
   }, []);
 
   // ── Session start / end handlers ───────────────────────────────────────────
@@ -1104,6 +1153,12 @@ export function SimulationPage() {
                   </button>
                 ))}
               </div>
+
+              {/* IoT device */}
+              <IotDevicePanel
+                userId={user?.id}
+                onDeviceBound={(id) => { iotDeviceIdRef.current = id; }}
+              />
 
               {/* Controller config */}
               <button

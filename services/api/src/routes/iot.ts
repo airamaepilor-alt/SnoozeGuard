@@ -12,7 +12,7 @@ const pingBodySchema = z.object({ device_id: z.string().min(1).max(128) });
 const buzzBodySchema = z.object({
   device_id: z.string().min(1).max(128),
   alert_id: z.string().uuid(),
-  level: z.number().int().min(9).max(10),
+  level: z.number().int().min(6).max(10),
 });
 const dismissBodySchema = z.object({
   device_id: z.string().min(1).max(128),

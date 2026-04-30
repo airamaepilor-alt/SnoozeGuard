@@ -748,7 +748,7 @@ export function DrivePage() {
           }
           void playWebAlert(actions, level);
 
-          // Signal IoT buzzer + LED for level 9/10
+          // Signal IoT device when iot_buzzer is in actions (any level)
           if (user && iotDeviceIdRef.current && actions.some((a: string) => a === "iot_buzzer")) {
             void supabase
               .from("iot_alerts")

@@ -96,7 +96,7 @@
 #define SG_CMD_CHAR_UUID   "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 #define SG_EVENT_CHAR_UUID "beb5483f-36e1-4688-b7f5-ea07361b26a8"
 
-// ── Vibration pulse patterns for levels 6–8 ───────────────────────────────────
+// ── LED pulse patterns for levels 6–8 ────────────────────────────────────────
 struct VibPattern { uint8_t pulses; uint16_t onMs; uint16_t offMs; };
 static const VibPattern kVib[] = {
   { 0,   0,   0 }, // 0 — unused
@@ -108,6 +108,33 @@ static const VibPattern kVib[] = {
   { 3, 200, 150 }, // 6 — three short pulses
   { 3, 400, 150 }, // 7 — three medium pulses
   { 3, 600, 150 }, // 8 — three long pulses
+};
+
+// ── Buzzer beep patterns per level ────────────────────────────────────────────
+// Each BuzzStep = one ON phase + one OFF phase that follows it.
+// Steps cycle in order; the last step's off-time is the inter-burst gap.
+//
+//   Level  6 — 2 short beeps, long rest    bip-bip ·········
+//   Level  7 — 3 medium beeps, medium rest BEEP-BEEP-BEEP ·····
+//   Level  8 — 4 urgent beeps, short rest  BEEEP-BEEEP-BEEEP-BEEEP ··
+//   Level  9 — rapid triple burst, repeat  pip-pip-pip···pip-pip-pip
+//   Level 10 — frantic continuous          BEEPBEEPBEEPBEEP
+struct BuzzStep { uint16_t onMs; uint16_t offMs; };
+
+static const BuzzStep kBuzz6[]  = {{100, 100}, {100, 900}};
+static const BuzzStep kBuzz7[]  = {{220, 150}, {220, 150}, {220, 650}};
+static const BuzzStep kBuzz8[]  = {{320, 120}, {320, 120}, {320, 120}, {320, 280}};
+static const BuzzStep kBuzz9[]  = {{120,  80}, {120,  80}, {120, 450}};
+static const BuzzStep kBuzz10[] = {{ 70,  55}};
+
+struct BuzzPattern { const BuzzStep *steps; uint8_t count; };
+static const BuzzPattern kBuzzPat[11] = {
+  {nullptr, 0}, {nullptr, 0}, {nullptr, 0}, {nullptr, 0}, {nullptr, 0}, {nullptr, 0},
+  {kBuzz6,  2}, // 6
+  {kBuzz7,  3}, // 7
+  {kBuzz8,  4}, // 8
+  {kBuzz9,  3}, // 9
+  {kBuzz10, 1}, // 10
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -129,6 +156,11 @@ static uint32_t vibTimer           = 0;
 static bool     ledFlash           = false;
 static uint32_t ledFlashTimer      = 0;
 
+// Buzzer pattern state machine (all levels 6–10)
+static uint8_t  buzzStep           = 0;
+static bool     buzzOn             = false;
+static uint32_t buzzTimer          = 0;
+
 // ── Hardware ──────────────────────────────────────────────────────────────────
 static HardwareSerial    dfSerial(2);
 static DFRobotDFPlayerMini *dfPlayer = nullptr;
@@ -144,9 +176,11 @@ static void stopAllOutputs() {
   digitalWrite(IOT_LED2_PIN,      LOW);
   digitalWrite(IOT_BLE_LED_PIN,   LOW);
   if (dfPlayer) dfPlayer->stop();
-  vibLeft = 0;
-  vibOn   = false;
+  vibLeft  = 0;
+  vibOn    = false;
   ledFlash = false;
+  buzzStep = 0;
+  buzzOn   = false;
 }
 
 static void clearAlert() {
@@ -171,22 +205,27 @@ static void triggerAlert(int level, const char *alertId) {
   if (dfPlayer) dfPlayer->play(level - 5);
   else Serial.println("WARNING: DFPlayer not initialized");
 
+  // Start buzzer pattern state machine for all levels
+  buzzStep  = 0;
+  buzzOn    = true;
+  buzzTimer = millis();
+  digitalWrite(IOT_BUZZER_PIN, HIGH); // first ON phase begins immediately
+
   if (level >= 9) {
-    // Continuous: buzzer + LEDs (level 10 also flashes LED)
-    digitalWrite(IOT_BUZZER_PIN, HIGH);
-    digitalWrite(IOT_LED_PIN, HIGH);
+    // LEDs on continuously; level 10 also flashes
+    digitalWrite(IOT_LED_PIN,  HIGH);
     digitalWrite(IOT_LED2_PIN, HIGH);
     if (level == 10) {
       ledFlash      = true;
       ledFlashTimer = millis();
     }
   } else {
-    // Pulse pattern for levels 6–8 (use LEDs instead of vibration)
+    // LED pulse pattern for levels 6–8
     const VibPattern &p = kVib[level];
     vibLeft  = p.pulses;
     vibOn    = true;
     vibTimer = millis();
-    digitalWrite(IOT_LED_PIN, HIGH);
+    digitalWrite(IOT_LED_PIN,  HIGH);
     digitalWrite(IOT_LED2_PIN, HIGH);
   }
 
@@ -222,6 +261,27 @@ static void handleLedFlash(uint32_t now) {
     ledFlashTimer = now;
     ledFlash      = !ledFlash;
     digitalWrite(IOT_LED_PIN, ledFlash ? HIGH : LOW);
+  }
+}
+
+static void handleBuzzerPattern(uint32_t now) {
+  if (!alertActive || currentLevel < 6 || currentLevel > 10) return;
+  const BuzzPattern &pat = kBuzzPat[currentLevel];
+  if (!pat.steps) return;
+  const BuzzStep &s = pat.steps[buzzStep];
+  if (buzzOn) {
+    if (now - buzzTimer >= s.onMs) {
+      digitalWrite(IOT_BUZZER_PIN, LOW);
+      buzzOn    = false;
+      buzzTimer = now;
+    }
+  } else {
+    if (now - buzzTimer >= s.offMs) {
+      buzzStep  = (buzzStep + 1) % pat.count;
+      buzzOn    = true;
+      buzzTimer = now;
+      digitalWrite(IOT_BUZZER_PIN, HIGH);
+    }
   }
 }
 
@@ -582,6 +642,7 @@ void loop() {
   // Non-blocking alert effects
   handleVibPulse(now);
   handleLedFlash(now);
+  handleBuzzerPattern(now);
 
   // Dome button: dismiss active alert
   if (alertActive && digitalRead(IOT_BUTTON_PIN) == LOW && now - lastButton > BUTTON_DEBOUNCE_MS) {

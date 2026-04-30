@@ -801,7 +801,7 @@ export function DriveScreen() {
           });
           void playMobileAlertActions(actions, level, currentSoundRef);
 
-          // Signal IoT buzzer + LED for level 9/10
+          // Signal IoT device when iot_buzzer is in actions (any level)
           if (iotDeviceIdRef.current && actions.some((a: string) => a === "iot_buzzer")) {
             void supabase
               .from("iot_alerts")
