@@ -315,13 +315,15 @@ static bool httpPost(const char *path, const String &body) {
   WiFiClientSecure client;
   HTTPClient http;
 
-  // ✔ SAFE MODE (for Railway / Cloudflare / proxy TLS)
-  client.setInsecure();   // IMPORTANT: avoids ESP32 cert issues
+  client.setInsecure();
   client.setTimeout(15000);
   client.setHandshakeTimeout(30);
 
-  // Use HTTP on port 8080 (Railway assigned port)
-  String url = String("http://") + API_HOST + path;
+#ifdef API_USE_HTTPS
+  String url = String("https://") + API_HOST + path;
+#else
+  String url = String("http://") + API_HOST + ":" + API_PORT + path;
+#endif
 
   Serial.printf("[HTTP] URL: %s\n", url.c_str());
   Serial.printf("[HTTP] Body: %s\n", body.c_str());
@@ -350,6 +352,8 @@ static bool httpPost(const char *path, const String &body) {
   http.end();
   return code >= 200 && code < 300;
 }
+
+static void reconnectMqtt(); // forward declaration
 
 static void postPing() {
   mqtt.loop(); // flush connection state before checking
@@ -458,6 +462,17 @@ static void reconnectMqtt() {
     if (mqtt.connected()) Serial.println("[MQTT] Already connected");
     return;
   }
+
+  Serial.printf("[MQTT] Free heap before connect: %u bytes\n", ESP.getFreeHeap());
+
+  // DNS check — rc=-2 with a wrong/unreachable broker shows here first
+  IPAddress brokerIp;
+  if (!WiFi.hostByName(MQTT_BROKER, brokerIp)) {
+    Serial.printf("[MQTT] DNS FAILED for %s — cluster down or hostname wrong\n", MQTT_BROKER);
+    return;
+  }
+  Serial.printf("[MQTT] Broker resolved: %s → %s\n", MQTT_BROKER, brokerIp.toString().c_str());
+
   Serial.print("[MQTT] Connecting...");
   bool ok;
 #if defined(MQTT_USERNAME)
@@ -531,6 +546,9 @@ void setup() {
     mqttWifi.setInsecure();
     mqtt.setServer(MQTT_BROKER, MQTT_PORT);
     mqtt.setCallback(onMqttMessage);
+    mqtt.setBufferSize(512);
+    mqtt.setKeepAlive(30);
+    mqtt.setSocketTimeout(10);
     Serial.println("Attempting MQTT connection...");
     reconnectMqtt();
     if (mqtt.connected()) {
