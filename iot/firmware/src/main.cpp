@@ -352,16 +352,21 @@ static bool httpPost(const char *path, const String &body) {
 }
 
 static void postPing() {
+  mqtt.loop(); // flush connection state before checking
   if (!mqtt.connected()) {
-    Serial.println("[MQTT PING] ERROR: Not connected to MQTT — ping skipped");
-    return;
+    Serial.println("[MQTT PING] Not connected — attempting reconnect");
+    reconnectMqtt();
+    if (!mqtt.connected()) {
+      Serial.println("[MQTT PING] Reconnect failed — ping skipped");
+      return;
+    }
   }
-  
+
   JsonDocument doc;
   doc["device_id"] = IOT_DEVICE_ID;
   doc["timestamp"] = millis();
   String body; serializeJson(doc, body);
-  
+
   char topic[192];
   snprintf(topic, sizeof(topic), "snoozeguard/ping/%s", IOT_DEVICE_ID);
   if (strlen(topic) >= sizeof(topic) - 1) {
@@ -369,18 +374,31 @@ static void postPing() {
     return;
   }
   bool published = mqtt.publish(topic, body.c_str());
-  Serial.printf("[MQTT PING] Topic: %s | Body: %s | Published: %s\n", topic, body.c_str(), published ? "YES" : "NO");
+  if (!published) {
+    Serial.println("[MQTT PING] Publish failed — forcing reconnect");
+    mqtt.disconnect();
+    reconnectMqtt();
+  }
+  Serial.printf("[MQTT PING] Topic: %s | Published: %s\n", topic, published ? "YES" : "NO");
 }
 
 static void postDismiss(const char *alertId) {
-  if (!mqtt.connected()) return;
-  
+  mqtt.loop(); // flush connection state before checking
+  if (!mqtt.connected()) {
+    Serial.println("[MQTT DISMISS] Not connected — attempting reconnect");
+    reconnectMqtt();
+    if (!mqtt.connected()) {
+      Serial.println("[MQTT DISMISS] Reconnect failed — dismiss skipped");
+      return;
+    }
+  }
+
   JsonDocument doc;
   doc["device_id"] = IOT_DEVICE_ID;
   doc["alert_id"]  = alertId;
   doc["timestamp"] = millis();
   String body; serializeJson(doc, body);
-  
+
   char topic[192];
   snprintf(topic, sizeof(topic), "snoozeguard/dismiss/%s", IOT_DEVICE_ID);
   if (strlen(topic) >= sizeof(topic) - 1) {
@@ -388,7 +406,12 @@ static void postDismiss(const char *alertId) {
     return;
   }
   bool published = mqtt.publish(topic, body.c_str());
-  Serial.printf("[MQTT] Dismiss %s to %s | Published: %s\n", alertId, topic, published ? "YES" : "NO");
+  if (!published) {
+    Serial.println("[MQTT DISMISS] Publish failed — forcing reconnect");
+    mqtt.disconnect();
+    reconnectMqtt();
+  }
+  Serial.printf("[MQTT DISMISS] alert_id=%s | Published: %s\n", alertId, published ? "YES" : "NO");
 }
 
 // ── MQTT ──────────────────────────────────────────────────────────────────────

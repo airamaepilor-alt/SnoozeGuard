@@ -3,6 +3,7 @@ import mqtt from "mqtt";
 import { iotBodySchema } from "@snoozeguard/shared";
 import type { Env } from "./env.js";
 import { ingestIotTelemetry } from "./services/iotIngest.js";
+import { updateDeviceHeartbeat, dismissIotAlert } from "./services/iotCommands.js";
 import type { createServiceClient } from "./supabase.js";
 
 type Supabase = ReturnType<typeof createServiceClient>;
@@ -38,21 +39,64 @@ export function startMqttIngestIfConfigured(env: Env, supabase: Supabase, log: F
   _mqttClient = client;
 
   client.on("connect", () => {
-    log.info({ topic }, "MQTT connected; subscribing");
-    client.subscribe(topic, (err) => {
-      if (err) log.error({ err }, "MQTT subscribe failed");
+    log.info({ topic }, "MQTT connected");
+
+    client.subscribe(topic, { qos: 1 }, (err) => {
+      if (err) log.error({ err }, "MQTT subscribe failed (telemetry)");
+      else log.info({ topic }, "MQTT subscribed: telemetry");
+    });
+
+    client.subscribe("snoozeguard/ping/+", { qos: 1 }, (err) => {
+      if (err) log.error({ err }, "MQTT subscribe failed (ping)");
+      else log.info("MQTT subscribed: snoozeguard/ping/+");
+    });
+
+    client.subscribe("snoozeguard/dismiss/+", { qos: 1 }, (err) => {
+      if (err) log.error({ err }, "MQTT subscribe failed (dismiss)");
+      else log.info("MQTT subscribed: snoozeguard/dismiss/+");
     });
   });
 
   client.on("message", async (t, payload) => {
-    if (t !== topic) return;
     let json: unknown;
     try {
       json = JSON.parse(payload.toString("utf8"));
     } catch {
-      log.warn("MQTT message ignored: invalid JSON");
+      log.warn({ topic: t }, "MQTT message ignored: invalid JSON");
       return;
     }
+
+    if (t.startsWith("snoozeguard/ping/")) {
+      const deviceId = t.split("/")[2];
+      if (!deviceId) return;
+      log.info({ deviceId }, "MQTT ping received");
+      try {
+        await updateDeviceHeartbeat(supabase, deviceId);
+        log.info({ deviceId }, "MQTT ping: heartbeat updated");
+      } catch (err) {
+        log.error({ err, deviceId }, "MQTT ping: heartbeat update failed");
+      }
+      return;
+    }
+
+    if (t.startsWith("snoozeguard/dismiss/")) {
+      const body = json as Record<string, unknown>;
+      const alertId = typeof body?.alert_id === "string" ? body.alert_id : null;
+      if (!alertId) {
+        log.warn({ topic: t, body }, "MQTT dismiss ignored: missing alert_id");
+        return;
+      }
+      log.info({ alertId }, "MQTT dismiss received");
+      try {
+        await dismissIotAlert(supabase, alertId, "iot_button");
+        log.info({ alertId }, "MQTT dismiss: alert dismissed");
+      } catch (err) {
+        log.error({ err, alertId }, "MQTT dismiss: failed");
+      }
+      return;
+    }
+
+    if (t !== topic) return;
     const parsed = iotBodySchema.safeParse(json);
     if (!parsed.success) {
       log.warn({ issues: parsed.error.flatten() }, "MQTT message ignored: schema");

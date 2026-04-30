@@ -1,0 +1,8 @@
+[build]
+buildCommand = "npm run build --workspace=@snoozeguard/shared && npm run build --workspace=@snoozeguard/mqtt-bridge"
+
+[deploy]
+startCommand = "npm run start --workspace=@snoozeguard/mqtt-bridge"
+
+[variables]
+RAILPACK_INSTALL_CMD = "npm install --ignore-scripts --no-audit"
