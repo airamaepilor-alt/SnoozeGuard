@@ -5,6 +5,9 @@ export default {
   darkMode: "class",
   theme: {
     extend: {
+      screens: {
+        "1621": "1621px",
+      },
       colors: {
         // All semantic tokens reference CSS variables so dark/light flips automatically
         background:                  "rgb(var(--sg-background) / <alpha-value>)",
@@ -46,5 +49,17 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    function ({ addUtilities }) {
+      addUtilities({
+        ".scrollbar-hide": {
+          "-ms-overflow-style": "none" /* IE and Edge */,
+          "scrollbar-width": "none" /* Firefox */,
+          "&::-webkit-scrollbar": {
+            display: "none" /* Chrome, Safari and Opera */,
+          },
+        },
+      });
+    },
+  ],
 };

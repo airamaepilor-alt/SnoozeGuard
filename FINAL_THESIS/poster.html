@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SnoozeGuard Research Poster</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+  :root {
+    --navy:   #0F1C35;
+    --navy2:  #1B2A4A;
+    --blue:   #2563EB;
+    --blue2:  #1D4ED8;
+    --accent: #38BDF8;
+    --cyan:   #06B6D4;
+    --green:  #10B981;
+    --orange: #F59E0B;
+    --red:    #EF4444;
+    --purple: #8B5CF6;
+    --white:  #FFFFFF;
+    --light:  #EFF6FF;
+    --gray:   #94A3B8;
+    --dark:   #0F172A;
+    --card:   rgba(255,255,255,0.06);
+    --border: rgba(56,189,248,0.2);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 2400px;
+    height: 1697px;
+    background: var(--navy);
+    font-family: 'Inter', sans-serif;
+    color: var(--white);
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ── Background decorations ── */
+  body::before {
+    content: '';
+    position: absolute;
+    top: -200px; right: -200px;
+    width: 700px; height: 700px;
+    background: radial-gradient(circle, rgba(37,99,235,0.25) 0%, transparent 70%);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  body::after {
+    content: '';
+    position: absolute;
+    bottom: -150px; left: -150px;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(56,189,248,0.15) 0%, transparent 70%);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  /* ── Header ── */
+  .header {
+    width: 100%;
+    background: linear-gradient(135deg, #0A1628 0%, #1B2A4A 40%, #1E3A5F 100%);
+    padding: 28px 50px 22px;
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    border-bottom: 3px solid var(--accent);
+    position: relative;
+    overflow: hidden;
+  }
+  .header::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 60px,
+      rgba(56,189,248,0.03) 60px,
+      rgba(56,189,248,0.03) 61px
+    );
+  }
+  .header-logo {
+    width: 90px; height: 90px;
+    background: linear-gradient(135deg, var(--blue), var(--accent));
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 36px;
+    flex-shrink: 0;
+    box-shadow: 0 0 30px rgba(56,189,248,0.4);
+  }
+  .header-text { flex: 1; }
+  .header-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 46px;
+    font-weight: 800;
+    line-height: 1.1;
+    background: linear-gradient(90deg, #FFFFFF, #38BDF8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.5px;
+  }
+  .header-subtitle {
+    font-size: 16px;
+    color: var(--accent);
+    margin-top: 6px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+  }
+  .header-meta {
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .header-meta .school {
+    font-size: 13px;
+    color: var(--gray);
+    line-height: 1.6;
+  }
+  .header-meta .authors {
+    font-size: 14px;
+    color: var(--white);
+    font-weight: 600;
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+  .header-meta .adviser {
+    font-size: 12px;
+    color: var(--accent);
+    margin-top: 4px;
+  }
+
+  /* ── Tag pills ── */
+  .tags {
+    display: flex; gap: 8px;
+    margin-top: 10px; flex-wrap: wrap;
+  }
+  .tag {
+    background: rgba(37,99,235,0.3);
+    border: 1px solid rgba(56,189,248,0.4);
+    border-radius: 20px;
+    padding: 3px 12px;
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  /* ── Main grid ── */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 420px 1fr 1fr 380px;
+    grid-template-rows: 1fr 1fr 1fr;
+    gap: 14px;
+    padding: 14px 22px 14px;
+    height: calc(1697px - 165px);
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 4px; height: 100%;
+    background: linear-gradient(180deg, var(--blue), var(--accent));
+    border-radius: 14px 0 0 14px;
+  }
+  .card.accent-orange::before { background: linear-gradient(180deg, var(--orange), #F97316); }
+  .card.accent-green::before  { background: linear-gradient(180deg, var(--green), #34D399); }
+  .card.accent-purple::before { background: linear-gradient(180deg, var(--purple), #A78BFA); }
+  .card.accent-red::before    { background: linear-gradient(180deg, var(--red), #F87171); }
+  .card.accent-cyan::before   { background: linear-gradient(180deg, var(--cyan), #67E8F9); }
+
+  .card-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title .dot {
+    width: 8px; height: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .card-title.orange { color: var(--orange); }
+  .card-title.orange .dot { background: var(--orange); }
+  .card-title.green  { color: var(--green);  }
+  .card-title.green  .dot { background: var(--green); }
+  .card-title.purple { color: var(--purple); }
+  .card-title.purple .dot { background: var(--purple); }
+  .card-title.red    { color: var(--red);    }
+  .card-title.red    .dot { background: var(--red); }
+  .card-title.cyan   { color: var(--cyan);   }
+  .card-title.cyan   .dot { background: var(--cyan); }
+
+  p { font-size: 12.5px; line-height: 1.65; color: #CBD5E1; }
+
+  /* ── Grid spans ── */
+  .col-span-2 { grid-column: span 2; }
+  .col-span-3 { grid-column: span 3; }
+  .row-span-2 { grid-row: span 2; }
+  .row-span-3 { grid-row: span 3; }
+
+  /* ── Objectives ── */
+  .obj-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .obj-item {
+    background: rgba(37,99,235,0.15);
+    border: 1px solid rgba(37,99,235,0.3);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .obj-num {
+    background: var(--blue);
+    color: white;
+    width: 24px; height: 24px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .obj-text { font-size: 11.5px; color: #CBD5E1; line-height: 1.5; }
+
+  /* ── Detection signals ── */
+  .signal-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .signal-item {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 10px;
+  }
+  .signal-icon { font-size: 22px; margin-bottom: 4px; }
+  .signal-name { font-size: 12px; font-weight: 700; color: white; margin-bottom: 3px; }
+  .signal-detail { font-size: 10.5px; color: var(--gray); }
+  .signal-threshold {
+    display: inline-block;
+    background: rgba(56,189,248,0.15);
+    border: 1px solid rgba(56,189,248,0.3);
+    border-radius: 6px;
+    padding: 2px 7px;
+    font-size: 10px;
+    color: var(--accent);
+    margin-top: 4px;
+    font-family: monospace;
+  }
+
+  /* ── Alert levels ── */
+  .level-bar {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    align-items: stretch;
+  }
+  .level-block {
+    flex: 1;
+    border-radius: 10px;
+    padding: 10px 8px;
+    text-align: center;
+  }
+  .level-num { font-size: 18px; font-weight: 800; color: white; }
+  .level-label { font-size: 10px; color: rgba(255,255,255,0.7); margin: 3px 0; line-height: 1.3; }
+  .level-actions { font-size: 9.5px; color: rgba(255,255,255,0.55); line-height: 1.4; }
+
+  /* ── Architecture diagram ── */
+  .arch-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin: 8px 0;
+  }
+  .arch-node {
+    background: rgba(37,99,235,0.2);
+    border: 1px solid rgba(56,189,248,0.35);
+    border-radius: 10px;
+    padding: 10px 8px;
+    text-align: center;
+    position: relative;
+  }
+  .arch-node .node-icon { font-size: 20px; }
+  .arch-node .node-label { font-size: 11px; font-weight: 700; color: white; margin: 4px 0 2px; }
+  .arch-node .node-sub { font-size: 9.5px; color: var(--gray); line-height: 1.3; }
+  .arch-center {
+    background: linear-gradient(135deg, rgba(37,99,235,0.35), rgba(56,189,248,0.2));
+    border: 1px solid rgba(56,189,248,0.5);
+  }
+
+  .deploy-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .deploy-pill {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 10.5px;
+    color: #CBD5E1;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .deploy-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+  /* ── IoT table ── */
+  .iot-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .iot-table th {
+    background: rgba(37,99,235,0.4);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 7px 10px;
+    text-align: left;
+    letter-spacing: 0.5px;
+  }
+  .iot-table td {
+    font-size: 11px;
+    color: #CBD5E1;
+    padding: 7px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .iot-table tr:nth-child(even) td { background: rgba(255,255,255,0.03); }
+  .level-badge {
+    display: inline-block;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: white;
+  }
+
+  /* ── ISO table ── */
+  .iso-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11.5px; }
+  .iso-table th {
+    background: rgba(37,99,235,0.35);
+    color: var(--accent);
+    padding: 6px 10px;
+    font-weight: 700;
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+  }
+  .iso-table td {
+    padding: 5.5px 10px;
+    color: #CBD5E1;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .iso-table tr:nth-child(even) td { background: rgba(255,255,255,0.025); }
+  .iso-score {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--gray);
+  }
+  .iso-interp {
+    font-size: 10.5px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 600;
+    background: rgba(100,116,139,0.2);
+    color: var(--gray);
+  }
+
+  /* ── Metric cards ── */
+  .metric-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .metric-card {
+    background: rgba(37,99,235,0.15);
+    border: 1px solid rgba(37,99,235,0.3);
+    border-radius: 10px;
+    padding: 12px 10px;
+    text-align: center;
+  }
+  .metric-value { font-size: 26px; font-weight: 800; color: white; line-height: 1; }
+  .metric-unit  { font-size: 11px; color: var(--accent); margin-top: 2px; }
+  .metric-label { font-size: 10.5px; color: var(--gray); margin-top: 4px; line-height: 1.3; }
+
+  /* ── References ── */
+  .ref-item {
+    font-size: 10.5px;
+    color: #94A3B8;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    line-height: 1.5;
+  }
+  .ref-item:last-child { border-bottom: none; }
+
+  /* ── Bullet list ── */
+  ul.dot-list {
+    list-style: none;
+    margin-top: 6px;
+  }
+  ul.dot-list li {
+    font-size: 12px;
+    color: #CBD5E1;
+    padding: 3px 0;
+    padding-left: 14px;
+    position: relative;
+    line-height: 1.55;
+  }
+  ul.dot-list li::before {
+    content: '▸';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    font-size: 10px;
+    top: 5px;
+  }
+
+  /* ── SDG section ── */
+  .sdg-grid { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; }
+  .sdg-item {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    background: rgba(255,255,255,0.04);
+    border-radius: 8px;
+    padding: 7px 10px;
+  }
+  .sdg-badge {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+    font-weight: 800;
+  }
+  .sdg-text { font-size: 11px; color: #CBD5E1; line-height: 1.4; }
+  .sdg-num  { font-size: 10px; font-weight: 700; margin-bottom: 1px; }
+
+  /* ── Step flow ── */
+  .flow-steps { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .flow-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .flow-num {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+    flex-shrink: 0;
+    background: var(--blue);
+    color: white;
+  }
+  .flow-content { flex: 1; }
+  .flow-title { font-size: 12px; font-weight: 700; color: white; margin-bottom: 1px; }
+  .flow-desc { font-size: 11px; color: var(--gray); line-height: 1.4; }
+
+  /* ── Hardware list ── */
+  .hw-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+  .hw-item {
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.25);
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .hw-name { font-size: 11.5px; font-weight: 700; color: var(--orange); margin-bottom: 2px; }
+  .hw-desc { font-size: 10.5px; color: var(--gray); line-height: 1.4; }
+
+  /* ── Footer ── */
+  .footer {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 32px;
+    background: rgba(0,0,0,0.4);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 30px;
+    font-size: 10.5px;
+    color: var(--gray);
+  }
+
+  /* ── Glow effects ── */
+  .glow-blue  { box-shadow: 0 0 20px rgba(37,99,235,0.2); }
+  .glow-accent { box-shadow: 0 0 20px rgba(56,189,248,0.15); }
+
+  /* ── Connection arrows between arch nodes ── */
+  .arch-arrows {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin: 4px 0;
+    color: var(--accent);
+    font-size: 18px;
+    letter-spacing: -2px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ HEADER ══════════════════ -->
+<div class="header">
+  <div class="header-logo">😴</div>
+  <div class="header-text">
+    <div class="header-title">SnoozeGuard: Prototype Development of an AI-Driven<br>Real-Time Drowsiness Monitoring System for Road Safety</div>
+    <div class="header-subtitle">Multi-Platform · MediaPipe Face Landmarker · ESP32 IoT · MQTT · Emergency Notification · ISO/IEC 25010 Evaluated</div>
+    <div class="tags">
+      <span class="tag">React Native</span>
+      <span class="tag">MediaPipe</span>
+      <span class="tag">ESP32</span>
+      <span class="tag">HiveMQ MQTT</span>
+      <span class="tag">Supabase</span>
+      <span class="tag">PhilSMS</span>
+      <span class="tag">Firebase</span>
+      <span class="tag">Railway</span>
+      <span class="tag">ISO/IEC 25010</span>
+    </div>
+  </div>
+  <div class="header-meta">
+    <div class="school">
+      Divine Word College of Calapan<br>
+      School of Engineering<br>
+      BS Computer Engineering · 2025–2026
+    </div>
+    <div class="authors">
+      Cart Jeuiel T. Agno &nbsp;·&nbsp; Aira Mae T. Pilor<br>
+      Christian Eduard B. Ylagan Jr.
+    </div>
+    <div class="adviser">Research Adviser: Engr. Jezer E. Ilao</div>
+  </div>
+</div>
+
+<!-- ══════════════════ BODY GRID ══════════════════ -->
+<div class="body-grid">
+
+  <!-- COL 1 ROW 1: Abstract -->
+  <div class="card">
+    <div class="card-title"><span class="dot"></span>Abstract</div>
+    <p>Driver drowsiness is a leading cause of road traffic fatalities. SnoozeGuard is a multi-platform, AI-driven real-time drowsiness monitoring system that uses Google's <strong style="color:#fff">MediaPipe Face Landmarker</strong> — processing 478 facial landmarks and 52 blend shape coefficients — to detect drowsiness from a smartphone's front camera without vehicle modification.</p>
+    <br>
+    <p>The system fuses four signals: <strong style="color:#fff">yawning, head nodding, sustained head tilt,</strong> and <strong style="color:#fff">sudden braking</strong> into a configurable 10-level drowsiness score. Alert escalation ranges from voice/vibration to a paired ESP32 IoT alert device. At levels 9–10, an automatic emergency notification (push + PhilSMS) is sent to the driver's designated guardian after a 120-second countdown.</p>
+    <br>
+    <p>The system operates offline-first via SQLite with Supabase cloud sync and was evaluated using the <strong style="color:#fff">ISO/IEC 25010</strong> software quality model with active driver respondents (ages 22–35) using a physical driving simulator prototype.</p>
+  </div>
+
+  <!-- COL 2-3 ROW 1: Objectives (spans 2) -->
+  <div class="card col-span-2">
+    <div class="card-title"><span class="dot"></span>Objectives of the Study</div>
+    <div class="obj-grid">
+      <div class="obj-item">
+        <div class="obj-num">1</div>
+        <div class="obj-text">Implement real-time multi-signal drowsiness detection: yawn (jawOpen ≥ 0.70), head nod (pitch/roll), sustained tilt (10s), sudden brake (accelerometer delta > 0.45g)</div>
+      </div>
+      <div class="obj-item">
+        <div class="obj-num">2</div>
+        <div class="obj-text">Develop a configurable 10-level drowsiness scoring model with administrator-controlled alert map thresholds per level</div>
+      </div>
+      <div class="obj-item">
+        <div class="obj-num">3</div>
+        <div class="obj-text">Design and build an ESP32 IoT alert peripheral with MQTT (HiveMQ TLS) + BLE dual-path, level-specific MP3/vibration/LED patterns</div>
+      </div>
+      <div class="obj-item">
+        <div class="obj-num">4</div>
+        <div class="obj-text">Implement emergency notification pipeline via Expo Push + PhilSMS SMS to active guardian at levels 9–10 after 120-second countdown</div>
+      </div>
+      <div class="obj-item">
+        <div class="obj-num">5</div>
+        <div class="obj-text">Build an offline-first SQLite architecture with automatic background Supabase cloud synchronization for intermittent connectivity</div>
+      </div>
+      <div class="obj-item">
+        <div class="obj-num">6</div>
+        <div class="obj-text">Evaluate SnoozeGuard against ISO/IEC 25010 across 8 quality characteristics using structured Likert-scale survey</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COL 4 ROW 1: SDGs -->
+  <div class="card accent-green">
+    <div class="card-title green"><span class="dot"></span>Sustainable Dev. Goals</div>
+    <div class="sdg-grid">
+      <div class="sdg-item">
+        <div class="sdg-badge" style="background:rgba(239,68,68,0.2);">🏥</div>
+        <div class="sdg-text"><div class="sdg-num" style="color:#F87171">SDG 3: Good Health & Well-Being</div>Reduce road traffic fatalities caused by driver drowsiness</div>
+      </div>
+      <div class="sdg-item">
+        <div class="sdg-badge" style="background:rgba(245,158,11,0.2);">🏭</div>
+        <div class="sdg-text"><div class="sdg-num" style="color:#FCD34D">SDG 9: Industry & Innovation</div>Demonstrate affordable IoT + AI road safety technology</div>
+      </div>
+      <div class="sdg-item">
+        <div class="sdg-badge" style="background:rgba(16,185,129,0.2);">🌍</div>
+        <div class="sdg-text"><div class="sdg-num" style="color:#34D399">SDG 11: Sustainable Cities</div>Safer urban and inter-city road transport for all</div>
+      </div>
+      <div class="sdg-item">
+        <div class="sdg-badge" style="background:rgba(56,189,248,0.2);">🤝</div>
+        <div class="sdg-text"><div class="sdg-num" style="color:#38BDF8">SDG 17: Partnerships</div>Multi-platform open-source architecture enabling collaboration</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COL 1 ROW 2: Methodology -->
+  <div class="card accent-purple row-span-2" style="overflow:auto;">
+    <div class="card-title purple"><span class="dot"></span>Methodology</div>
+    <p><strong style="color:#A78BFA">Research Design:</strong> Prototyping-based study using the Iterative Software Development Life Cycle (Iterative SDLC). Each iteration covered planning, implementation, testing, and retrospective.</p>
+    <br>
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="flow-num" style="background:#8B5CF6">1</div>
+        <div class="flow-content">
+          <div class="flow-title">Requirements Analysis</div>
+          <div class="flow-desc">Jan 1–15, 2025 · Literature review + stakeholder input</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num" style="background:#7C3AED">2</div>
+        <div class="flow-content">
+          <div class="flow-title">System Design</div>
+          <div class="flow-desc">Jan 16–30 · Architecture, tech stack finalized</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num" style="background:#2563EB">3</div>
+        <div class="flow-content">
+          <div class="flow-title">Mobile App Development</div>
+          <div class="flow-desc">Feb 1–15 · React Native / Expo SDK 54 / Android</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num" style="background:#1D4ED8">4</div>
+        <div class="flow-content">
+          <div class="flow-title">Web Dashboard</div>
+          <div class="flow-desc">Feb 16–28 · React + Vite / Firebase Hosting</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num" style="background:#F59E0B">5</div>
+        <div class="flow-content">
+          <div class="flow-title">IoT Firmware Development</div>
+          <div class="flow-desc">Mar 1–15 · ESP32 + DFPlayer + MQTT + BLE</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num" style="background:#EA580C">6</div>
+        <div class="flow-content">
+          <div class="flow-title">Integration Testing</div>
+          <div class="flow-desc">Mar 16–30 · End-to-end system + cloud sync</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num" style="background:#10B981">7</div>
+        <div class="flow-content">
+          <div class="flow-title">Evaluation & Survey</div>
+          <div class="flow-desc">Apr 1–15 · ISO/IEC 25010 · Active drivers 22–35</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num" style="background:#059669">8</div>
+        <div class="flow-content">
+          <div class="flow-title">Documentation & Writing</div>
+          <div class="flow-desc">Apr 16–30 · Thesis finalization</div>
+        </div>
+      </div>
+    </div>
+    <br>
+    <p><strong style="color:#A78BFA">Evaluation:</strong> ISO/IEC 25010 structured questionnaire (66 items, 8 characteristics). Likert scale 1–5. Weighted mean + interpretation scale.</p>
+    <br>
+    <p><strong style="color:#A78BFA">Respondents:</strong> Active drivers, ages 22–35, purposive sampling, evaluated using the physical driving simulator prototype (car seat + wheel + pedals).</p>
+  </div>
+
+  <!-- COL 2 ROW 2: Detection Algorithm -->
+  <div class="card accent-cyan">
+    <div class="card-title cyan"><span class="dot"></span>Drowsiness Detection Algorithm</div>
+    <p style="font-size:11.5px;margin-bottom:6px;"><strong style="color:#67E8F9">MediaPipe Face Landmarker</strong> — 478 landmarks + 52 blend shapes · Mobile: IMAGE mode @ 600ms · Web: VIDEO @ 130ms (WASM)</p>
+    <div class="signal-grid">
+      <div class="signal-item">
+        <div class="signal-icon">😮</div>
+        <div class="signal-name">Yawn Detection</div>
+        <div class="signal-detail">jawOpen blend shape. Cooldown 2,000ms.</div>
+        <span class="signal-threshold">open ≥ 0.70 | close ≤ 0.40</span>
+      </div>
+      <div class="signal-item">
+        <div class="signal-icon">😴</div>
+        <div class="signal-name">Head Nodding</div>
+        <div class="signal-detail">Pitch/roll from 4 landmarks. Cooldown 500ms.</div>
+        <span class="signal-threshold">pitch &gt;0.35 | roll &gt;0.25rad</span>
+      </div>
+      <div class="signal-item">
+        <div class="signal-icon">↗️</div>
+        <div class="signal-name">Sustained Tilt</div>
+        <div class="signal-detail">10 consecutive seconds off-center (4 grace frames)</div>
+        <span class="signal-threshold">→ Independent Level 8 modal</span>
+      </div>
+      <div class="signal-item">
+        <div class="signal-icon">🛑</div>
+        <div class="signal-name">Sudden Brake</div>
+        <div class="signal-detail">Accelerometer @ 100ms. 2 events in 3,000ms.</div>
+        <span class="signal-threshold">delta &gt; 0.45g</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- COL 3 ROW 2: Alert Escalation -->
+  <div class="card accent-orange">
+    <div class="card-title orange"><span class="dot"></span>Alert Escalation System</div>
+    <div class="level-bar">
+      <div class="level-block" style="background:linear-gradient(135deg,#15803D,#22C55E);">
+        <div class="level-num">1–2</div>
+        <div class="level-label">Very Low / Low</div>
+        <div class="level-actions">Voice TTS</div>
+      </div>
+      <div class="level-block" style="background:linear-gradient(135deg,#A16207,#CA8A04);">
+        <div class="level-num">3–4</div>
+        <div class="level-label">Mild / Moderate</div>
+        <div class="level-actions">Voice + Vibration</div>
+      </div>
+      <div class="level-block" style="background:linear-gradient(135deg,#92400E,#D97706);">
+        <div class="level-num">5</div>
+        <div class="level-label">Mod-High</div>
+        <div class="level-actions">+ Alarm Audio</div>
+      </div>
+      <div class="level-block" style="background:linear-gradient(135deg,#9A3412,#EA580C);">
+        <div class="level-num">6–8</div>
+        <div class="level-label">High / Severe</div>
+        <div class="level-actions">+ IoT Device</div>
+      </div>
+      <div class="level-block" style="background:linear-gradient(135deg,#7F1D1D,#EF4444);">
+        <div class="level-num">9–10</div>
+        <div class="level-label">Critical / Extreme</div>
+        <div class="level-actions">+ Emergency SMS 120s</div>
+      </div>
+    </div>
+    <br>
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="flow-num" style="background:#EF4444;width:22px;height:22px;font-size:11px;">!</div>
+        <div class="flow-content">
+          <div class="flow-title" style="font-size:11px;">Dismiss Guard</div>
+          <div class="flow-desc">dismissedLevelsRef prevents same level re-firing per session. Level 10 re-triggers after 3 more yawns or 10 more head events.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num" style="background:#F59E0B;width:22px;height:22px;font-size:11px;">⏱</div>
+        <div class="flow-content">
+          <div class="flow-title" style="font-size:11px;">Score Reset</div>
+          <div class="flow-desc">After 2 minutes idle at level 10, all accumulators reset to zero (admin-configurable).</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COL 4 ROW 2: IoT Device -->
+  <div class="card accent-orange row-span-2">
+    <div class="card-title orange"><span class="dot"></span>IoT Alert Device — ESP32</div>
+    <div class="hw-grid">
+      <div class="hw-item">
+        <div class="hw-name">ESP32 DevKit</div>
+        <div class="hw-desc">240MHz dual-core · WiFi + BLE + GPIO</div>
+      </div>
+      <div class="hw-item">
+        <div class="hw-name">DFPlayer Mini</div>
+        <div class="hw-desc">UART2 (GPIO 16/17) · MicroSD MP3 playback</div>
+      </div>
+      <div class="hw-item">
+        <div class="hw-name">Buzzer GPIO 26</div>
+        <div class="hw-desc">Vibration alert pulses per level</div>
+      </div>
+      <div class="hw-item">
+        <div class="hw-name">LED GPIO 27/32</div>
+        <div class="hw-desc">Pulsed / continuous / flashing alerts</div>
+      </div>
+      <div class="hw-item">
+        <div class="hw-name">Dismiss Button</div>
+        <div class="hw-desc">GPIO 25 · INPUT_PULLUP · 200ms debounce</div>
+      </div>
+      <div class="hw-item">
+        <div class="hw-name">BLE LED GPIO 33</div>
+        <div class="hw-desc">Bluetooth connection indicator</div>
+      </div>
+    </div>
+    <br>
+    <table class="iot-table">
+      <tr>
+        <th>Lvl</th><th>MP3</th><th>Pattern</th><th>LED</th>
+      </tr>
+      <tr>
+        <td><span class="level-badge" style="background:#15803D">6</span></td>
+        <td>0001.mp3</td><td>3 short pulses (200ms)</td><td>Pulsed</td>
+      </tr>
+      <tr>
+        <td><span class="level-badge" style="background:#CA8A04">7</span></td>
+        <td>0002.mp3</td><td>3 medium pulses (400ms)</td><td>Pulsed</td>
+      </tr>
+      <tr>
+        <td><span class="level-badge" style="background:#D97706">8</span></td>
+        <td>0003.mp3</td><td>3 long pulses (600ms)</td><td>Pulsed</td>
+      </tr>
+      <tr>
+        <td><span class="level-badge" style="background:#EA580C">9</span></td>
+        <td>0004.mp3</td><td>Continuous buzzer</td><td>Continuous</td>
+      </tr>
+      <tr>
+        <td><span class="level-badge" style="background:#EF4444">10</span></td>
+        <td>0005.mp3</td><td>Continuous buzzer</td><td>Flashing 400ms</td>
+      </tr>
+    </table>
+    <br>
+    <p style="font-size:11px;"><strong style="color:var(--orange)">Dismiss Button:</strong> GPIO 25 → MQTT publish <code style="color:var(--accent);font-size:10px">snoozeguard/dismiss/{id}</code> + BLE NOTIFY <code style="color:var(--accent);font-size:10px">{event:"dismiss"}</code> → server updates iot_alerts → Supabase Realtime → mobile dismiss synced.</p>
+    <br>
+    <p style="font-size:11px;"><strong style="color:var(--orange)">Connectivity:</strong> Primary: WiFi → HiveMQ Cloud MQTT TLS 8883. Fallback: BLE peripheral SG-{device_id}. Heartbeat every 5s → last_seen. Online if last_seen &lt; 15s.</p>
+  </div>
+
+  <!-- COL 1 ROW 3: already spans from row 2 -->
+
+  <!-- COL 2 ROW 3: System Architecture -->
+  <div class="card">
+    <div class="card-title"><span class="dot"></span>System Architecture</div>
+    <div class="arch-grid">
+      <div class="arch-node">
+        <div class="node-icon">📱</div>
+        <div class="node-label">Mobile App</div>
+        <div class="node-sub">React Native<br>Expo SDK 54<br>Android</div>
+      </div>
+      <div class="arch-node">
+        <div class="node-icon">🌐</div>
+        <div class="node-label">Web Dashboard</div>
+        <div class="node-sub">React + Vite<br>Firebase Hosting</div>
+      </div>
+      <div class="arch-node">
+        <div class="node-icon">📡</div>
+        <div class="node-label">IoT API Bridge</div>
+        <div class="node-sub">Node.js + Hono<br>Railway · REST</div>
+      </div>
+      <div class="arch-node arch-center">
+        <div class="node-icon">☁️</div>
+        <div class="node-label">Supabase</div>
+        <div class="node-sub">PostgreSQL · Auth<br>Realtime · Edge Fn</div>
+      </div>
+    </div>
+    <div class="deploy-row">
+      <div class="deploy-pill"><div class="deploy-dot" style="background:#2563EB"></div>Expo EAS</div>
+      <div class="deploy-pill"><div class="deploy-dot" style="background:#F59E0B"></div>Firebase</div>
+      <div class="deploy-pill"><div class="deploy-dot" style="background:#10B981"></div>Railway</div>
+      <div class="deploy-pill"><div class="deploy-dot" style="background:#38BDF8"></div>HiveMQ TLS</div>
+      <div class="deploy-pill"><div class="deploy-dot" style="background:#EF4444"></div>PhilSMS</div>
+      <div class="deploy-pill"><div class="deploy-dot" style="background:#8B5CF6"></div>Expo Push</div>
+    </div>
+  </div>
+
+  <!-- COL 3 ROW 3: Results -->
+  <div class="card accent-green">
+    <div class="card-title green"><span class="dot"></span>Results — ISO/IEC 25010 Evaluation</div>
+    <table class="iso-table">
+      <tr>
+        <th>Quality Characteristic</th>
+        <th style="text-align:center">W. Mean</th>
+        <th style="text-align:center">Rating</th>
+      </tr>
+      <tr>
+        <td>Functional Suitability</td>
+        <td style="text-align:center" class="iso-score">—</td>
+        <td style="text-align:center"><span class="iso-interp">Pending</span></td>
+      </tr>
+      <tr>
+        <td>Performance Efficiency</td>
+        <td style="text-align:center" class="iso-score">—</td>
+        <td style="text-align:center"><span class="iso-interp">Pending</span></td>
+      </tr>
+      <tr>
+        <td>Compatibility</td>
+        <td style="text-align:center" class="iso-score">—</td>
+        <td style="text-align:center"><span class="iso-interp">Pending</span></td>
+      </tr>
+      <tr>
+        <td>Usability</td>
+        <td style="text-align:center" class="iso-score">—</td>
+        <td style="text-align:center"><span class="iso-interp">Pending</span></td>
+      </tr>
+      <tr>
+        <td>Reliability</td>
+        <td style="text-align:center" class="iso-score">—</td>
+        <td style="text-align:center"><span class="iso-interp">Pending</span></td>
+      </tr>
+      <tr>
+        <td>Security</td>
+        <td style="text-align:center" class="iso-score">—</td>
+        <td style="text-align:center"><span class="iso-interp">Pending</span></td>
+      </tr>
+      <tr>
+        <td>Maintainability</td>
+        <td style="text-align:center" class="iso-score">—</td>
+        <td style="text-align:center"><span class="iso-interp">Pending</span></td>
+      </tr>
+      <tr>
+        <td>Portability</td>
+        <td style="text-align:center" class="iso-score">—</td>
+        <td style="text-align:center"><span class="iso-interp">Pending</span></td>
+      </tr>
+      <tr style="border-top:1px solid rgba(56,189,248,0.3);">
+        <td><strong style="color:white">Overall</strong></td>
+        <td style="text-align:center" class="iso-score" id="overall">—</td>
+        <td style="text-align:center"><span class="iso-interp" style="background:rgba(37,99,235,0.3);color:var(--accent)">Pending</span></td>
+      </tr>
+    </table>
+    <p style="font-size:10.5px;margin-top:8px;color:var(--gray)">Scale: 4.50–5.00 Excellent · 3.50–4.49 Very Good · 2.50–3.49 Good · 1.50–2.49 Fair · 1.00–1.49 Poor</p>
+  </div>
+
+  <!-- COL 4 ROW 3: already spans from row 2 -->
+
+</div>
+
+<!-- ══════════════════ FULL-WIDTH BOTTOM STRIP ══════════════════ -->
+<div style="position:absolute;bottom:32px;left:0;right:0;padding:0 22px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
+
+  <!-- Conclusion -->
+  <div class="card" style="padding:14px 18px;">
+    <div class="card-title"><span class="dot"></span>Conclusion</div>
+    <ul class="dot-list">
+      <li>MediaPipe Face Landmarker enables reliable real-time multi-signal drowsiness detection on consumer Android hardware without specialized vehicle hardware.</li>
+      <li>A configurable 10-level scoring model provides proportional escalation avoiding binary false-alarm fatigue.</li>
+      <li>ESP32 IoT peripheral with MQTT + BLE dual-path extends alerts beyond the smartphone screen with level-calibrated physical responses.</li>
+      <li>Closed-loop emergency notification (Push + PhilSMS) provides guardian response capability absent from existing smartphone DMS apps.</li>
+    </ul>
+  </div>
+
+  <!-- Discussion -->
+  <div class="card accent-purple" style="padding:14px 18px;">
+    <div class="card-title purple"><span class="dot"></span>Discussion</div>
+    <p>SnoozeGuard addresses the accessibility gap in driver monitoring by leveraging the ubiquitous smartphone camera and on-device ML inference — eliminating the need for costly vehicle-integrated DMS systems. The multi-signal fusion approach (yawn + head + tilt + brake) outperforms single-signal eye-closure systems identified in the literature, particularly under occlusion from eyewear and varying lighting. The IoT peripheral extends alert reach to physical space, reducing reliance on the driver's attention to their phone screen. The closed-loop emergency notification pipeline, combining Expo Push and PhilSMS, provides the guardian response mechanism absent from all existing smartphone DMS applications. Offline-first SQLite architecture ensures continuous session recording critical for Philippine road environments with intermittent connectivity.</p>
+  </div>
+
+  <!-- References -->
+  <div class="card" style="padding:14px 18px;">
+    <div class="card-title"><span class="dot"></span>References</div>
+    <div class="ref-item">Horne, J., & Reyner, L. (1995). Sleep related vehicle accidents. <em>BMJ</em>, 310(6979), 565–567.</div>
+    <div class="ref-item">Bergasa, L. M., et al. (2006). Real-time system for monitoring driver vigilance. <em>IEEE Trans. ITS</em>, 7(1), 63–77.</div>
+    <div class="ref-item">Lugaresi, C., et al. (2019). MediaPipe: A framework for building perception pipelines. <em>arXiv:1906.08172</em>.</div>
+    <div class="ref-item">Kartynnik, Y., et al. (2019). Real-time facial surface geometry from monocular video. <em>arXiv:1907.06724</em>.</div>
+    <div class="ref-item">Ramzan, M., et al. (2019). Survey on drowsiness detection techniques. <em>IEEE Access</em>, 7, 61904–61919.</div>
+    <div class="ref-item">WHO. (2023). <em>Road traffic injuries</em>. Fact Sheet. https://www.who.int/news-room/fact-sheets/detail/road-traffic-injuries</div>
+    <div class="ref-item">Espressif Systems. (2022). <em>ESP32 Technical Reference Manual v5.1</em>. https://www.espressif.com</div>
+    <div class="ref-item">OASIS. (2019). <em>MQTT Version 5.0 Specification</em>. https://docs.oasis-open.org/mqtt/mqtt/v5.0/</div>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <span>SnoozeGuard — BS Computer Engineering Undergraduate Thesis · Divine Word College of Calapan · School of Engineering · 2025–2026</span>
+  <span>Cart Jeuiel T. Agno &nbsp;·&nbsp; Aira Mae T. Pilor &nbsp;·&nbsp; Christian Eduard B. Ylagan Jr. &nbsp;·&nbsp; Adviser: Engr. Jezer E. Ilao</span>
+</div>
+
+</body>
+</html>

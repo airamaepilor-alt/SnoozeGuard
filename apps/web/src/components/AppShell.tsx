@@ -187,6 +187,7 @@ export function AppShell() {
   const isAdmin = profile?.role === "super_admin";
   const isFullscreen = location.pathname === "/safety-protocol" || location.pathname === "/drive";
   const isDrivePage = location.pathname === "/drive" || location.pathname === "/simulation";
+  const hideTopNav = !["/drive", "/simulation", "/safety-protocol"].includes(location.pathname);
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -376,10 +377,10 @@ export function AppShell() {
       </aside>
 
       {/* ── Top header ── */}
-      <header className={`fixed top-0 left-0 right-0 lg:left-64 z-20 h-16 lg:h-20 bg-background/90 backdrop-blur-xl flex items-center justify-between px-4 lg:px-10 gap-4 shadow-[0_1px_0_rgba(69,70,77,0.3)] ${isDrivePage ? "max-lg:hidden" : ""}`}>
+      <header className={`fixed top-0 left-0 right-0 lg:left-64 z-20 h-16 lg:h-20 bg-background/90 backdrop-blur-xl flex items-center justify-between px-3 sm:px-4 lg:px-10 gap-2 sm:gap-3 lg:gap-4 shadow-[0_1px_0_rgba(69,70,77,0.3)] ${isDrivePage ? "max-lg:hidden" : ""}`}>
 
         {/* Left: hamburger (mobile) + search + top nav (desktop) */}
-        <div className="flex items-center gap-4 min-w-0 flex-1">
+        <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 min-w-0 flex-1">
           {/* Hamburger — mobile only */}
           <button
             className="lg:hidden shrink-0 p-2 rounded-lg hover:bg-surface-container-high transition-colors"
@@ -390,51 +391,54 @@ export function AppShell() {
           </button>
 
           {/* Logo — mobile only (sidebar hidden) */}
-          <span className="lg:hidden font-headline font-bold text-primary text-lg tracking-tighter">
+          <span className="lg:hidden font-headline font-bold text-primary text-base sm:text-lg tracking-tighter truncate">
             SnoozeGuard
           </span>
 
-          {/* Search — hidden on small mobile, shown md+ */}
-          <div className="relative hidden md:block">
+          {/* Search — hidden on small mobile, shown lg+ */}
+          <div className="relative hidden lg:block shrink-0">
             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">
               search
             </span>
             <input
-              className="bg-surface-container-low rounded-full py-2 pl-10 pr-6 text-sm w-52 xl:w-64 focus:ring-1 focus:ring-primary/60 placeholder:text-slate-500 text-on-surface outline-none"
+              className="bg-surface-container-low rounded-full py-2 pl-10 pr-6 text-sm w-48 xl:w-64 focus:ring-1 focus:ring-primary/60 placeholder:text-slate-500 text-on-surface outline-none"
               placeholder="Search..."
               type="text"
               readOnly
             />
           </div>
 
-          {/* Top nav — desktop only */}
-          <nav className="hidden lg:flex gap-5 xl:gap-6">
-            <TopNavLink to="/" label="Dashboard" end />
-            <TopNavLink to="/analytics" label="Analytics" />
-            <TopNavLink to="/history" label="History" />
-            <TopNavLink to="/drive" label="Drive" />
-            <TopNavLink to="/iot-devices" label="IoT Devices" />
-            <TopNavLink to="/simulation" label="Simulation" />
-          </nav>
+          {/* Top nav — desktop only, hidden on dashboard/analytics/history etc */}
+          {!hideTopNav && (
+            <nav className="hidden lg:flex gap-3 xl:gap-6">
+              <TopNavLink to="/" label="Dashboard" end />
+              <TopNavLink to="/analytics" label="Analytics" />
+              <TopNavLink to="/history" label="History" />
+              <TopNavLink to="/drive" label="Drive" />
+              <TopNavLink to="/iot-devices" label="IoT" />
+              <TopNavLink to="/simulation" label="Sim" />
+            </nav>
+          )}
         </div>
 
         {/* Right: actions + user */}
-        <div className="flex items-center gap-2 lg:gap-4 shrink-0">
-          {/* Safety Protocol — hidden on small screens */}
-          <Link to="/safety-protocol" className="hidden sm:flex items-center gap-2 bg-primary/10 text-primary px-3 lg:px-4 py-2 rounded-lg font-bold text-xs lg:text-sm hover:bg-primary/20 transition-all border border-primary/20 whitespace-nowrap">
-            Safety Protocol
+        <div className="flex items-center gap-1 sm:gap-2 lg:gap-3 shrink-0">
+          {/* Safety Protocol — icon only on <= 1620px */}
+          <Link to="/safety-protocol" className="flex items-center gap-1 1621:gap-2 bg-primary/10 text-primary px-2 1621:px-4 py-2 rounded-lg font-bold text-[10px] 1621:text-sm hover:bg-primary/20 transition-all border border-primary/20" title="Safety Protocol">
+            <span className="material-symbols-outlined text-base lg:text-lg">security</span>
+            <span className="hidden 1621:inline whitespace-nowrap">Safety Protocol</span>
           </Link>
 
-          {/* IoT Devices — quick access */}
-          <Link to="/iot-devices" className="hidden md:flex items-center gap-2 bg-secondary/10 text-secondary px-3 lg:px-4 py-2 rounded-lg font-bold text-xs lg:text-sm hover:bg-secondary/20 transition-all border border-secondary/20 whitespace-nowrap" title="Manage IoT devices">
-            <span className="material-symbols-outlined text-sm">devices_other</span>
-            <span className="hidden lg:inline">IoT</span>
+          {/* IoT Devices — icon only on <= 1620px, shown lg+ */}
+          <Link to="/iot-devices" className="hidden lg:flex items-center gap-1 1621:gap-2 bg-secondary/10 text-secondary px-2 1621:px-4 py-2 rounded-lg font-bold text-[10px] 1621:text-sm hover:bg-secondary/20 transition-all border border-secondary/20" title="IoT Devices">
+            <span className="material-symbols-outlined text-base lg:text-lg">devices_other</span>
+            <span className="hidden 1621:inline whitespace-nowrap">IoT</span>
           </Link>
 
           {/* Theme toggle */}
           <button
             onClick={toggleTheme}
-            className="hover:bg-surface-bright/50 rounded-full p-1.5 lg:p-2 transition-all"
+            className="hover:bg-surface-bright/50 rounded-full p-1.5 lg:p-2 transition-all shrink-0"
             title={isDark ? "Switch to light mode" : "Switch to dark mode"}
           >
             <span className="material-symbols-outlined text-on-surface-variant text-[20px] lg:text-[24px]">
@@ -443,7 +447,7 @@ export function AppShell() {
           </button>
 
           {/* Notifications */}
-          <div className="relative" ref={notifRef}>
+          <div className="relative shrink-0" ref={notifRef}>
             <button
               onClick={() => setNotifOpen((v) => !v)}
               className="relative hover:bg-surface-bright/50 rounded-full p-1.5 lg:p-2 transition-all"
@@ -522,9 +526,9 @@ export function AppShell() {
             )}
           </div>
 
-          {/* User avatar */}
-          <Link to="/account" className="flex items-center gap-2 lg:gap-3 ml-1 hover:opacity-80 transition-opacity">
-            <div className="hidden lg:block text-right">
+          {/* User avatar — text only on >= 1621px */}
+          <Link to="/account" className="flex items-center gap-1 1621:gap-2 lg:gap-3 ml-0 sm:ml-1 hover:opacity-80 transition-opacity shrink-0">
+            <div className="hidden 1621:block text-right">
               <p className="text-sm font-bold leading-tight text-on-surface">{displayName}</p>
               <p className="text-[10px] text-primary uppercase tracking-wider font-extrabold">{roleLabel}</p>
             </div>

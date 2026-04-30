@@ -81,6 +81,15 @@
 #ifndef IOT_BLE_LED_PIN
 #define IOT_BLE_LED_PIN    33
 #endif
+#ifndef BUTTON_DEBOUNCE_MS
+#define BUTTON_DEBOUNCE_MS 200
+#endif
+#ifndef DFPLAYER_VOLUME
+#define DFPLAYER_VOLUME    25
+#endif
+#ifndef WIFI_CONNECT_TIMEOUT_MS
+#define WIFI_CONNECT_TIMEOUT_MS 20000
+#endif
 
 // ── BLE UUIDs ─────────────────────────────────────────────────────────────────
 #define SG_SERVICE_UUID    "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
@@ -160,20 +169,16 @@ static void triggerAlert(int level, const char *alertId) {
 
   // Voice: track index = level - 5  (level 6 → track 1, level 10 → track 5)
   if (dfPlayer) dfPlayer->play(level - 5);
+  else Serial.println("WARNING: DFPlayer not initialized");
 
   if (level >= 9) {
     // Continuous: buzzer + LEDs (level 10 also flashes LED)
-    digitalWrite(IOT_BUZZER_PIN,    HIGH);
-    digitalWrite(IOT_LED_PIN,       HIGH);
-    digitalWrite(IOT_LED2_PIN,      HIGH);
+    digitalWrite(IOT_BUZZER_PIN, HIGH);
+    digitalWrite(IOT_LED_PIN, HIGH);
+    digitalWrite(IOT_LED2_PIN, HIGH);
     if (level == 10) {
       ledFlash      = true;
       ledFlashTimer = millis();
-      digitalWrite(IOT_LED_PIN, HIGH);
-      digitalWrite(IOT_LED2_PIN, HIGH);
-    } else {
-      digitalWrite(IOT_LED_PIN, HIGH);
-      digitalWrite(IOT_LED2_PIN, HIGH);
     }
   } else {
     // Pulse pattern for levels 6–8 (use LEDs instead of vibration)
@@ -241,7 +246,10 @@ class SgCmdCb : public BLECharacteristicCallbacks {
     std::string val = c->getValue();
     if (val.empty()) return;
     JsonDocument doc;
-    if (deserializeJson(doc, val.c_str()) != DeserializationError::Ok) return;
+    if (deserializeJson(doc, val.c_str()) != DeserializationError::Ok) {
+      Serial.println("ERROR: Failed to parse BLE command JSON");
+      return;
+    }
     const char *cmd     = doc["cmd"]      | "";
     const char *alertId = doc["alert_id"] | "";
     int         level   = doc["level"]    | 0;
@@ -253,13 +261,17 @@ class SgCmdCb : public BLECharacteristicCallbacks {
   }
 };
 
+// ── Persistent BLE callback instances (avoid memory leaks) ──────────────────
+static SgServerCb serverCb;
+static SgCmdCb    cmdCb;
+
 static void initBle() {
   char name[48];
   snprintf(name, sizeof(name), "SG-%s", IOT_DEVICE_ID);
   BLEDevice::init(name);
 
   BLEServer  *pSrv  = BLEDevice::createServer();
-  pSrv->setCallbacks(new SgServerCb());
+  pSrv->setCallbacks(&serverCb);
 
   BLEService *pSvc  = pSrv->createService(SG_SERVICE_UUID);
 
@@ -267,7 +279,7 @@ static void initBle() {
     SG_CMD_CHAR_UUID,
     BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
   );
-  pCmd->setCallbacks(new SgCmdCb());
+  pCmd->setCallbacks(&cmdCb);
 
   pEventChar = pSvc->createCharacteristic(
     SG_EVENT_CHAR_UUID,
@@ -294,8 +306,6 @@ static void fillIsoUtc(char *buf, size_t len) {
   if (!utc || strftime(buf, len, "%Y-%m-%dT%H:%M:%S.000Z", utc) == 0)
     snprintf(buf, len, "1970-01-01T00:00:00.000Z");
 }
-
-static WiFiClientSecure _httpsClient;
 
 static bool httpPost(const char *path, const String &body) {
   if (WiFi.status() != WL_CONNECTED) return false;
@@ -352,8 +362,12 @@ static void postPing() {
   doc["timestamp"] = millis();
   String body; serializeJson(doc, body);
   
-  char topic[128];
+  char topic[192];
   snprintf(topic, sizeof(topic), "snoozeguard/ping/%s", IOT_DEVICE_ID);
+  if (strlen(topic) >= sizeof(topic) - 1) {
+    Serial.println("ERROR: Ping topic buffer overflow");
+    return;
+  }
   bool published = mqtt.publish(topic, body.c_str());
   Serial.printf("[MQTT PING] Topic: %s | Body: %s | Published: %s\n", topic, body.c_str(), published ? "YES" : "NO");
 }
@@ -367,21 +381,31 @@ static void postDismiss(const char *alertId) {
   doc["timestamp"] = millis();
   String body; serializeJson(doc, body);
   
-  char topic[128];
+  char topic[192];
   snprintf(topic, sizeof(topic), "snoozeguard/dismiss/%s", IOT_DEVICE_ID);
-  mqtt.publish(topic, body.c_str());
-  Serial.printf("[MQTT] Published dismiss to %s\n", topic);
+  if (strlen(topic) >= sizeof(topic) - 1) {
+    Serial.println("ERROR: Dismiss topic buffer overflow");
+    return;
+  }
+  bool published = mqtt.publish(topic, body.c_str());
+  Serial.printf("[MQTT] Dismiss %s to %s | Published: %s\n", alertId, topic, published ? "YES" : "NO");
 }
 
 // ── MQTT ──────────────────────────────────────────────────────────────────────
 
 static void onMqttMessage(char *topic, byte *payload, unsigned int len) {
   char buf[256];
-  if (len >= sizeof(buf)) return;
+  if (len >= sizeof(buf)) {
+    Serial.println("ERROR: MQTT message payload too large");
+    return;
+  }
   memcpy(buf, payload, len);
   buf[len] = '\0';
   JsonDocument doc;
-  if (deserializeJson(doc, buf) != DeserializationError::Ok) return;
+  if (deserializeJson(doc, buf) != DeserializationError::Ok) {
+    Serial.println("ERROR: Failed to parse MQTT message JSON");
+    return;
+  }
   
   const char *cmd     = doc["command"] | "";
   const char *alertId = doc["alert_id"] | "";
@@ -462,9 +486,11 @@ void setup() {
   dfPlayer = new DFRobotDFPlayerMini();
   if (!dfPlayer->begin(dfSerial, /*isACK=*/true, /*doReset=*/true)) {
     Serial.println("DFPlayer init failed — check SD card and wiring");
+    delete dfPlayer;
+    dfPlayer = nullptr;  // Prevent dangling pointer
   } else {
-    dfPlayer->volume(25); // 0–30
-    Serial.println("DFPlayer ready");
+    dfPlayer->volume(DFPLAYER_VOLUME);
+    Serial.printf("DFPlayer ready (volume=%d)\n", DFPLAYER_VOLUME);
   }
 
   // WiFi
@@ -472,7 +498,7 @@ void setup() {
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.print("Connecting WiFi");
   uint32_t t0 = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 20000) {
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < WIFI_CONNECT_TIMEOUT_MS) {
     delay(500); Serial.print(".");
   }
   Serial.println();
@@ -517,7 +543,7 @@ void loop() {
   handleLedFlash(now);
 
   // Dome button: dismiss active alert
-  if (alertActive && digitalRead(IOT_BUTTON_PIN) == LOW && now - lastButton > 300) {
+  if (alertActive && digitalRead(IOT_BUTTON_PIN) == LOW && now - lastButton > BUTTON_DEBOUNCE_MS) {
     lastButton = now;
     Serial.println("Button — dismiss");
     // Notify connected BLE client so the app dismisses too

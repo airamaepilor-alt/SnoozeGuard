@@ -1,5 +1,18 @@
 {
   "projects": {
-    "default": "snoozeguard-cf3d8"
+    "default": "snoozeguard-cf3d8",
+    "spa": "snoozeguard-hub-official"
+  },
+  "targets": {
+    "snoozeguard-cf3d8": {
+      "hosting": {
+        "web-app": ["snoozeguard-cf3d8"]
+      }
+    },
+    "snoozeguard-hub-official": {
+      "hosting": {
+        "spa": ["snoozeguard-hub-official"]
+      }
+    }
   }
 }
