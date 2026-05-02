@@ -110,7 +110,7 @@ export async function rehydrateSessions(supabase: SupabaseClient, userId: string
     .eq("user_id", userId)
     .gte("started_at", since)
     .order("started_at", { ascending: false })
-    .limit(40);
+    .limit(200);
 
   if (!remoteSessions?.length) return;
 
@@ -130,12 +130,14 @@ export async function rehydrateSessions(supabase: SupabaseClient, userId: string
       rs.device_type ?? "mobile",
     );
 
-    // Fetch and insert telemetry for this session
+    // Fetch and insert telemetry for this session.
+    // .limit(10000) overrides Supabase's default 1000-row cap.
     const { data: trows } = await supabase
       .from("session_telemetry")
       .select("recorded_at, drowsiness_level, yawn_count_delta, head_event_count_delta, head_tilt_delta, sudden_brake, source")
       .eq("session_id", rs.id)
-      .order("recorded_at", { ascending: true });
+      .order("recorded_at", { ascending: true })
+      .limit(10000);
 
     if (trows?.length) {
       for (const t of trows as { recorded_at: string; drowsiness_level: number; yawn_count_delta: number; head_event_count_delta: number; head_tilt_delta: number; sudden_brake: boolean; source: string }[]) {
@@ -156,6 +158,57 @@ export async function rehydrateSessions(supabase: SupabaseClient, userId: string
       }
     }
   }
+}
+
+/**
+ * Detects sessions that exist locally but were deleted from Supabase, re-inserts them,
+ * and resets their telemetry remote_synced flag so flushPendingTelemetry re-uploads it.
+ * Returns the number of sessions recovered.
+ */
+export async function recoverDeletedRemoteSessions(supabase: SupabaseClient, userId: string): Promise<number> {
+  if (!(await isOnline())) return 0;
+  const db = getDatabase();
+
+  const synced = db.getAllSync<{ id: string; remote_id: string; started_at: string; ended_at: string }>(
+    `SELECT id, remote_id, started_at, ended_at
+     FROM driving_sessions_local
+     WHERE user_id = ? AND remote_id IS NOT NULL AND ended_at IS NOT NULL`,
+    userId,
+  );
+  if (!synced.length) return 0;
+
+  const remoteIds = synced.map((r) => r.remote_id);
+  const { data: existing } = await supabase
+    .from("driving_sessions")
+    .select("id")
+    .in("id", remoteIds);
+
+  const existingSet = new Set((existing ?? []).map((r: { id: string }) => r.id));
+  const missing = synced.filter((r) => !existingSet.has(r.remote_id));
+  if (!missing.length) return 0;
+
+  let recovered = 0;
+  for (const row of missing) {
+    const { error } = await supabase.from("driving_sessions").upsert(
+      {
+        id: row.remote_id,
+        user_id: userId,
+        device_type: "mobile",
+        sync_status: "synced",
+        started_at: row.started_at,
+        ended_at: row.ended_at,
+      },
+      { onConflict: "id" },
+    );
+    if (!error) {
+      db.runSync(
+        "UPDATE session_telemetry_local SET remote_synced = 0 WHERE local_session_id = ?",
+        row.id,
+      );
+      recovered += 1;
+    }
+  }
+  return recovered;
 }
 
 export async function flushEndedSessions(supabase: SupabaseClient, userId: string, onProgress?: () => void): Promise<void> {

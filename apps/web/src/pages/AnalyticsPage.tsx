@@ -7,16 +7,6 @@ import { supabase } from "../lib/supabase";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Filter = 7 | 30 | 90;
-
-type TelRow = {
-  drowsiness_level: number;
-  yawn_count_delta: number;
-  head_event_count_delta: number;
-  head_tilt_delta: number;
-  sudden_brake: boolean;
-  recorded_at: string;
-};
-
 type DailyAvg = { date: string; avg: number };
 type Pt = { x: number; y: number };
 
@@ -26,42 +16,6 @@ function cutoffISO(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString();
 }
 
-/** Fill every calendar day in [cutoff, today] with its avg drowsiness. */
-function buildDailyAvg(rows: TelRow[], days: number): DailyAvg[] {
-  const map = new Map<string, { sum: number; n: number }>();
-  for (const r of rows) {
-    const key = new Date(r.recorded_at).toISOString().slice(0, 10);
-    const prev = map.get(key) ?? { sum: 0, n: 0 };
-    map.set(key, { sum: prev.sum + Number(r.drowsiness_level), n: prev.n + 1 });
-  }
-  const result: DailyAvg[] = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 86_400_000);
-    const key = d.toISOString().slice(0, 10);
-    const entry = map.get(key);
-    result.push({ date: key, avg: entry ? entry.sum / entry.n : 0 });
-  }
-  return result;
-}
-
-/**
- * Returns 6 values: avg drowsiness (0-10) for each 4-hour block.
- * Blocks: 00-04, 04-08, 08-12, 12-16, 16-20, 20-24
- */
-function buildHourlyAvg(rows: TelRow[]): number[] {
-  const blocks: { sum: number; n: number }[] = Array.from({ length: 6 }, () => ({ sum: 0, n: 0 }));
-  
-  for (const r of rows) {
-    const d = new Date(r.recorded_at);
-    const h = d.getUTCHours();
-    const idx = Math.min(5, Math.floor(h / 4));
-    
-    blocks[idx].sum += Number(r.drowsiness_level);
-    blocks[idx].n += 1;
-  }
-  
-  return blocks.map((b) => (b.n > 0 ? b.sum / b.n : 0));
-}
 /** Returns Mon=0 … Sun=6 session counts. */
 function buildDowCounts(sessions: { started_at: string }[]): number[] {
   const counts = Array(7).fill(0) as number[];
@@ -586,62 +540,58 @@ export function AnalyticsPage() {
     (async () => {
       const cutoff = cutoffISO(filter);
 
-
-      // 1. Get session IDs for the user in the period
+      // Session rows — only needed for day-of-week bar chart (no telemetry join)
       const { data: sessionRows } = await supabase
         .from("driving_sessions")
-        .select("id, started_at")
+        .select("started_at")
         .eq("user_id", user.id)
         .gte("started_at", cutoff);
 
       if (cancelled) return;
-
-      const sessionIds = (sessionRows ?? []).map((s) => s.id as string);
-
-      // Day-of-week distribution
       if (!cancelled) setDowCounts(buildDowCounts(sessionRows ?? []));
 
-
-
-      // 2. Fetch telemetry for those sessions (up to 8000 rows)
-      let telemetry: TelRow[] = [];
-      if (sessionIds.length > 0) {
-        const { data: telRaw } = await supabase
-          .from("session_telemetry")
-          .select("drowsiness_level, yawn_count_delta, head_event_count_delta, head_tilt_delta, sudden_brake, recorded_at")
-          .in("session_id", sessionIds)
-          .gte("recorded_at", cutoff)
-          .order("recorded_at", { ascending: true })
-          .limit(8000);
-
-        if (!cancelled && telRaw) telemetry = telRaw as TelRow[];
-      }
-
-
+      // All telemetry aggregates via RPC — no row-count cap applies to server-side aggregates
+      type RpcResult = {
+        daily_avg: { day: string; avg: number }[];
+        hourly_avg: { block: number; avg: number }[];
+        detections: { yawns: number; heads: number; tilts: number; brakes: number };
+      };
+      const { data: rpcRaw } = await supabase
+        .rpc("get_analytics_data", { p_since: cutoff })
+        .returns<RpcResult>();
 
       if (cancelled) return;
 
-      // Compute from telemetry
-      const dailyAvgData = buildDailyAvg(telemetry, filter);
-      const hourlyAvgData = buildHourlyAvg(telemetry);
-      const yawnTotal = telemetry.reduce((s, r) => s + (r.yawn_count_delta ?? 0), 0);
-      const headTotal = telemetry.reduce((s, r) => s + (r.head_event_count_delta ?? 0), 0);
-      const tiltTotal = telemetry.reduce((s, r) => s + (r.head_tilt_delta ?? 0), 0);
-      const brakeTotal = telemetry.filter((r) => r.sudden_brake).length;
+      const rpc = rpcRaw as RpcResult | null;
 
-      setDailyAvg(dailyAvgData);
-      setHourlyAvg(hourlyAvgData);
-      setYawnSum(yawnTotal);
-      setHeadSum(headTotal);
-      setTiltSum(tiltTotal);
-      setBrakeCount(brakeTotal);
+      // Daily avg — fill zeros for days without data (mirrors buildDailyAvg)
+      const dayMap = new Map((rpc?.daily_avg ?? []).map((d) => [d.day, Number(d.avg)]));
+      const filledDays: DailyAvg[] = [];
+      for (let i = filter - 1; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 86_400_000);
+        const key = d.toISOString().slice(0, 10);
+        filledDays.push({ date: key, avg: dayMap.get(key) ?? 0 });
+      }
+      setDailyAvg(filledDays);
+
+      // Hourly avg — 6 blocks, default 0
+      const hourlyBlocks = Array(6).fill(0) as number[];
+      for (const h of rpc?.hourly_avg ?? []) {
+        if (h.block >= 0 && h.block < 6) hourlyBlocks[h.block] = Number(h.avg);
+      }
+      setHourlyAvg(hourlyBlocks);
+
+      // Detection totals
+      const det = rpc?.detections ?? { yawns: 0, heads: 0, tilts: 0, brakes: 0 };
+      setYawnSum(Number(det.yawns));
+      setHeadSum(Number(det.heads));
+      setTiltSum(Number(det.tilts));
+      setBrakeCount(Number(det.brakes));
 
       setLoading(false);
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [user, filter, online]);
 
 

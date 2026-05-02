@@ -187,7 +187,7 @@ export function AppShell() {
   const isAdmin = profile?.role === "super_admin";
   const isFullscreen = location.pathname === "/safety-protocol" || location.pathname === "/drive";
   const isDrivePage = location.pathname === "/drive" || location.pathname === "/simulation";
-  const hideTopNav = !["/drive", "/simulation", "/safety-protocol"].includes(location.pathname);
+  const hideTopNav = !["/drive", "/simulation"].includes(location.pathname);
 
   // Close sidebar on route change (mobile)
   useEffect(() => {

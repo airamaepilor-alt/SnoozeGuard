@@ -199,7 +199,8 @@ export function DashboardPage() {
   const [chartFilter, setChartFilter] = useState<"week" | "month">("week");
   const [filterDays, setFilterDays] = useState(30); // default matches mobile
 
-  // Compute key stats from raw Supabase data using the exact same formula as mobile HomeScreen
+  // Compute key stats via server-side RPC so Supabase's max_rows cap never
+  // truncates the telemetry (previously fetched raw rows hit the 1000-row default).
   const loadStats = useCallback(async (days: number, uid: string) => {
     const TAG = "loadStats";
     setLoading(true);
@@ -210,123 +211,45 @@ export function DashboardPage() {
       : null;
     logger.debug(TAG, "query window", { since: since ?? "all-time" });
 
-    let sessQuery = supabase
-      .from("driving_sessions")
-      .select("id, started_at, ended_at")
-      .eq("user_id", uid)
-      .order("started_at", { ascending: false });
-    if (since) sessQuery = sessQuery.gte("started_at", since);
-    const { data: sessions, error: sessError } = await sessQuery;
+    type RpcRow = {
+      session_count: number; total_drive_sec: number; avg_drive_sec: number;
+      avg_drowsiness: number; focus_score: number;
+      yawn_sum: number; head_sum: number; tilt_sum: number; brake_sum: number;
+    };
+    const { data: rpcData, error: rpcError } = await supabase
+      .rpc("get_session_metrics", { p_since: since })
+      .returns<RpcRow[]>();
 
-    if (sessError) {
-      logger.error(TAG, "sessions query failed", { message: sessError.message, code: sessError.code, details: sessError.details });
+    if (rpcError) {
+      logger.error(TAG, "get_session_metrics RPC failed", { message: rpcError.message, code: rpcError.code });
       setMetrics(null);
       setLoading(false);
       return;
     }
 
-    logger.info(TAG, `sessions returned: ${sessions?.length ?? 0}`, {
-      ids: sessions?.map((s) => s.id).slice(0, 10),
-      hasMore: (sessions?.length ?? 0) > 10,
-    });
+    const row = (rpcData as RpcRow[] | null)?.[0];
+    logger.info(TAG, "rpc result", row ?? "empty");
 
-    if (!sessions || sessions.length === 0) {
+    if (!row || Number(row.session_count) === 0) {
       logger.warn(TAG, "no sessions found — metrics set to null");
       setMetrics(null);
       setLoading(false);
       return;
     }
 
-    const sessionIds = sessions.map((s) => s.id as string);
-
-    const { data: telemetry, error: telError } = await supabase
-      .from("session_telemetry")
-      .select("session_id, drowsiness_level, yawn_count_delta, head_event_count_delta, head_tilt_delta, sudden_brake")
-      .in("session_id", sessionIds)
-      .limit(100000);
-
-    if (telError) {
-      logger.error(TAG, "telemetry query failed", { message: telError.message, code: telError.code, details: telError.details });
-      setLoading(false);
-      return;
-    }
-
-    logger.info(TAG, `telemetry rows returned: ${telemetry?.length ?? 0}`);
-
-    type TelRow = { session_id: string; drowsiness_level: number; yawn_count_delta: number; head_event_count_delta: number; head_tilt_delta: number; sudden_brake: boolean };
-    const telRows = (telemetry ?? []) as TelRow[];
-
-    // Group telemetry by session (mirrors mobile SQL: GROUP BY s.id)
-    const telBySess = new Map<string, TelRow[]>();
-    for (const row of telRows) {
-      const arr = telBySess.get(row.session_id) ?? [];
-      arr.push(row);
-      telBySess.set(row.session_id, arr);
-    }
-
-    const sessionsWithTelemetry = sessions.filter((s) => (telBySess.get(s.id as string) ?? []).length > 0).length;
-    logger.debug(TAG, "sessions with telemetry", {
-      total: sessions.length,
-      withTelemetry: sessionsWithTelemetry,
-      withoutTelemetry: sessions.length - sessionsWithTelemetry,
-    });
-
-    // avgDrowsiness = average of per-session averages
-    // Sessions with no telemetry contribute 0 (same as mobile LEFT JOIN → NULL → ?? 0)
-    const perSessionAvgs = sessions.map((s) => {
-      const rows = telBySess.get(s.id as string) ?? [];
-      return rows.length > 0
-        ? rows.reduce((sum, r) => sum + Number(r.drowsiness_level), 0) / rows.length
-        : 0;
-    });
-    const avgDrowsiness = perSessionAvgs.reduce((a, b) => a + b, 0) / perSessionAvgs.length;
-
-    logger.debug(TAG, "drowsiness calculation", {
-      perSessionAvgs: perSessionAvgs.map((v) => +v.toFixed(3)),
-      avgDrowsiness: +avgDrowsiness.toFixed(4),
-    });
-
-    // Focus score — identical to mobile: Math.max(0, Math.round(100 - avgDrowsiness * 10))
-    const focusScore = Math.max(0, Math.round(100 - avgDrowsiness * 10));
-    logger.info(TAG, `focusScore: ${focusScore}`, { avgDrowsiness: +avgDrowsiness.toFixed(4) });
-
-    // Total drive seconds — identical to mobile
-    const totalDriveSec = sessions.reduce((acc, s) => {
-      if (s.started_at && s.ended_at) {
-        acc += (new Date(s.ended_at as string).getTime() - new Date(s.started_at as string).getTime()) / 1000;
-      }
-      return acc;
-    }, 0);
-
-    const sessionsWithDuration = sessions.filter((s) => s.started_at && s.ended_at).length;
-    logger.debug(TAG, "drive time", {
-      totalDriveSec: +totalDriveSec.toFixed(1),
-      sessionsWithDuration,
-      sessionsWithoutEndedAt: sessions.length - sessionsWithDuration,
-    });
-
-    // Drowsy events: yawn + head_nod + tilt + brake (matches mobile exactly)
-    let yawnSum = 0, headSum = 0, tiltSum = 0, brakeSum = 0;
-    for (const row of telRows) {
-      yawnSum  += Number(row.yawn_count_delta) || 0;
-      headSum  += Number(row.head_event_count_delta) || 0;
-      tiltSum  += Number(row.head_tilt_delta) || 0;
-      brakeSum += row.sudden_brake ? 1 : 0;
-    }
-
-    logger.info(TAG, "drowsy events", { yawnSum, headSum, tiltSum, brakeSum, total: yawnSum + headSum + tiltSum + brakeSum });
+    void uid; // uid no longer needed in query body (RLS uses auth.uid())
 
     const result: DashboardMetrics = {
-      sessionCount: sessions.length,
-      totalDriveSec: Math.round(totalDriveSec),
-      avgDriveSec: sessions.length > 0 ? Math.round(totalDriveSec / sessions.length) : 0,
-      avgDrowsiness,
-      focusScore,
-      drowsyEvents: yawnSum + headSum + tiltSum + brakeSum,
-      yawnSum,
-      headSum,
-      tiltSum,
-      brakeSum,
+      sessionCount: Number(row.session_count),
+      totalDriveSec: Math.round(Number(row.total_drive_sec)),
+      avgDriveSec: Math.round(Number(row.avg_drive_sec)),
+      avgDrowsiness: Number(row.avg_drowsiness),
+      focusScore: Number(row.focus_score),
+      drowsyEvents: Number(row.yawn_sum) + Number(row.head_sum) + Number(row.tilt_sum) + Number(row.brake_sum),
+      yawnSum: Number(row.yawn_sum),
+      headSum: Number(row.head_sum),
+      tiltSum: Number(row.tilt_sum),
+      brakeSum: Number(row.brake_sum),
     };
 
     logger.info(TAG, "final metrics", result);

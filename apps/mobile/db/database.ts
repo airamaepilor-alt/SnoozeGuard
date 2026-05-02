@@ -49,6 +49,23 @@ export function getDatabase(): SQLite.SQLiteDatabase {
       db.execSync("ALTER TABLE session_telemetry_local ADD COLUMN head_tilt_delta INTEGER NOT NULL DEFAULT 0");
     } catch { /* column already exists */ }
 
+    // Additive migration: deduplicate telemetry rows and add unique index.
+    // Without this, rehydrateSessions inserts duplicate rows on every app restart
+    // because INSERT OR IGNORE never fires on an auto-increment PK.
+    try {
+      db.execSync(`
+        DELETE FROM session_telemetry_local
+        WHERE id NOT IN (
+          SELECT MIN(id) FROM session_telemetry_local
+          GROUP BY local_session_id, recorded_at
+        );
+      `);
+      db.execSync(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_telemetry_unique_key
+        ON session_telemetry_local (local_session_id, recorded_at);
+      `);
+    } catch { /* index already exists — safe to ignore */ }
+
     // Key-value preferences store (created early so EC migration can use it)
     db.execSync("CREATE TABLE IF NOT EXISTS user_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
 

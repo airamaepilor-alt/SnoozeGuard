@@ -9,6 +9,8 @@ import {
   Modal,
   Vibration,
   Linking,
+  PermissionsAndroid,
+  Platform,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { Accelerometer } from "expo-sensors";
@@ -41,7 +43,7 @@ import {
 } from "../ml/faceDetection";
 import { ensureRemoteSession, flushEndedSessions, flushPendingTelemetry, isOnline } from "../sync/flush";
 import type { Theme } from "../theme";
-import type { BleError, Characteristic, Device, Subscription } from "react-native-ble-plx";
+import { State as BleState, type BleError, type Characteristic, type Device, type Subscription } from "react-native-ble-plx";
 import { getBleManager, bleDeviceName, SG_SERVICE_UUID, SG_CMD_CHAR_UUID, SG_EVENT_CHAR_UUID } from "../lib/ble";
 
 const IOT_API_URL = (process.env.EXPO_PUBLIC_API_URL as string | undefined) ?? "";
@@ -219,6 +221,28 @@ function FaceCamera({ modelPath, sessionActive, onFaceResults }: FaceCameraProps
       video={false}
     />
   );
+}
+
+// ─── BLE permission helper ────────────────────────────────────────────────────
+// Android 12+ needs BLUETOOTH_SCAN + BLUETOOTH_CONNECT; older needs LOCATION.
+// iOS permissions are declared in Info.plist; the OS prompts automatically.
+
+async function requestBlePermissions(): Promise<boolean> {
+  if (Platform.OS !== "android") return true;
+  if (Platform.Version >= 31) {
+    const results = await PermissionsAndroid.requestMultiple([
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+    ]);
+    return (
+      results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === PermissionsAndroid.RESULTS.GRANTED &&
+      results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === PermissionsAndroid.RESULTS.GRANTED
+    );
+  }
+  const result = await PermissionsAndroid.request(
+    PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+  );
+  return result === PermissionsAndroid.RESULTS.GRANTED;
 }
 
 // ─── DriveScreen ─────────────────────────────────────────────────────────────
@@ -520,6 +544,7 @@ export function DriveScreen() {
   // ── BLE ──────────────────────────────────────────────────────────────────────
 
   const [bleStatus, setBleStatus] = useState<BleStatus>("idle");
+  const [bleErrorMsg, setBleErrorMsg] = useState<string | null>(null);
   const bleDeviceRef = useRef<Device | null>(null);
   const bleSubRef = useRef<Subscription | null>(null);
 
@@ -529,53 +554,119 @@ export function DriveScreen() {
     void bleDeviceRef.current?.cancelConnection().catch(() => {});
     bleDeviceRef.current = null;
     setBleStatus("idle");
+    setBleErrorMsg(null);
   }, []);
 
-  const connectBle = useCallback((targetDeviceId: string) => {
-    const mgr = getBleManager();
+  const connectBle = useCallback(async (targetDeviceId: string) => {
+    setBleErrorMsg(null);
+
+    const granted = await requestBlePermissions();
+    if (!granted) {
+      setBleStatus("error");
+      setBleErrorMsg("Bluetooth permission denied. Allow it in Settings → Apps → SnoozeGuard → Permissions.");
+      return;
+    }
+
+    let mgr: ReturnType<typeof getBleManager>;
+    try {
+      mgr = getBleManager();
+    } catch (e) {
+      setBleStatus("error");
+      setBleErrorMsg(`Could not initialize Bluetooth: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+
+    // Ask the BLE manager what state it's actually in before trying to scan.
+    // This catches "Bluetooth off" and "no permission in manifest" before the
+    // scan callback would silently swallow them.
+    try {
+      const bleState = await mgr.state();
+      if (bleState !== BleState.PoweredOn) {
+        setBleStatus("error");
+        setBleErrorMsg(
+          bleState === BleState.PoweredOff
+            ? "Bluetooth is turned off. Enable Bluetooth and try again."
+            : bleState === BleState.Unauthorized
+              ? "Bluetooth not authorized. The app may be missing BLUETOOTH_SCAN / BLUETOOTH_CONNECT permissions — a new build is required."
+              : bleState === BleState.Unsupported
+                ? "This device does not support Bluetooth Low Energy."
+                : `Bluetooth not ready (state: ${bleState}). Try again in a moment.`,
+        );
+        return;
+      }
+    } catch (e) {
+      setBleStatus("error");
+      setBleErrorMsg(`Could not read Bluetooth state: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+
     setBleStatus("scanning");
 
     let found = false;
     const targetName = bleDeviceName(targetDeviceId);
 
-    mgr.startDeviceScan(null, { allowDuplicates: false }, (err: BleError | null, device: Device | null) => {
-      if (err || found) return;
-      if (device?.name !== targetName) return;
-      found = true;
-      mgr.stopDeviceScan();
+    try {
+      mgr.startDeviceScan(null, { allowDuplicates: false }, (err: BleError | null, device: Device | null) => {
+        if (found) return;
+        if (err) {
+          mgr.stopDeviceScan();
+          setBleStatus("error");
+          setBleErrorMsg(err.message ?? `BLE scan error (code ${err.errorCode})`);
+          return;
+        }
+        if (device?.name !== targetName) return;
+        found = true;
+        mgr.stopDeviceScan();
 
-      device
-        .connect({ autoConnect: false })
-        .then((d: Device) => d.discoverAllServicesAndCharacteristics())
-        .then((d: Device) => {
-          bleDeviceRef.current = d;
-          // Subscribe to event notifications (ESP32 button dismiss → BLE path)
-          bleSubRef.current = d.monitorCharacteristicForService(
-            SG_SERVICE_UUID, SG_EVENT_CHAR_UUID,
-            (monErr: BleError | null, char: Characteristic | null) => {
-              if (monErr) { disconnectBle(); return; }
-              if (!char?.value) return;
-              try {
-                const payload = JSON.parse(atob(char.value)) as { event?: string };
-                if (payload.event === "dismiss") {
-                  dismissedLevelsRef.current.add(alertLevelRef.current);
-                  stopAlertAudio();
-                  stopEcTimer();
-                  if (alertLevelRef.current >= 10) startScoreResetTimer();
-                  iotAlertIdRef.current = null;
-                  setAlertOpen(false);
-                }
-              } catch { /* ignore malformed payload */ }
-            },
-          );
-          setBleStatus("connected");
-        })
-        .catch(() => setBleStatus("error"));
-    });
+        device
+          .connect({ autoConnect: false })
+          .then((d: Device) => d.discoverAllServicesAndCharacteristics())
+          .then((d: Device) => {
+            bleDeviceRef.current = d;
+            // Subscribe to event notifications (ESP32 button dismiss → BLE path)
+            bleSubRef.current = d.monitorCharacteristicForService(
+              SG_SERVICE_UUID, SG_EVENT_CHAR_UUID,
+              (monErr: BleError | null, char: Characteristic | null) => {
+                if (monErr) { disconnectBle(); return; }
+                if (!char?.value) return;
+                try {
+                  const payload = JSON.parse(atob(char.value)) as { event?: string };
+                  if (payload.event === "dismiss") {
+                    dismissedLevelsRef.current.add(alertLevelRef.current);
+                    stopAlertAudio();
+                    stopEcTimer();
+                    if (alertLevelRef.current >= 10) startScoreResetTimer();
+                    iotAlertIdRef.current = null;
+                    setAlertOpen(false);
+                  }
+                } catch { /* ignore malformed payload */ }
+              },
+            );
+            setBleStatus("connected");
+          })
+          .catch((e: unknown) => {
+            setBleStatus("error");
+            setBleErrorMsg(`Connection failed: ${e instanceof Error ? e.message : String(e)}`);
+          });
+      });
+    } catch (e) {
+      setBleStatus("error");
+      setBleErrorMsg(`Scan failed to start: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
 
     // Stop scanning after 15 s if device not found
     setTimeout(() => {
-      if (!found) { mgr.stopDeviceScan(); setBleStatus((s) => s === "scanning" ? "idle" : s); }
+      if (!found) {
+        mgr.stopDeviceScan();
+        setBleStatus((s) => {
+          if (s === "scanning") {
+            setBleErrorMsg(`Device "${targetName}" not found nearby. Make sure the IoT device is powered on.`);
+            return "error";
+          }
+          return s;
+        });
+      }
     }, 15_000);
   }, [disconnectBle, stopAlertAudio, stopEcTimer, startScoreResetTimer]);
 
@@ -612,6 +703,8 @@ export function DriveScreen() {
       headTiltLastTickRef.current = 0;
       suddenBrakeRef.current = false;
       sessionStartRef.current = Date.now();
+      yawnDetectorRef.current.reset();
+      headDetectorRef.current.reset();
       tiltDetectorRef.current.reset();
       setLiveLevel(0); setLiveYawns(0); setLiveHead(0); setSessionSecs(0);
       if (await isOnline()) await flushPendingTelemetry(supabase, user.id);
@@ -1082,7 +1175,7 @@ export function DriveScreen() {
                 disabled={bleStatus === "scanning"}
                 onPress={() => {
                   if (bleStatus === "connected") disconnectBle();
-                  else connectBle(iotSavedId);
+                  else void connectBle(iotSavedId);
                 }}
               >
                 <View style={[
@@ -1103,6 +1196,9 @@ export function DriveScreen() {
                   {bleStatus === "error"     && "BLE failed — tap to retry"}
                 </Text>
               </Pressable>
+              {bleStatus === "error" && bleErrorMsg ? (
+                <Text style={styles.bleErrorText}>{bleErrorMsg}</Text>
+              ) : null}
             </View>
           ) : (
             <View style={styles.iotInputRow}>
@@ -1272,4 +1368,5 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   bleBtnScanning:  { borderColor: `${t.secondary}44`, backgroundColor: `${t.secondary}11` },
   bleDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: t.outlineVariant },
   bleBtnText: { fontSize: 11, fontWeight: "600", color: t.onSurfaceVariant, flex: 1 },
+  bleErrorText: { fontSize: 10, color: t.tertiary, marginTop: 5, lineHeight: 14 },
 });

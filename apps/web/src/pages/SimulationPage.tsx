@@ -1154,11 +1154,13 @@ export function SimulationPage() {
                 ))}
               </div>
 
-              {/* IoT device */}
-              <IotDevicePanel
-                userId={user?.id}
-                onDeviceBound={(id) => { iotDeviceIdRef.current = id; }}
-              />
+              {/* IoT device — hidden on mobile to save top-bar space */}
+              <div className="hidden sm:block">
+                <IotDevicePanel
+                  userId={user?.id}
+                  onDeviceBound={(id) => { iotDeviceIdRef.current = id; }}
+                />
+              </div>
 
               {/* Controller config */}
               <button

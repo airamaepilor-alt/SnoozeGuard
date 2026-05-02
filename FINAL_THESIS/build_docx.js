@@ -22,7 +22,7 @@ const {
 } = require(docxPath);
 
 const inputPath = path.join(__dirname, "output.md");
-const outputPath = path.join(__dirname, "thesis_draft.docx");
+const outputPath = path.join(__dirname, "thesis_draft_v4.docx");
 
 const md = fs.readFileSync(inputPath, "utf8");
 const lines = md.split("\n");
@@ -153,6 +153,236 @@ function parseTable(tableLines) {
   });
 }
 
+function makeDiagramPlaceholder(raw) {
+  // raw = "Figure N — Title | PROMPT: \"...\""
+  const pipeIdx = raw.indexOf(' | PROMPT:');
+  const figureLabel = pipeIdx > -1 ? raw.slice(0, pipeIdx).trim() : raw.trim();
+  const promptText = pipeIdx > -1 ? raw.slice(pipeIdx + 10).trim().replace(/^"|"$/g, '') : '';
+
+  return new Table({
+    width: { size: 8700, type: WidthType.DXA },
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: '[ DIAGRAM PLACEHOLDER ]', bold: true, size: 20, color: '555555', font: 'Times New Roman' })],
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 60 },
+              }),
+              new Paragraph({
+                children: [new TextRun({ text: figureLabel, bold: true, size: 22, color: '1A3A5C', font: 'Times New Roman' })],
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 120 },
+              }),
+              ...(promptText ? [
+                new Paragraph({
+                  children: [new TextRun({ text: 'AI Image Generation Prompt:', bold: true, size: 18, color: '333333', font: 'Times New Roman' })],
+                  spacing: { after: 40 },
+                }),
+                new Paragraph({
+                  children: [new TextRun({ text: promptText, italics: true, size: 18, color: '444444', font: 'Times New Roman' })],
+                  spacing: { after: 80 },
+                }),
+              ] : []),
+              new Paragraph({
+                children: [new TextRun({ text: '(Replace this placeholder with the generated diagram image)', italics: true, size: 16, color: '888888', font: 'Times New Roman' })],
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 60, after: 60 },
+              }),
+            ],
+            shading: { fill: 'F0F4FF' },
+            margins: { top: 160, bottom: 160, left: 200, right: 200 },
+          }),
+        ],
+      }),
+    ],
+    borders: {
+      top:    { style: BorderStyle.DASHED, size: 4, color: '4472C4' },
+      bottom: { style: BorderStyle.DASHED, size: 4, color: '4472C4' },
+      left:   { style: BorderStyle.DASHED, size: 4, color: '4472C4' },
+      right:  { style: BorderStyle.DASHED, size: 4, color: '4472C4' },
+    },
+  });
+}
+
+function makeIPODiagram() {
+  const W = "FFFFFF";
+
+  function hCell(text, fill) {
+    return new TableCell({
+      children: [new Paragraph({
+        children: [new TextRun({ text, bold: true, color: W, size: 24, font: "Times New Roman" })],
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 100, after: 100 },
+      })],
+      shading: { fill },
+      width: { size: 2900, type: WidthType.DXA },
+      margins: { top: 120, bottom: 120, left: 140, right: 140 },
+    });
+  }
+
+  function cCell(lines, bg) {
+    const paragraphs = lines.map(line => {
+      const isSection = /^[A-Z][A-Z\s\/\-–]+$/.test(line.trim()) && line.trim().length > 2 && !line.startsWith("•");
+      const isArrow = line.startsWith("→");
+      return new Paragraph({
+        children: [new TextRun({
+          text: line,
+          bold: isSection,
+          italics: isArrow,
+          size: isSection ? 18 : 17,
+          font: "Times New Roman",
+        })],
+        indent: line.startsWith("  ") ? { left: convertInchesToTwip(0.25) } : undefined,
+        spacing: { after: line === "" ? 80 : 30 },
+      });
+    });
+    return new TableCell({
+      children: paragraphs,
+      shading: { fill: bg },
+      width: { size: 2900, type: WidthType.DXA },
+      margins: { top: 120, bottom: 120, left: 140, right: 140 },
+    });
+  }
+
+  const headerRow = new TableRow({
+    children: [
+      hCell("INPUT", "1A3A5C"),
+      hCell("PROCESS", "145A32"),
+      hCell("OUTPUT", "6B1A1A"),
+    ],
+  });
+
+  const contentRow = new TableRow({
+    children: [
+      cCell([
+        "FACIAL SIGNALS",
+        "• jawOpen blend shape (≥ 0.70)",
+        "  Yawn detection",
+        "• Head pitch & roll angles",
+        "  Nod / tilt detection",
+        "• 478 landmarks, 52 blend shapes",
+        "",
+        "MOTION SIGNALS",
+        "• Accelerometer delta (≥ 0.45g)",
+        "  Sudden brake detection",
+        "",
+        "SYSTEM CONFIGURATION",
+        "• Alert map thresholds (admin)",
+        "• Emergency contact details",
+        "",
+        "NETWORK STATE",
+        "• Online / Offline (NetInfo)",
+        "",
+        "AUTHENTICATION",
+        "• Email / Password",
+        "• Google OAuth",
+      ], "D6EAF8"),
+      cCell([
+        "STAGE 1 — SIGNAL ACQUISITION",
+        "• MediaPipe Face Landmarker",
+        "• 478 landmarks + 52 blend shapes",
+        "• Mobile: 600ms  |  Web: 130ms",
+        "",
+        "STAGE 2 — DROWSINESS SCORING",
+        "• jawOpen ≥ 0.70 → yawn event",
+        "• Pitch/roll threshold → nod event",
+        "• 10s sustained tilt → tilt event",
+        "• Accel. ≥ 0.45g → brake event",
+        "• Accumulated into level 0–10",
+        "",
+        "STAGE 3 — ALERT ESCALATION",
+        "• Levels 1–5: mild in-app alerts",
+        "• Levels 6–8: IoT device triggers",
+        "• Levels 9–10: EC notification",
+        "  + 120s self-dismiss countdown",
+        "",
+        "STAGE 4 — DATA PERSISTENCE",
+        "• SQLite offline-first storage",
+        "→ Supabase cloud background sync",
+        "",
+        "STAGE 5 — IoT COMMUNICATION",
+        "• MQTT over TLS (HiveMQ, 8883)",
+        "• BLE fallback (SG-{device_id})",
+      ], "D5F5E3"),
+      cCell([
+        "REAL-TIME DROWSINESS LEVEL",
+        "• Score 0–10 rendered on",
+        "  Drive screen continuously",
+        "",
+        "DRIVER ALERTS",
+        "• In-app alert modal",
+        "• Synthesized voice (MP3 audio)",
+        "• IoT vibration & LED patterns",
+        "  (calibrated per level 6–10)",
+        "",
+        "EMERGENCY NOTIFICATION",
+        "• Expo push notification",
+        "  (FCM / APNs)",
+        "• PhilSMS via Supabase",
+        "  Edge Function",
+        "  (triggered at levels 9–10)",
+        "",
+        "SESSION ANALYTICS",
+        "• Driving session logs",
+        "• Drowsiness event timeline",
+        "• Focus Score",
+        "• Alert event heat map",
+        "",
+        "ISO/IEC 25010 EVALUATION",
+        "• Grand Mean: 4.01",
+        "• Very Satisfactory",
+        "  (n = 29 respondents)",
+      ], "FADBD8"),
+    ],
+  });
+
+  const feedbackRow = new TableRow({
+    children: [
+      new TableCell({
+        columnSpan: 3,
+        children: [new Paragraph({
+          children: [new TextRun({
+            text: "FEEDBACK LOOP:  Driver dismisses alert (in-app button  |  IoT GPIO 25 button  |  120-second timeout)  →  Alert state resets  →  Monitoring resumes automatically",
+            italics: true,
+            bold: false,
+            size: 18,
+            font: "Times New Roman",
+          })],
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 100, after: 100 },
+        })],
+        shading: { fill: "EDE7F6" },
+        margins: { top: 120, bottom: 120, left: 140, right: 140 },
+      }),
+    ],
+  });
+
+  const table = new Table({
+    width: { size: 8700, type: WidthType.DXA },
+    rows: [headerRow, contentRow, feedbackRow],
+    borders: {
+      top:    { style: BorderStyle.SINGLE, size: 4, color: "333333" },
+      bottom: { style: BorderStyle.SINGLE, size: 4, color: "333333" },
+      left:   { style: BorderStyle.SINGLE, size: 4, color: "333333" },
+      right:  { style: BorderStyle.SINGLE, size: 4, color: "333333" },
+      insideH:{ style: BorderStyle.SINGLE, size: 2, color: "888888" },
+      insideV:{ style: BorderStyle.SINGLE, size: 2, color: "888888" },
+    },
+  });
+
+  return [
+    table,
+    new Paragraph({
+      children: [new TextRun({ text: "Figure 1. Input-Process-Output (IPO) Conceptual Framework of SnoozeGuard", italics: true, size: 22 })],
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 120, after: 240 },
+    }),
+  ];
+}
+
 // Main parse loop
 const docChildren = [];
 
@@ -203,6 +433,22 @@ while (i < lines.length) {
       docChildren.push(new Paragraph({ text: "", spacing: { after: 120 } }));
     }
     tableBuffer = [];
+  }
+
+  // Diagram placeholder markers: [DIAGRAM: Figure N — Title | PROMPT: "..."]
+  if (trimmed.startsWith("[DIAGRAM:")) {
+    const inner = trimmed.replace(/^\[DIAGRAM:\s*/, '').replace(/\]$/, '');
+    docChildren.push(makeDiagramPlaceholder(inner));
+    docChildren.push(new Paragraph({ text: "", spacing: { after: 120 } }));
+    i++;
+    continue;
+  }
+
+  // Special figure markers
+  if (trimmed === "[FIGURE:conceptual_framework]") {
+    makeIPODiagram().forEach(el => docChildren.push(el));
+    i++;
+    continue;
   }
 
   // Headings

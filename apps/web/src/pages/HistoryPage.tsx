@@ -437,6 +437,7 @@ export function HistoryPage() {
   const [hasMore, setHasMore] = useState(false);
   const [rpcNote, setRpcNote] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   const cursorRef = useRef<string | null>(null);
   const tzOffset = -new Date().getTimezoneOffset();
 
@@ -511,6 +512,14 @@ export function HistoryPage() {
     },
     [user?.id],
   );
+
+  const fetchTotalCount = useCallback(async () => {
+    if (!user?.id) return;
+    type MetricsRow = { session_count: number };
+    const { data } = await supabase.rpc("get_session_metrics").returns<MetricsRow[]>();
+    const row = (data as MetricsRow[] | null)?.[0];
+    if (row) setTotalCount(Number(row.session_count));
+  }, [user?.id]);
 
   const fetchHistory = useCallback(
     async (reset: boolean, isCancelled: () => boolean) => {
@@ -591,10 +600,11 @@ export function HistoryPage() {
     if (!user) return;
     let cancelled = false;
     void fetchHistory(true, () => cancelled);
+    void fetchTotalCount();
     return () => {
       cancelled = true;
     };
-  }, [user?.id, tzOffset, fetchHistory]);
+  }, [user?.id, tzOffset, fetchHistory, fetchTotalCount]);
 
   // ─── Derived stats ───────────────────────────────────────────────────────────
 
@@ -666,7 +676,7 @@ export function HistoryPage() {
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
         <StatCard
           label="Total Sessions"
-          value={loading ? "…" : String(stats?.totalSessions ?? 0)}
+          value={loading ? "…" : String(totalCount ?? stats?.totalSessions ?? 0)}
           badge={sessions.length > 0 ? "recorded" : undefined}
           badgeColor="text-slate-500"
         />
@@ -911,8 +921,8 @@ export function HistoryPage() {
               <h4 className="text-lg sm:text-xl font-headline font-bold text-on-surface">Safety Milestones</h4>
               <p className="text-on-surface-variant text-xs mt-1">
                 {stats && stats.safetyScore >= 80
-                  ? `Safety score of ${stats.safetyScore} — excellent vigilance across ${stats.totalSessions} recorded sessions.`
-                  : `${stats?.totalSessions ?? 0} sessions recorded. Focus on reducing drowsy episodes to improve your score.`}
+                  ? `Safety score of ${stats.safetyScore} — excellent vigilance across ${totalCount ?? stats.totalSessions} recorded sessions.`
+                  : `${totalCount ?? stats?.totalSessions ?? 0} sessions recorded. Focus on reducing drowsy episodes to improve your score.`}
               </p>
             </div>
             <div className="w-full space-y-2">

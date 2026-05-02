@@ -604,7 +604,7 @@ function pill(slide, x, y, text, color) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SLIDE 15 — Results Placeholder
+// SLIDE 15 — Results: ISO/IEC 25010
 // ═══════════════════════════════════════════════════════════════════════════
 {
   const s = addSlide();
@@ -612,14 +612,14 @@ function pill(slide, x, y, text, color) {
   divider(s, 1.05);
 
   const chars = [
-    { name: "Functional Suitability", score: "—", interp: "Pending" },
-    { name: "Performance Efficiency", score: "—", interp: "Pending" },
-    { name: "Compatibility",          score: "—", interp: "Pending" },
-    { name: "Usability",              score: "—", interp: "Pending" },
-    { name: "Reliability",            score: "—", interp: "Pending" },
-    { name: "Security",               score: "—", interp: "Pending" },
-    { name: "Maintainability",        score: "—", interp: "Pending" },
-    { name: "Portability",            score: "—", interp: "Pending" },
+    { name: "Functional Suitability", score: "4.05", interp: "Very Satisfactory" },
+    { name: "Performance Efficiency", score: "4.11", interp: "Very Satisfactory" },
+    { name: "Compatibility",          score: "4.02", interp: "Very Satisfactory" },
+    { name: "Usability",              score: "3.90", interp: "Very Satisfactory" },
+    { name: "Reliability",            score: "3.91", interp: "Very Satisfactory" },
+    { name: "Security",               score: "4.04", interp: "Very Satisfactory" },
+    { name: "Maintainability",        score: "3.98", interp: "Very Satisfactory" },
+    { name: "Portability",            score: "4.07", interp: "Very Satisfactory" },
   ];
 
   s.addTable(
@@ -631,19 +631,19 @@ function pill(slide, x, y, text, color) {
       ],
       ...chars.map((c, i) => [
         { text: c.name, options: { fontSize: 12, color: C.dark, fill: i % 2 === 0 ? "EEF4FF" : C.white, fontFace: "Calibri" } },
-        { text: c.score, options: { fontSize: 12, color: C.gray, fill: i % 2 === 0 ? "EEF4FF" : C.white, fontFace: "Calibri", align: "center" } },
-        { text: c.interp, options: { fontSize: 12, color: C.gray, fill: i % 2 === 0 ? "EEF4FF" : C.white, fontFace: "Calibri", align: "center" } },
+        { text: c.score, options: { fontSize: 12, bold: true, color: C.navy, fill: i % 2 === 0 ? "EEF4FF" : C.white, fontFace: "Calibri", align: "center" } },
+        { text: c.interp, options: { fontSize: 12, color: C.dark, fill: i % 2 === 0 ? "EEF4FF" : C.white, fontFace: "Calibri", align: "center" } },
       ]),
       [
-        { text: "Overall", options: { bold: true, fontSize: 13, color: C.white, fill: C.blue, fontFace: "Calibri" } },
-        { text: "—", options: { bold: true, fontSize: 13, color: C.white, fill: C.blue, fontFace: "Calibri", align: "center" } },
-        { text: "—", options: { bold: true, fontSize: 13, color: C.white, fill: C.blue, fontFace: "Calibri", align: "center" } },
+        { text: "Grand Mean (n = 29)", options: { bold: true, fontSize: 13, color: C.white, fill: C.blue, fontFace: "Calibri" } },
+        { text: "4.01", options: { bold: true, fontSize: 13, color: C.white, fill: C.blue, fontFace: "Calibri", align: "center" } },
+        { text: "Very Satisfactory", options: { bold: true, fontSize: 13, color: C.white, fill: C.blue, fontFace: "Calibri", align: "center" } },
       ],
     ],
     { x: 0.4, y: 1.2, w: 12.33, h: 5.6, border: { type: "solid", color: "CCCCCC", pt: 0.5 } }
   );
 
-  body(s, "Update scores after survey data collection is complete. Replace '—' with actual weighted mean values.", 0.4, 6.9, 12.33, 0.35, { size: 11, color: C.gray, align: "center" });
+  body(s, "All 8 characteristics rated Very Satisfactory. Highest: Performance Efficiency (4.11). Lowest: Usability (3.90).", 0.4, 6.9, 12.33, 0.35, { size: 11, color: C.gray, align: "center" });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

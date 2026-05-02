@@ -123,6 +123,7 @@ const YAWN_COOLDOWN_MS    = 2000;
 
 export function createYawnDetector(onYawn: () => void): {
   process: (frame: ParsedFaceFrame | null, now: number) => void;
+  reset:   () => void;
 } {
   let wasOpen    = false;
   let lastYawnAt = 0;
@@ -145,6 +146,7 @@ export function createYawnDetector(onYawn: () => void): {
         onYawn();
       }
     },
+    reset() { wasOpen = false; lastYawnAt = 0; },
   };
 }
 
@@ -163,6 +165,7 @@ const HEAD_COOLDOWN_MS   = 500;
 
 export function createHeadDetector(onHeadEvent: () => void): {
   process: (frame: ParsedFaceFrame | null, now: number) => void;
+  reset:   () => void;
 } {
   let wasOffCenter = false;
   let lastEventAt  = 0;
@@ -183,6 +186,7 @@ export function createHeadDetector(onHeadEvent: () => void): {
 
       wasOffCenter = offCenter;
     },
+    reset() { wasOffCenter = false; lastEventAt = 0; },
   };
 }
 

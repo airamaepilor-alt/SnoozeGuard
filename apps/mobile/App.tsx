@@ -31,7 +31,7 @@ import { EmergencyAlertMapScreen } from "./screens/EmergencyAlertMapScreen";
 import { EmergencyContactSetupModal } from "./screens/EmergencyContactSetupModal";
 import { getEmergencyContact, registerPushToken } from "./lib/emergencyNotify";
 import { getDatabase, upsertLocalEC, getPref, setPref } from "./db/database";
-import { flushEndedSessions, flushPendingTelemetry, rehydrateSessions } from "./sync/flush";
+import { flushEndedSessions, flushPendingTelemetry, rehydrateSessions, recoverDeletedRemoteSessions } from "./sync/flush";
 import { setPresenceIds } from "./lib/presenceStore";
 import { theme } from "./theme";
 
@@ -179,6 +179,9 @@ function AppDrawer({ visible, onClose, session, superAdmin, onSignOut, onGuard }
     setSyncing(true);
     setSyncProgress(0);
     try {
+      // Recover sessions deleted from Supabase before counting pending work
+      await recoverDeletedRemoteSessions(supabase, session.user.id);
+
       const db = getDatabase();
       const n1 = db.getFirstSync<{ c: number }>(
         "SELECT COUNT(*) as c FROM driving_sessions_local WHERE user_id = ? AND ended_at IS NOT NULL AND ended_synced = 0",
