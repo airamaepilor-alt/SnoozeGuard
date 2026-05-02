@@ -81,7 +81,7 @@ export function iotRoutes(env: Env, supabase: Supabase): FastifyPluginAsync {
         return reply.code(400).send({ error: "invalid_body" });
       }
 
-      const published = signalIotBuzz(parsed.data.device_id, parsed.data.alert_id, parsed.data.level);
+      const published = await signalIotBuzz(supabase, parsed.data.device_id, parsed.data.alert_id, parsed.data.level);
       return { ok: true, mqtt_published: published };
     });
 

@@ -14,7 +14,7 @@
  * Dismiss: dome button → HTTP POST /v1/iot/dismiss + BLE notify → all clients dismiss
  *
  * BLE service:
- *   Device name:    SG-{IOT_DEVICE_ID}
+ *   Device name:    SG-{gDeviceId}
  *   Service UUID:   4fafc201-1fb5-459e-8fcc-c5c9c331914b
  *   Command char:   beb5483e-36e1-4688-b7f5-ea07361b26a8  WRITE
  *     buzz:      {"cmd":"buzz","level":9,"alert_id":"<uuid>"}
@@ -44,6 +44,8 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <DFRobotDFPlayerMini.h>
+#include <Preferences.h>
+#include <WebServer.h>
 #include <time.h>
 #include <cstring> // Ensure strlen is available
 
@@ -51,9 +53,9 @@
 #include "root_ca.h"
 
 // ── Pin / config defaults (override in secrets.h) ─────────────────────────────
-#ifndef IOT_DEVICE_ID
-#define IOT_DEVICE_ID      "sg-alert-001"
-#endif
+// Device ID is generated at runtime — see initDeviceId() below.
+static char gDeviceId[32];
+
 #ifndef TELEMETRY_INTERVAL_MS
 #define TELEMETRY_INTERVAL_MS 5000
 #endif
@@ -327,7 +329,7 @@ static SgCmdCb    cmdCb;
 
 static void initBle() {
   char name[48];
-  snprintf(name, sizeof(name), "SG-%s", IOT_DEVICE_ID);
+  snprintf(name, sizeof(name), "SG-%s", gDeviceId);
   BLEDevice::init(name);
 
   BLEServer  *pSrv  = BLEDevice::createServer();
@@ -427,12 +429,12 @@ static void postPing() {
   }
 
   JsonDocument doc;
-  doc["device_id"] = IOT_DEVICE_ID;
+  doc["device_id"] = gDeviceId;
   doc["timestamp"] = millis();
   String body; serializeJson(doc, body);
 
   char topic[192];
-  snprintf(topic, sizeof(topic), "snoozeguard/ping/%s", IOT_DEVICE_ID);
+  snprintf(topic, sizeof(topic), "snoozeguard/ping/%s", gDeviceId);
   if (strlen(topic) >= sizeof(topic) - 1) {
     Serial.println("ERROR: Ping topic buffer overflow");
     return;
@@ -458,13 +460,13 @@ static void postDismiss(const char *alertId) {
   }
 
   JsonDocument doc;
-  doc["device_id"] = IOT_DEVICE_ID;
+  doc["device_id"] = gDeviceId;
   doc["alert_id"]  = alertId;
   doc["timestamp"] = millis();
   String body; serializeJson(doc, body);
 
   char topic[192];
-  snprintf(topic, sizeof(topic), "snoozeguard/dismiss/%s", IOT_DEVICE_ID);
+  snprintf(topic, sizeof(topic), "snoozeguard/dismiss/%s", gDeviceId);
   if (strlen(topic) >= sizeof(topic) - 1) {
     Serial.println("ERROR: Dismiss topic buffer overflow");
     return;
@@ -536,26 +538,26 @@ static void reconnectMqtt() {
   Serial.print("[MQTT] Connecting...");
   bool ok;
 #if defined(MQTT_USERNAME)
-  ok = mqtt.connect(IOT_DEVICE_ID, MQTT_USERNAME, MQTT_PASSWORD);
+  ok = mqtt.connect(gDeviceId, MQTT_USERNAME, MQTT_PASSWORD);
 #else
-  ok = mqtt.connect(IOT_DEVICE_ID);
+  ok = mqtt.connect(gDeviceId);
 #endif
   if (ok) {
     // Subscribe to command topic (receive buzz/all_clear from backend)
     char cmdTopic[128];
-    snprintf(cmdTopic, sizeof(cmdTopic), "snoozeguard/commands/%s", IOT_DEVICE_ID);
+    snprintf(cmdTopic, sizeof(cmdTopic), "snoozeguard/commands/%s", gDeviceId);
     mqtt.subscribe(cmdTopic);
     Serial.printf(" [MQTT] Subscribed to %s\n", cmdTopic);
     
     // Subscribe to ping response topic
     char pingTopic[128];
-    snprintf(pingTopic, sizeof(pingTopic), "snoozeguard/ping/response/%s", IOT_DEVICE_ID);
+    snprintf(pingTopic, sizeof(pingTopic), "snoozeguard/ping/response/%s", gDeviceId);
     mqtt.subscribe(pingTopic);
     Serial.printf(" [MQTT] Subscribed to %s\n", pingTopic);
     
     // Subscribe to dismiss response topic
     char dismissTopic[128];
-    snprintf(dismissTopic, sizeof(dismissTopic), "snoozeguard/dismiss/response/%s", IOT_DEVICE_ID);
+    snprintf(dismissTopic, sizeof(dismissTopic), "snoozeguard/dismiss/response/%s", gDeviceId);
     mqtt.subscribe(dismissTopic);
     Serial.printf(" [MQTT] Subscribed to %s\n", dismissTopic);
   } else {
@@ -563,11 +565,204 @@ static void reconnectMqtt() {
   }
 }
 
+// ── Device ID — auto-generated from MAC, overridable via captive portal ───────
+
+static void initDeviceId() {
+  Preferences prefs;
+  prefs.begin("wifi", /*readOnly=*/true);
+  String saved = prefs.getString("device_id", "");
+  prefs.end();
+
+  if (saved.length() > 0) {
+    saved.toCharArray(gDeviceId, sizeof(gDeviceId));
+  } else {
+    // Generate "sg-XXXXXX" from the lower 3 bytes of the ESP32 eFuse MAC.
+    // Each chip has a globally unique MAC assigned by Espressif, so this
+    // produces a distinct ID per board without any manual configuration.
+    uint32_t mac24 = (uint32_t)(ESP.getEfuseMac() & 0xFFFFFF);
+    snprintf(gDeviceId, sizeof(gDeviceId), "sg-%06x", mac24);
+  }
+  Serial.printf("[ID] Device ID: %s\n", gDeviceId);
+}
+
+// ── WiFi provisioning (AP / captive-portal mode) ──────────────────────────────
+
+static const char PROV_STYLE[] =
+  "<!DOCTYPE html><html><head>"
+  "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+  "<title>SnoozeGuard WiFi Setup</title>"
+  "<style>"
+  "body{font-family:sans-serif;max-width:420px;margin:48px auto;padding:0 20px;"
+        "background:#0f172a;color:#e2e8f0}"
+  "h1{font-size:1.4rem;margin-bottom:4px}"
+  "p{color:#94a3b8;font-size:.88rem;margin-bottom:20px}"
+  "label{display:block;font-size:.85rem;font-weight:600;margin-bottom:4px}"
+  "input{width:100%;box-sizing:border-box;padding:10px 12px;background:#1e293b;"
+         "border:1px solid #334155;border-radius:8px;color:#e2e8f0;"
+         "font-size:.95rem;margin-bottom:16px;font-family:monospace}"
+  "button{width:100%;padding:12px;background:#00a8e8;border:none;border-radius:8px;"
+          "color:#fff;font-size:1rem;font-weight:700;cursor:pointer}"
+  ".hint{font-size:.75rem;color:#64748b;margin-top:-12px;margin-bottom:16px}"
+  "</style></head><body>"
+  "<h1>SnoozeGuard WiFi Setup</h1>"
+  "<p>Connect this device to your WiFi network and optionally give it a custom ID.</p>"
+  "<form method='POST' action='/save'>"
+  "<label>Account Email</label>"
+  "<input name='email' type='email' placeholder='your@email.com' required>"
+  "<p class='hint'>The email you use to log in to the SnoozeGuard app.</p>"
+  "<label>WiFi Network (SSID)</label>"
+  "<input name='ssid' type='text' placeholder='Your network name' required>"
+  "<label>Password</label>"
+  "<input name='pass' type='password' placeholder='Your network password'>"
+  "<label>Device ID</label>"
+  "<input name='device_id' type='text' value='";
+
+// Appended after gDeviceId is inserted as input value
+static const char PROV_STYLE_POST[] =
+  "' maxlength='31' required>"
+  "<p class='hint'>Auto-generated from chip MAC. Change to a friendly name if you like.</p>"
+  "<button type='submit'>Save &amp; Restart</button>"
+  "</form></body></html>";
+
+static const char PROV_SAVED_HTML[] =
+  "<!DOCTYPE html><html><head>"
+  "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+  "<title>Saved</title>"
+  "<style>body{font-family:sans-serif;max-width:420px;margin:48px auto;padding:0 20px;"
+  "background:#0f172a;color:#e2e8f0;text-align:center}"
+  "h1{color:#10b981}</style></head><body>"
+  "<h1>&#10003; Credentials Saved</h1>"
+  "<p>The device is restarting and will connect to your WiFi.<br>"
+  "You can reconnect your phone to your normal network.</p>"
+  "</body></html>";
+
+// Loads saved WiFi credentials from NVS into out buffers.
+// Returns true if saved credentials exist, false if falling back to secrets.h.
+static bool loadWifiCredentials(char *ssidBuf, size_t ssidLen,
+                                 char *passBuf, size_t passLen) {
+  Preferences prefs;
+  prefs.begin("wifi", /*readOnly=*/true);
+  String s = prefs.getString("ssid", "");
+  String p = prefs.getString("pass", "");
+  prefs.end();
+
+  if (s.length() == 0) {
+    strncpy(ssidBuf, WIFI_SSID, ssidLen - 1); ssidBuf[ssidLen - 1] = '\0';
+    strncpy(passBuf, WIFI_PASS, passLen - 1); passBuf[passLen - 1] = '\0';
+    return false;
+  }
+  s.toCharArray(ssidBuf, ssidLen);
+  p.toCharArray(passBuf, passLen);
+  return true;
+}
+
+// initDeviceId() is defined above — loads from NVS or auto-generates from MAC.
+
+// Enters AP mode and serves the WiFi config page.
+// Blocks indefinitely — device restarts after credentials are saved.
+static void runProvisioningMode() {
+  stopAllOutputs();
+
+  char apName[48];
+  snprintf(apName, sizeof(apName), "SG-%s", gDeviceId);
+
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(apName);
+  Serial.printf("[PROV] AP started: %s  IP: %s\n",
+                apName, WiFi.softAPIP().toString().c_str());
+
+  // Blink the BLE LED to indicate provisioning mode
+  bool ledState = false;
+  uint32_t ledTimer = millis();
+
+  WebServer server(80);
+
+  server.on("/", HTTP_GET, [&]() {
+    String page = String(PROV_STYLE) + gDeviceId + PROV_STYLE_POST;
+    server.send(200, "text/html", page);
+  });
+
+  server.on("/save", HTTP_POST, [&]() {
+    String email    = server.arg("email");
+    String ssid     = server.arg("ssid");
+    String pass     = server.arg("pass");
+    String deviceId = server.arg("device_id");
+    if (email.length() == 0 || ssid.length() == 0) {
+      server.send(400, "text/plain", "Email and SSID are required");
+      return;
+    }
+    if (deviceId.length() == 0) deviceId = String(gDeviceId);
+
+    Preferences prefs;
+    prefs.begin("wifi", /*readOnly=*/false);
+    prefs.putString("email",     email);
+    prefs.putString("ssid",      ssid);
+    prefs.putString("pass",      pass);
+    prefs.putString("device_id", deviceId);
+    prefs.end();
+
+    Serial.printf("[PROV] Saved SSID: %s  Device ID: %s — restarting\n",
+                  ssid.c_str(), deviceId.c_str());
+    server.send(200, "text/html", PROV_SAVED_HTML);
+    delay(2000);
+    ESP.restart();
+  });
+
+  // Redirect any other path to the config page (captive portal behaviour)
+  server.onNotFound([&]() {
+    server.sendHeader("Location", "/", /*first=*/true);
+    server.send(302, "text/plain", "");
+  });
+
+  server.begin();
+
+  while (true) {
+    server.handleClient();
+    // Blink BLE LED at 500 ms to signal provisioning mode
+    if (millis() - ledTimer >= 500) {
+      ledTimer = millis();
+      ledState = !ledState;
+      digitalWrite(IOT_BLE_LED_PIN, ledState ? HIGH : LOW);
+    }
+    delay(5);
+  }
+}
+
+// Publishes a link request so the backend can create a pending pairing entry
+// for the user whose email was entered during WiFi setup.
+static void postLinkRequest() {
+  Preferences prefs;
+  prefs.begin("wifi", /*readOnly=*/true);
+  String email = prefs.getString("email", "");
+  prefs.end();
+
+  if (email.length() == 0) {
+    Serial.println("[LINK] No email saved — skipping link request");
+    return;
+  }
+
+  JsonDocument doc;
+  doc["device_id"] = gDeviceId;
+  doc["email"]     = email;
+  String body;
+  serializeJson(doc, body);
+
+  char topic[192];
+  snprintf(topic, sizeof(topic), "snoozeguard/link-request/%s", gDeviceId);
+  bool published = mqtt.publish(topic, body.c_str(), /*retained=*/true);
+  Serial.printf("[LINK] Request: email=%s | Published: %s\n",
+                email.c_str(), published ? "YES" : "NO");
+}
+
 // ── Arduino lifecycle ─────────────────────────────────────────────────────────
 
 void setup() {
   Serial.begin(115200);
   delay(500);
+
+  // Resolve device ID first — everything else (BLE name, MQTT client ID,
+  // MQTT topics) depends on it.
+  initDeviceId();
 
   // GPIO
   pinMode(IOT_BUZZER_PIN,    OUTPUT);
@@ -591,9 +786,35 @@ void setup() {
     Serial.printf("DFPlayer ready (volume=%d)\n", DFPLAYER_VOLUME);
   }
 
-  // WiFi
+  // WiFi — hold button at boot for 3 s to clear saved credentials and re-provision
+  {
+    uint32_t holdStart = millis();
+    bool held = false;
+    Serial.print("Hold button now to reset WiFi");
+    while (millis() - holdStart < 3000) {
+      if (digitalRead(IOT_BUTTON_PIN) == LOW) { held = true; }
+      delay(100); Serial.print(".");
+    }
+    Serial.println();
+    if (held) {
+      Serial.println("[PROV] Button held — clearing saved WiFi credentials");
+      Preferences prefs;
+      prefs.begin("wifi", false);
+      prefs.clear();
+      prefs.end();
+      runProvisioningMode(); // never returns
+    }
+  }
+
+  // Load WiFi credentials (NVS → fallback to secrets.h)
+  char wifiSsid[64], wifiPass[64];
+  bool fromNvs = loadWifiCredentials(wifiSsid, sizeof(wifiSsid),
+                                      wifiPass, sizeof(wifiPass));
+  Serial.printf("WiFi source: %s  SSID: %s\n",
+                fromNvs ? "NVS" : "secrets.h", wifiSsid);
+
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  WiFi.begin(wifiSsid, wifiPass);
   Serial.print("Connecting WiFi");
   uint32_t t0 = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - t0 < WIFI_CONNECT_TIMEOUT_MS) {
@@ -613,11 +834,13 @@ void setup() {
     reconnectMqtt();
     if (mqtt.connected()) {
       Serial.println("MQTT connected!");
+      postLinkRequest(); // notify backend of pairing intent on every boot
     } else {
       Serial.println("MQTT connection failed.");
     }
   } else {
-    Serial.println("WiFi unavailable — BLE-only mode");
+    Serial.println("WiFi failed — entering provisioning mode");
+    runProvisioningMode(); // never returns
   }
 
   // BLE always starts (fallback path)
