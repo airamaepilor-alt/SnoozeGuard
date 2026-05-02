@@ -14,6 +14,7 @@ export function IotDevicePanel({
   const [savedDeviceId, setSavedDeviceId] = useState<string | null>(null);
   const [lastSeen, setLastSeen] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const isConnected = lastSeen !== null && Date.now() - new Date(lastSeen).getTime() < 15_000;
@@ -59,12 +60,16 @@ export function IotDevicePanel({
   const linkDevice = async () => {
     if (!userId || !deviceId.trim()) return;
     setSaving(true);
-    await supabase.from("user_iot_devices").upsert(
-      { user_id: userId, device_id: deviceId.trim() },
-      { onConflict: "user_id" },
-    );
-    setSavedDeviceId(deviceId.trim());
-    onDeviceBound(deviceId.trim());
+    setLinkError(null);
+    const { error } = await supabase.rpc("pair_iot_device", {
+      p_device_id: deviceId.trim().toLowerCase(),
+    });
+    if (!error) {
+      setSavedDeviceId(deviceId.trim().toLowerCase());
+      onDeviceBound(deviceId.trim().toLowerCase());
+    } else {
+      setLinkError(error.message);
+    }
     setSaving(false);
   };
 
@@ -117,22 +122,27 @@ export function IotDevicePanel({
           )}
         </div>
       ) : (
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={deviceId}
-            onChange={(e) => setDeviceId(e.target.value)}
-            placeholder="Device ID (e.g. esp32cam-001)"
-            className="flex-1 bg-surface-container-high text-on-surface text-xs rounded-lg px-3 py-2 border border-outline-variant/20 outline-none focus:border-primary/40"
-          />
-          <button
-            onClick={() => void linkDevice()}
-            disabled={saving || !deviceId.trim()}
-            className="px-3 py-2 bg-primary/10 text-primary text-xs font-bold rounded-lg border border-primary/20 hover:bg-primary/20 transition-all disabled:opacity-40"
-          >
-            {saving ? "…" : "Link"}
-          </button>
-        </div>
+        <>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={deviceId}
+              onChange={(e) => setDeviceId(e.target.value)}
+              placeholder="Device ID (e.g. esp32cam-001)"
+              className="flex-1 bg-surface-container-high text-on-surface text-xs rounded-lg px-3 py-2 border border-outline-variant/20 outline-none focus:border-primary/40"
+            />
+            <button
+              onClick={() => void linkDevice()}
+              disabled={saving || !deviceId.trim()}
+              className="px-3 py-2 bg-primary/10 text-primary text-xs font-bold rounded-lg border border-primary/20 hover:bg-primary/20 transition-all disabled:opacity-40"
+            >
+              {saving ? "…" : "Link"}
+            </button>
+          </div>
+          {linkError && (
+            <p className="text-[10px] text-error mt-1">{linkError}</p>
+          )}
+        </>
       )}
     </div>
   );

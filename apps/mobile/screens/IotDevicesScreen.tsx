@@ -114,14 +114,9 @@ export function IotDevicesScreen() {
         return;
       }
 
-      const { error: err } = await supabase.from("user_iot_devices").upsert(
-        {
-          user_id: user.id,
-          device_id: trimmedId,
-          last_seen: new Date().toISOString(),
-        },
-        { onConflict: "user_id" }
-      );
+      const { error: err } = await supabase.rpc("pair_iot_device", {
+        p_device_id: trimmedId,
+      });
 
       if (err) throw err;
 

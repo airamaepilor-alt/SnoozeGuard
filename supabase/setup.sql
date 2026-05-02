@@ -284,6 +284,50 @@ create policy "iot_alerts_own" on public.iot_alerts
   with check (auth.uid() = user_id);
 
 
+-- One physical device per account (idempotent)
+alter table public.user_iot_devices
+  drop constraint if exists user_iot_devices_device_id_unique;
+alter table public.user_iot_devices
+  add constraint user_iot_devices_device_id_unique unique (device_id);
+
+-- Raw device ping log (backend writes on every MQTT ping, paired or not)
+create table if not exists public.iot_device_heartbeats (
+  device_id  text primary key,
+  last_seen  timestamptz not null default now()
+);
+alter table public.iot_device_heartbeats enable row level security;
+drop policy if exists "heartbeats_read" on public.iot_device_heartbeats;
+create policy "heartbeats_read" on public.iot_device_heartbeats
+  for select using (auth.role() = 'authenticated');
+
+-- SECURITY DEFINER RPC: online check + cross-user conflict check + atomic upsert
+create or replace function public.pair_iot_device(p_device_id text)
+returns void language plpgsql security definer set search_path = public
+as $$
+begin
+  if not exists (
+    select 1 from public.iot_device_heartbeats
+    where device_id = lower(trim(p_device_id))
+      and last_seen > now() - interval '60 seconds'
+  ) then
+    raise exception 'Device not found or offline. Make sure your device is powered on and connected to WiFi.';
+  end if;
+  if exists (
+    select 1 from public.user_iot_devices
+    where device_id = lower(trim(p_device_id)) and user_id <> auth.uid()
+  ) then
+    raise exception 'Device is already registered to another account';
+  end if;
+  insert into public.user_iot_devices (user_id, device_id, last_seen, created_at)
+  values (auth.uid(), lower(trim(p_device_id)), now(), now())
+  on conflict (user_id) do update set device_id = lower(trim(p_device_id)), last_seen = now();
+end;
+$$;
+
+revoke all on function public.pair_iot_device(text) from public;
+grant execute on function public.pair_iot_device(text) to authenticated;
+
+
 -- ────────────────────────────────────────────────────────────
 -- Done.
 -- ────────────────────────────────────────────────────────────

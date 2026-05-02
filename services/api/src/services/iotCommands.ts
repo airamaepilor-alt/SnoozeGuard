@@ -6,13 +6,18 @@ type Supabase = ReturnType<typeof createServiceClient>;
 export async function updateDeviceHeartbeat(supabase: Supabase, deviceId: string): Promise<void> {
   const timestamp = new Date().toISOString();
   console.log(`[HEARTBEAT UPDATE] Device: ${deviceId} | Timestamp: ${timestamp}`);
-  
+
+  // Record raw ping so pair_iot_device can verify the device exists before pairing
+  await supabase
+    .from("iot_device_heartbeats")
+    .upsert({ device_id: deviceId, last_seen: timestamp }, { onConflict: "device_id" });
+
   const { error, data } = await supabase
     .from("user_iot_devices")
     .update({ last_seen: timestamp })
     .eq("device_id", deviceId)
     .select();
-  
+
   if (error) {
     console.error(`[HEARTBEAT UPDATE FAILED] Device: ${deviceId} | Error:`, error.message);
   } else {
