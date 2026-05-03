@@ -78,6 +78,9 @@ export function IotDevicesPage() {
       setMessage(null);
       const { error: err } = await supabase.rpc("accept_device_link", { p_device_id: deviceId });
       if (err) throw err;
+      setDevices((prev) =>
+        prev.map((d) => d.device_id === deviceId ? { ...d, status: "accepted" as const } : d)
+      );
       setMessage({ text: `Device "${deviceId}" linked successfully!`, ok: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to accept link request");
@@ -96,6 +99,7 @@ export function IotDevicesPage() {
         .eq("user_id", user.id)
         .eq("device_id", deviceId);
       if (err) throw err;
+      setDevices((prev) => prev.filter((d) => d.device_id !== deviceId));
       setMessage({ text: `Link request from "${deviceId}" rejected.`, ok: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to reject link request");
@@ -112,6 +116,7 @@ export function IotDevicesPage() {
         .eq("user_id", user.id)
         .eq("device_id", deviceId);
       if (err) throw err;
+      setDevices((prev) => prev.filter((d) => d.device_id !== deviceId));
       setMessage({ text: `Device "${deviceId}" removed.`, ok: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to remove device");

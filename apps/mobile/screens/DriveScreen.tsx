@@ -311,6 +311,24 @@ export function DriveScreen() {
     setSpecialAlertOpen(true);
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     Vibration.vibrate([0, 500, 200, 500]);
+    if (iotDeviceIdRef.current && IOT_API_URL) {
+      void supabase
+        .from("iot_alerts")
+        .insert({ device_id: iotDeviceIdRef.current, user_id: user.id, drowsiness_level: 7 })
+        .select("id")
+        .single()
+        .then(({ data: iotRow }) => {
+          if (!iotRow?.id) return;
+          void supabase.auth.getSession().then(({ data: { session } }) => {
+            if (!session) return;
+            void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+              body: JSON.stringify({ device_id: iotDeviceIdRef.current, alert_id: iotRow.id, level: 7, event: "head_tilted" }),
+            });
+          });
+        });
+    }
   }));
 
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -800,6 +818,25 @@ export function DriveScreen() {
             setSpecialAlertOpen(true);
             void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             Vibration.vibrate([0, 400, 100, 400]);
+            if (iotDeviceIdRef.current && IOT_API_URL) {
+              void supabase
+                .from("iot_alerts")
+                .insert({ device_id: iotDeviceIdRef.current, user_id: user.id, drowsiness_level: 9 })
+                .select("id")
+                .single()
+                .then(({ data: iotRow }) => {
+                  if (!iotRow?.id) return;
+                  void bleSend({ cmd: "buzz", level: 9, alert_id: iotRow.id, event: "sudden_brake" });
+                  void supabase.auth.getSession().then(({ data: { session } }) => {
+                    if (!session) return;
+                    void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+                      body: JSON.stringify({ device_id: iotDeviceIdRef.current, alert_id: iotRow.id, level: 9, event: "sudden_brake" }),
+                    });
+                  });
+                });
+            }
           }
         }
       }

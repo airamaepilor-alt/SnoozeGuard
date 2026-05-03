@@ -185,6 +185,24 @@ export function DrivePage() {
     setSpecialAlertMessage("Your head has been tilted for a prolonged period. Stay focused on the road.");
     setSpecialAlertOpen(true);
     if (navigator.vibrate) navigator.vibrate([0, 500, 200, 500]);
+    if (user && iotDeviceIdRef.current && IOT_API_URL) {
+      void supabase
+        .from("iot_alerts")
+        .insert({ device_id: iotDeviceIdRef.current, user_id: user.id, drowsiness_level: 7 })
+        .select("id")
+        .single()
+        .then(({ data }) => {
+          if (!data?.id) return;
+          void supabase.auth.getSession().then(({ data: { session } }) => {
+            if (!session) return;
+            void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+              body: JSON.stringify({ device_id: iotDeviceIdRef.current, alert_id: data.id, level: 7, event: "head_tilted" }),
+            });
+          });
+        });
+    }
   }));
 
   // ── Drowsiness score accumulators (per session) ─────────────────────────
@@ -484,6 +502,24 @@ export function DrivePage() {
           u.lang = "en-US";
           window.speechSynthesis?.speak(u);
           if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
+          if (user && iotDeviceIdRef.current && IOT_API_URL) {
+            void supabase
+              .from("iot_alerts")
+              .insert({ device_id: iotDeviceIdRef.current, user_id: user.id, drowsiness_level: 9 })
+              .select("id")
+              .single()
+              .then(({ data }) => {
+                if (!data?.id) return;
+                void supabase.auth.getSession().then(({ data: { session } }) => {
+                  if (!session) return;
+                  void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+                    body: JSON.stringify({ device_id: iotDeviceIdRef.current, alert_id: data.id, level: 9, event: "sudden_brake" }),
+                  });
+                });
+              });
+          }
         }
       }
       lastMag = mag;

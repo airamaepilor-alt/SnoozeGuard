@@ -10,9 +10,6 @@
  *   8  → voice (track 3) + 3 × long vibration pulses
  *   9  → voice (track 4) + continuous vibration + LED on + buzzer on
  *   10 → voice (track 5) + continuous vibration + LED flashing + buzzer on
- * Event alerts (via MQTT/BLE event field — mapped to internal levels 11/12):
- *   sudden_brake → 5 rapid beeps + LED flashing  (voice: track 4 / level-9 equivalent)
- *   head_tilted  → 2 slow steady pulses + LED pulse (voice: track 2 / level-7 equivalent)
  *
  * Dismiss: dome button → HTTP POST /v1/iot/dismiss + BLE notify → all clients dismiss
  *
@@ -126,24 +123,20 @@ static const VibPattern kVib[] = {
 //   Level 10 — frantic continuous          BEEPBEEPBEEPBEEP
 struct BuzzStep { uint16_t onMs; uint16_t offMs; };
 
-static const BuzzStep kBuzz6[]          = {{100, 100}, {100, 900}};
-static const BuzzStep kBuzz7[]          = {{220, 150}, {220, 150}, {220, 650}};
-static const BuzzStep kBuzz8[]          = {{320, 120}, {320, 120}, {320, 120}, {320, 280}};
-static const BuzzStep kBuzz9[]          = {{120,  80}, {120,  80}, {120, 450}};
-static const BuzzStep kBuzz10[]         = {{ 70,  55}};
-static const BuzzStep kBuzzSuddenBrake[]= {{ 70,  50}, { 70,  50}, { 70,  50}, { 70,  50}, { 70, 600}}; // 11
-static const BuzzStep kBuzzHeadTilted[] = {{700, 300}, {700, 800}};                                       // 12
+static const BuzzStep kBuzz6[]  = {{100, 100}, {100, 900}};
+static const BuzzStep kBuzz7[]  = {{220, 150}, {220, 150}, {220, 650}};
+static const BuzzStep kBuzz8[]  = {{320, 120}, {320, 120}, {320, 120}, {320, 280}};
+static const BuzzStep kBuzz9[]  = {{120,  80}, {120,  80}, {120, 450}};
+static const BuzzStep kBuzz10[] = {{ 70,  55}};
 
 struct BuzzPattern { const BuzzStep *steps; uint8_t count; };
-static const BuzzPattern kBuzzPat[13] = {
+static const BuzzPattern kBuzzPat[11] = {
   {nullptr, 0}, {nullptr, 0}, {nullptr, 0}, {nullptr, 0}, {nullptr, 0}, {nullptr, 0},
-  {kBuzz6,          2}, // 6
-  {kBuzz7,          3}, // 7
-  {kBuzz8,          4}, // 8
-  {kBuzz9,          3}, // 9
-  {kBuzz10,         1}, // 10
-  {kBuzzSuddenBrake,5}, // 11 — sudden_brake
-  {kBuzzHeadTilted, 2}, // 12 — head_tilted
+  {kBuzz6,  2}, // 6
+  {kBuzz7,  3}, // 7
+  {kBuzz8,  4}, // 8
+  {kBuzz9,  3}, // 9
+  {kBuzz10, 1}, // 10
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -200,8 +193,9 @@ static void clearAlert() {
 }
 
 static void triggerAlert(int level, const char *alertId) {
-  if (level < 6 || level > 12) return;
+  if (level < 6) return;
 
+  // Stop any ongoing alert before starting new one
   stopAllOutputs();
 
   alertActive  = true;
@@ -209,43 +203,26 @@ static void triggerAlert(int level, const char *alertId) {
   strncpy(currentAlertId, alertId, sizeof(currentAlertId) - 1);
   currentAlertId[sizeof(currentAlertId) - 1] = '\0';
 
-  // Voice track selection
-  if (level == 11) {                         // sudden_brake → track 4 (level-9 voice)
-    if (dfPlayer) dfPlayer->play(4);
-  } else if (level == 12) {                  // head_tilted  → track 2 (level-7 voice)
-    if (dfPlayer) dfPlayer->play(2);
-  } else {                                   // drowsiness 6-10: track = level - 5
-    if (dfPlayer) dfPlayer->play(level - 5);
-  }
-  if (!dfPlayer) Serial.println("WARNING: DFPlayer not initialized");
+  // Voice: track index = level - 5  (level 6 → track 1, level 10 → track 5)
+  if (dfPlayer) dfPlayer->play(level - 5);
+  else Serial.println("WARNING: DFPlayer not initialized");
 
-  // Start buzzer pattern state machine
+  // Start buzzer pattern state machine for all levels
   buzzStep  = 0;
   buzzOn    = true;
   buzzTimer = millis();
-  digitalWrite(IOT_BUZZER_PIN, HIGH);
+  digitalWrite(IOT_BUZZER_PIN, HIGH); // first ON phase begins immediately
 
-  // LED behaviour
-  if (level == 11) {                         // sudden_brake: flash like level 10
-    digitalWrite(IOT_LED_PIN,  HIGH);
-    digitalWrite(IOT_LED2_PIN, HIGH);
-    ledFlash      = true;
-    ledFlashTimer = millis();
-  } else if (level == 12) {                  // head_tilted: slow pulse (borrow level-7 vib)
-    const VibPattern &p = kVib[7];
-    vibLeft  = p.pulses;
-    vibOn    = true;
-    vibTimer = millis();
-    digitalWrite(IOT_LED_PIN,  HIGH);
-    digitalWrite(IOT_LED2_PIN, HIGH);
-  } else if (level >= 9) {                   // drowsiness 9-10: LEDs on; 10 also flashes
+  if (level >= 9) {
+    // LEDs on continuously; level 10 also flashes
     digitalWrite(IOT_LED_PIN,  HIGH);
     digitalWrite(IOT_LED2_PIN, HIGH);
     if (level == 10) {
       ledFlash      = true;
       ledFlashTimer = millis();
     }
-  } else {                                   // drowsiness 6-8: LED pulse pattern
+  } else {
+    // LED pulse pattern for levels 6–8
     const VibPattern &p = kVib[level];
     vibLeft  = p.pulses;
     vibOn    = true;
@@ -260,8 +237,7 @@ static void triggerAlert(int level, const char *alertId) {
 // ── Non-blocking loop effects ─────────────────────────────────────────────────
 
 static void handleVibPulse(uint32_t now) {
-  // Only levels 6-8 and head_tilted (12) use vib pulse; 9-11 use continuous LED
-  if ((currentLevel >= 9 && currentLevel != 12) || vibLeft == 0) return;
+  if (currentLevel >= 9 || vibLeft == 0) return;
   const VibPattern &p = kVib[currentLevel];
   if (vibOn) {
     if (now - vibTimer >= p.onMs) {
@@ -282,8 +258,7 @@ static void handleVibPulse(uint32_t now) {
 }
 
 static void handleLedFlash(uint32_t now) {
-  // Level 10 (critical) and level 11 (sudden_brake) both flash
-  if ((currentLevel != 10 && currentLevel != 11) || !alertActive) return;
+  if (currentLevel != 10 || !alertActive) return;
   if (now - ledFlashTimer >= 400) {
     ledFlashTimer = now;
     ledFlash      = !ledFlash;
@@ -292,7 +267,7 @@ static void handleLedFlash(uint32_t now) {
 }
 
 static void handleBuzzerPattern(uint32_t now) {
-  if (!alertActive || currentLevel < 6 || currentLevel > 12) return;
+  if (!alertActive || currentLevel < 6 || currentLevel > 10) return;
   const BuzzPattern &pat = kBuzzPat[currentLevel];
   if (!pat.steps) return;
   const BuzzStep &s = pat.steps[buzzStep];
@@ -340,12 +315,8 @@ class SgCmdCb : public BLECharacteristicCallbacks {
     const char *cmd     = doc["cmd"]      | "";
     const char *alertId = doc["alert_id"] | "";
     int         level   = doc["level"]    | 0;
-    const char *event   = doc["event"]    | "";
-    int effectiveLevel  = level;
-    if      (strcmp(event, "sudden_brake") == 0) effectiveLevel = 11;
-    else if (strcmp(event, "head_tilted")  == 0) effectiveLevel = 12;
     if (strcmp(cmd, "buzz") == 0) {
-      triggerAlert(effectiveLevel, alertId);
+      triggerAlert(level, alertId);
     } else if (strcmp(cmd, "all_clear") == 0) {
       clearAlert();
     }
@@ -525,21 +496,15 @@ static void onMqttMessage(char *topic, byte *payload, unsigned int len) {
     return;
   }
   
-  const char *cmd     = doc["command"]  | "";
+  const char *cmd     = doc["command"] | "";
   const char *alertId = doc["alert_id"] | "";
-  int         level   = doc["level"]    | 0;
-  const char *event   = doc["event"]    | "";
+  int         level   = doc["level"]   | 0;
   const char *type    = doc["type"]     | "";
-
-  // Map event string to internal level (11 = sudden_brake, 12 = head_tilted)
-  int effectiveLevel = level;
-  if      (strcmp(event, "sudden_brake") == 0) effectiveLevel = 11;
-  else if (strcmp(event, "head_tilted")  == 0) effectiveLevel = 12;
-
+  
   // Handle command messages (buzz/all_clear)
   if (strcmp(cmd, "buzz") == 0) {
-    triggerAlert(effectiveLevel, alertId);
-    Serial.printf("MQTT BUZZ level=%d event=%s\n", effectiveLevel, event);
+    triggerAlert(level, alertId);
+    Serial.printf("MQTT BUZZ level=%d\n", level);
   } else if (strcmp(cmd, "all_clear") == 0) {
     clearAlert();
     Serial.println("MQTT ALL_CLEAR");

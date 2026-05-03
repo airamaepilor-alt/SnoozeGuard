@@ -10,7 +10,7 @@ import { flushOutbox } from "../lib/offline/sync";
 
 type NotifItem = {
   id: string;
-  type: "alert" | "request";
+  type: "alert" | "request" | "iot";
   name: string;
   created_at: string;
 };
@@ -100,6 +100,7 @@ function SidebarContent({
   roleLabel,
   onNavigate,
   onSignOut,
+  pendingIotCount,
 }: {
   isAdmin: boolean;
   displayName: string;
@@ -107,6 +108,7 @@ function SidebarContent({
   roleLabel: string;
   onNavigate: () => void;
   onSignOut: () => void;
+  pendingIotCount: number;
 }) {
   return (
     <>
@@ -123,7 +125,7 @@ function SidebarContent({
         <SideNavItem to="/history" icon="history" label="Fatigue Logs" onNavigate={onNavigate} />
         <SideNavItem to="/account" icon="manage_accounts" label="Account" onNavigate={onNavigate} />
         <SideNavItem to="/guardians" icon="shield" label="Emergency Contact" onNavigate={onNavigate} />
-        <SideNavItem to="/iot-devices" icon="devices_other" label="IoT Devices" onNavigate={onNavigate} />
+        <SideNavItem to="/iot-devices" icon="devices_other" label="IoT Devices" onNavigate={onNavigate} badge={pendingIotCount > 0} />
         <SideNavItem to="/about" icon="info" label="About" onNavigate={onNavigate} />
         <SideNavItem to="/terms" icon="policy" label="Terms & Privacy" onNavigate={onNavigate} />
         <SideNavItem to="/safety-protocol" icon="security" label="Safety Protocol" onNavigate={onNavigate} />
@@ -181,6 +183,7 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [_activeAlertCount, setActiveAlertCount] = useState(0);
   const [_pendingEcCount, setPendingEcCount] = useState(0);
+  const [pendingIotCount, setPendingIotCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifItems, setNotifItems] = useState<NotifItem[]>([]);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -293,7 +296,22 @@ export function AppShell() {
           }),
         );
 
-        setNotifItems([...alertNotifs, ...requestNotifs]);
+        // Pending IoT link requests
+        const { data: pendingIot } = await supabase
+          .from("user_iot_devices")
+          .select("device_id, created_at, requested_email")
+          .eq("user_id", user.id)
+          .eq("status", "pending");
+
+        const iotNotifs: NotifItem[] = (pendingIot ?? []).map((d) => ({
+          id: d.device_id as string,
+          type: "iot" as const,
+          name: d.device_id as string,
+          created_at: d.created_at as string,
+        }));
+        setPendingIotCount(iotNotifs.length);
+
+        setNotifItems([...alertNotifs, ...requestNotifs, ...iotNotifs]);
       } catch {
         // Silent fail
       }
@@ -308,6 +326,9 @@ export function AppShell() {
         void loadActiveAlerts(),
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "emergency_contacts" }, () =>
+        void loadActiveAlerts(),
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "user_iot_devices" }, () =>
         void loadActiveAlerts(),
       )
       .subscribe();
@@ -370,9 +391,9 @@ export function AppShell() {
           displayName={displayName}
           initials={initials}
           roleLabel={roleLabel}
-
           onNavigate={closeSidebar}
           onSignOut={handleSignOut}
+          pendingIotCount={pendingIotCount}
         />
       </aside>
 
@@ -485,30 +506,47 @@ export function AppShell() {
                   </div>
                 ) : (
                   <div className="max-h-80 overflow-y-auto divide-y divide-outline-variant/10">
-                    {notifItems.map((item) => (
-                      <Link
-                        key={item.id}
-                        to="/safety-protocol"
-                        onClick={() => setNotifOpen(false)}
-                        className="flex items-start gap-3 px-4 py-3 hover:bg-surface-container-high transition-colors"
-                      >
-                        <div className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${item.type === "alert" ? "bg-error/20" : "bg-primary/20"}`}>
-                          <span
-                            className={`material-symbols-outlined text-sm ${item.type === "alert" ? "text-error" : "text-primary"}`}
-                            style={{ fontVariationSettings: "'FILL' 1" }}
-                          >
-                            {item.type === "alert" ? "warning" : "person_add"}
-                          </span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-on-surface truncate">{item.name}</p>
-                          <p className="text-[11px] text-on-surface-variant mt-0.5">
-                            {item.type === "alert" ? "Fatigue alert — needs attention" : "Wants you as emergency guardian"}
-                          </p>
-                          <p className="text-[10px] text-slate-500 mt-1">{relativeTime(item.created_at)}</p>
-                        </div>
-                      </Link>
-                    ))}
+                    {notifItems.map((item) => {
+                      const to = item.type === "iot" ? "/iot-devices" : "/safety-protocol";
+                      const iconColor =
+                        item.type === "alert" ? "text-error" :
+                        item.type === "iot"   ? "text-warning" :
+                        "text-primary";
+                      const bgColor =
+                        item.type === "alert" ? "bg-error/20" :
+                        item.type === "iot"   ? "bg-warning/20" :
+                        "bg-primary/20";
+                      const icon =
+                        item.type === "alert" ? "warning" :
+                        item.type === "iot"   ? "devices_other" :
+                        "person_add";
+                      const desc =
+                        item.type === "alert" ? "Fatigue alert — needs attention" :
+                        item.type === "iot"   ? "IoT device requesting to link" :
+                        "Wants you as emergency guardian";
+                      return (
+                        <Link
+                          key={item.id}
+                          to={to}
+                          onClick={() => setNotifOpen(false)}
+                          className="flex items-start gap-3 px-4 py-3 hover:bg-surface-container-high transition-colors"
+                        >
+                          <div className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${bgColor}`}>
+                            <span
+                              className={`material-symbols-outlined text-sm ${iconColor}`}
+                              style={{ fontVariationSettings: "'FILL' 1" }}
+                            >
+                              {icon}
+                            </span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-on-surface truncate">{item.name}</p>
+                            <p className="text-[11px] text-on-surface-variant mt-0.5">{desc}</p>
+                            <p className="text-[10px] text-slate-500 mt-1">{relativeTime(item.created_at)}</p>
+                          </div>
+                        </Link>
+                      );
+                    })}
                   </div>
                 )}
 

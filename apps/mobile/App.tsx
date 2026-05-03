@@ -435,7 +435,7 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
 
   const refreshAlertBadge = async () => {
     const userEmail = session.user.email ?? "__no_email__";
-    const [byUserId, byEmail, pendingReqs] = await Promise.all([
+    const [byUserId, byEmail, pendingReqs, pendingIot] = await Promise.all([
       supabase
         .from("emergency_contacts")
         .select("user_id")
@@ -450,6 +450,11 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
         .from("emergency_contacts")
         .select("id", { count: "exact", head: true })
         .eq("contact_user_id", session.user.id)
+        .eq("status", "pending"),
+      supabase
+        .from("user_iot_devices")
+        .select("device_id", { count: "exact", head: true })
+        .eq("user_id", session.user.id)
         .eq("status", "pending"),
     ]);
 
@@ -468,7 +473,7 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
       activeCount = count ?? 0;
     }
 
-    const totalBadge = activeCount + (pendingReqs.count ?? 0);
+    const totalBadge = activeCount + (pendingReqs.count ?? 0) + (pendingIot.count ?? 0);
     setAlertBadge(totalBadge > 0 ? "!" : undefined);
   };
 

@@ -89,7 +89,8 @@ export async function signalIotBuzz(
   supabase: Supabase,
   deviceId: string,
   alertId: string,
-  level: number
+  level: number,
+  event?: "drowsiness" | "sudden_brake" | "head_tilted",
 ): Promise<boolean> {
   const { data } = await supabase
     .from("user_iot_devices")
@@ -106,6 +107,7 @@ export async function signalIotBuzz(
     command: "buzz",
     alert_id: alertId,
     level,
+    ...(event ? { event } : {}),
   });
 }
 

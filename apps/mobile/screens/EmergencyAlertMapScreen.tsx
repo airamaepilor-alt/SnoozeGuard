@@ -23,6 +23,12 @@ import {
 } from "../lib/emergencyNotify";
 import type { Theme } from "../theme";
 
+type PendingIotDevice = {
+  device_id: string;
+  created_at: string;
+  requested_email: string | null;
+};
+
 type AlertStatus = "active" | "alerted" | "dismissed";
 
 type AlertEvent = {
@@ -61,6 +67,8 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
   const [pending, setPending] = useState<PendingRequest[]>([]);
+  const [pendingIot, setPendingIot] = useState<PendingIotDevice[]>([]);
+  const [acceptingIot, setAcceptingIot] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<AlertEvent | null>(null);
   const [isOffline, setIsOffline] = useState(false);
@@ -125,6 +133,13 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
       const requests = await getPendingRequests(supabase, session.user.id, session.user.email);
       setPending(requests);
 
+      const { data: iotData } = await supabase
+        .from("user_iot_devices")
+        .select("device_id, created_at, requested_email")
+        .eq("user_id", session.user.id)
+        .eq("status", "pending");
+      setPendingIot((iotData as PendingIotDevice[]) ?? []);
+
       const [byUserId, byEmail] = await Promise.all([
         supabase
           .from("emergency_contacts")
@@ -145,7 +160,7 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
 
       if (allDriverIds.length === 0) {
         setAlerts([]);
-        if (requests.length === 0) onActionDone?.();
+        if (requests.length === 0 && iotData?.length === 0) onActionDone?.();
         return;
       }
 
@@ -222,6 +237,7 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
       .channel("emergency-alerts-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "emergency_alert_events" }, () => void load())
       .on("postgres_changes", { event: "*", schema: "public", table: "emergency_contacts" }, () => void load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "user_iot_devices" }, () => void load())
       .subscribe();
 
     return () => {
@@ -239,7 +255,28 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
     );
   }
 
-  const hasContent = pending.length > 0 || alerts.length > 0;
+  const handleAcceptIot = async (deviceId: string) => {
+    setAcceptingIot(deviceId);
+    try {
+      await supabase.rpc("accept_device_link", { p_device_id: deviceId });
+      void load();
+      onActionDone?.();
+    } finally {
+      setAcceptingIot(null);
+    }
+  };
+
+  const handleRejectIot = async (deviceId: string) => {
+    await supabase
+      .from("user_iot_devices")
+      .delete()
+      .eq("user_id", session.user.id)
+      .eq("device_id", deviceId);
+    void load();
+    onActionDone?.();
+  };
+
+  const hasContent = pending.length > 0 || pendingIot.length > 0 || alerts.length > 0;
 
   if (!hasContent) {
     return (
@@ -296,6 +333,46 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
                   }}
                 >
                   <Text style={styles.declineBtnText}>Decline</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* ── Pending IoT link requests ── */}
+      {pendingIot.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>IoT Link Requests</Text>
+          {pendingIot.map((device) => (
+            <View key={device.device_id} style={[styles.requestCard, styles.iotCard]}>
+              <View style={styles.requestInfo}>
+                <Text style={styles.requestName}>{device.device_id}</Text>
+                {device.requested_email ? (
+                  <Text style={styles.requestEmail}>{device.requested_email}</Text>
+                ) : null}
+                <Text style={styles.requestSub}>IoT device requesting to link to your account</Text>
+                <Text style={[styles.requestSub, { marginTop: 2 }]}>
+                  {new Date(device.created_at).toLocaleString()}
+                </Text>
+              </View>
+              <View style={styles.requestBtns}>
+                <Pressable
+                  style={[styles.reqBtn, styles.acceptBtn, { opacity: acceptingIot === device.device_id ? 0.5 : 1 }]}
+                  onPress={() => void handleAcceptIot(device.device_id)}
+                  disabled={acceptingIot === device.device_id}
+                >
+                  {acceptingIot === device.device_id ? (
+                    <ActivityIndicator size="small" color={theme.primary} />
+                  ) : (
+                    <Text style={styles.acceptBtnText}>Accept</Text>
+                  )}
+                </Pressable>
+                <Pressable
+                  style={[styles.reqBtn, styles.declineBtn]}
+                  onPress={() => void handleRejectIot(device.device_id)}
+                >
+                  <Text style={styles.declineBtnText}>Reject</Text>
                 </Pressable>
               </View>
             </View>
@@ -440,6 +517,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     borderRadius: 16, padding: 16,
     borderWidth: 1, borderColor: `${t.primary}33`, gap: 12,
   },
+  iotCard: { borderColor: "#f59e0b55" },
   requestInfo: { gap: 2 },
   requestName: { fontSize: 16, fontWeight: "700", color: t.onSurface },
   requestEmail: { fontSize: 12, color: t.primary, fontFamily: "monospace", marginTop: 1 },

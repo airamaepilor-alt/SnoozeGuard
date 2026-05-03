@@ -13,6 +13,7 @@ const buzzBodySchema = z.object({
   device_id: z.string().min(1).max(128),
   alert_id: z.string().uuid(),
   level: z.number().int().min(6).max(10),
+  event: z.enum(["drowsiness", "sudden_brake", "head_tilted"]).optional(),
 });
 const dismissBodySchema = z.object({
   device_id: z.string().min(1).max(128),
@@ -81,7 +82,7 @@ export function iotRoutes(env: Env, supabase: Supabase): FastifyPluginAsync {
         return reply.code(400).send({ error: "invalid_body" });
       }
 
-      const published = await signalIotBuzz(supabase, parsed.data.device_id, parsed.data.alert_id, parsed.data.level);
+      const published = await signalIotBuzz(supabase, parsed.data.device_id, parsed.data.alert_id, parsed.data.level, parsed.data.event);
       return { ok: true, mqtt_published: published };
     });
 

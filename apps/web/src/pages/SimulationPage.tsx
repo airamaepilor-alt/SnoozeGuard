@@ -626,7 +626,38 @@ export function SimulationPage() {
 
   const yawnDetectorRef = useRef(createYawnDetector(() => { yawnAccRef.current += 1; }));
   const headDetectorRef = useRef(createHeadDetector(() => { headAccRef.current += 1; }));
-  const tiltDetectorRef = useRef(createTiltDetector(() => { headTiltAccRef.current += 1; }));
+  const tiltDetectorRef = useRef(createTiltDetector(() => {
+    headTiltAccRef.current += 1;
+    const tiltMsg = "Alert, alert. Head is tilted for a long period of time. Please focus on the road.";
+    window.speechSynthesis?.cancel();
+    const utterance = new SpeechSynthesisUtterance(tiltMsg);
+    utterance.rate = 0.9;
+    utterance.lang = "en-US";
+    window.speechSynthesis?.speak(utterance);
+    window.speechSynthesis?.speak(utterance);
+    setSpecialAlertTitle("Head tilted — keep your head straight!");
+    setSpecialAlertMessage("Your head has been tilted for a prolonged period. Stay focused on the road.");
+    setSpecialAlertOpen(true);
+    if (navigator.vibrate) navigator.vibrate([0, 500, 200, 500]);
+    if (user && iotDeviceIdRef.current && IOT_API_URL) {
+      void supabase
+        .from("iot_alerts")
+        .insert({ device_id: iotDeviceIdRef.current, user_id: user.id, drowsiness_level: 7 })
+        .select("id")
+        .single()
+        .then(({ data }) => {
+          if (!data?.id) return;
+          void supabase.auth.getSession().then(({ data: { session } }) => {
+            if (!session) return;
+            void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+              body: JSON.stringify({ device_id: iotDeviceIdRef.current, alert_id: data.id, level: 7, event: "head_tilted" }),
+            });
+          });
+        });
+    }
+  }));
 
   // ── Alert refs ─────────────────────────────────────────────────────────────
   const lastAlertRef = useRef<{ level: number; at: number } | null>(null);
@@ -795,6 +826,24 @@ export function SimulationPage() {
         setSpecialAlertTitle("Sudden brake detected — pull over safely.");
         setSpecialAlertMessage("A sudden brake was detected. Please pull over safely and rest if needed.");
         setSpecialAlertOpen(true);
+        if (user && iotDeviceIdRef.current && IOT_API_URL) {
+          void supabase
+            .from("iot_alerts")
+            .insert({ device_id: iotDeviceIdRef.current, user_id: user.id, drowsiness_level: 9 })
+            .select("id")
+            .single()
+            .then(({ data }) => {
+              if (!data?.id) return;
+              void supabase.auth.getSession().then(({ data: { session } }) => {
+                if (!session) return;
+                void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+                  body: JSON.stringify({ device_id: iotDeviceIdRef.current, alert_id: data.id, level: 9, event: "sudden_brake" }),
+                });
+              });
+            });
+        }
       }
     }
 
