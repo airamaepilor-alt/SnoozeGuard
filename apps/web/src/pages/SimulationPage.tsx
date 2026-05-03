@@ -591,6 +591,7 @@ export function SimulationPage() {
   // ── IoT device ─────────────────────────────────────────────────────────────
   const iotDeviceIdRef = useRef<string | null>(null);
   const iotAlertIdRef  = useRef<string | null>(null);
+  const iotSpecialAlertIdRef = useRef<string | null>(null);
 
   // ── Admin config (threshold for alerts) ────────────────────────────────────
   const adminRef = useRef({
@@ -647,6 +648,7 @@ export function SimulationPage() {
         .single()
         .then(({ data }) => {
           if (!data?.id) return;
+          iotSpecialAlertIdRef.current = data.id;
           void supabase.auth.getSession().then(({ data: { session } }) => {
             if (!session) return;
             void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
@@ -834,6 +836,7 @@ export function SimulationPage() {
             .single()
             .then(({ data }) => {
               if (!data?.id) return;
+              iotSpecialAlertIdRef.current = data.id;
               void supabase.auth.getSession().then(({ data: { session } }) => {
                 if (!session) return;
                 void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
@@ -1365,7 +1368,28 @@ export function SimulationPage() {
         open={specialAlertOpen}
         title={specialAlertTitle}
         message={specialAlertMessage}
-        onDismiss={() => { engineRef.current?.resetSpeed(); setSpecialAlertOpen(false); }}
+        onDismiss={() => {
+          engineRef.current?.resetSpeed();
+          setSpecialAlertOpen(false);
+          if (iotSpecialAlertIdRef.current && iotDeviceIdRef.current) {
+            const id = iotSpecialAlertIdRef.current;
+            const dev = iotDeviceIdRef.current;
+            iotSpecialAlertIdRef.current = null;
+            void supabase.from("iot_alerts").update({
+              status: "dismissed", dismissed_by: "driver", dismissed_at: new Date().toISOString(),
+            }).eq("id", id);
+            if (IOT_API_URL) {
+              void supabase.auth.getSession().then(({ data: { session } }) => {
+                if (!session) return;
+                void fetch(`${IOT_API_URL}/v1/iot/dismiss`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+                  body: JSON.stringify({ device_id: dev, alert_id: id }),
+                });
+              });
+            }
+          }
+        }}
       />
 
       {/* ── Drowsiness alert overlay ──────────────────────────────────────── */}

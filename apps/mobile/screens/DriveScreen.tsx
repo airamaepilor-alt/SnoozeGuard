@@ -292,6 +292,7 @@ export function DriveScreen() {
   // IoT device pairing
   const iotDeviceIdRef = useRef<string | null>(null);
   const iotAlertIdRef = useRef<string | null>(null);
+  const iotSpecialAlertIdRef = useRef<string | null>(null);
   const [iotSavedId, setIotSavedId] = useState<string | null>(null);
   const [iotInput, setIotInput] = useState("");
   const [iotLastSeen, setIotLastSeen] = useState<string | null>(null);
@@ -319,6 +320,7 @@ export function DriveScreen() {
         .single()
         .then(({ data: iotRow }) => {
           if (!iotRow?.id) return;
+          iotSpecialAlertIdRef.current = iotRow.id;
           void supabase.auth.getSession().then(({ data: { session } }) => {
             if (!session) return;
             void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
@@ -826,6 +828,7 @@ export function DriveScreen() {
                 .single()
                 .then(({ data: iotRow }) => {
                   if (!iotRow?.id) return;
+                  iotSpecialAlertIdRef.current = iotRow.id;
                   void bleSend({ cmd: "buzz", level: 9, alert_id: iotRow.id, event: "sudden_brake" });
                   void supabase.auth.getSession().then(({ data: { session } }) => {
                     if (!session) return;
@@ -1023,7 +1026,28 @@ export function DriveScreen() {
             <Text style={styles.alertKicker}>⚠ SAFETY ALERT</Text>
             <Text style={styles.alertTitle}>{specialAlertTitle}</Text>
             <Text style={[styles.alertHint, { marginTop: 12 }]}>{specialAlertMessage}</Text>
-            <Pressable style={styles.alertBtn} onPress={() => { stopAlertAudio(); setSpecialAlertOpen(false); }}>
+            <Pressable style={styles.alertBtn} onPress={() => {
+              stopAlertAudio();
+              setSpecialAlertOpen(false);
+              if (iotSpecialAlertIdRef.current && iotDeviceIdRef.current) {
+                const id = iotSpecialAlertIdRef.current;
+                const dev = iotDeviceIdRef.current;
+                iotSpecialAlertIdRef.current = null;
+                void supabase.from("iot_alerts").update({
+                  status: "dismissed", dismissed_by: "driver", dismissed_at: new Date().toISOString(),
+                }).eq("id", id);
+                if (IOT_API_URL) {
+                  void supabase.auth.getSession().then(({ data: { session } }) => {
+                    if (!session) return;
+                    void fetch(`${IOT_API_URL}/v1/iot/dismiss`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+                      body: JSON.stringify({ device_id: dev, alert_id: id }),
+                    });
+                  });
+                }
+              }
+            }}>
               <Text style={styles.btnTextPrimary}>Understood — dismiss</Text>
             </Pressable>
           </View>

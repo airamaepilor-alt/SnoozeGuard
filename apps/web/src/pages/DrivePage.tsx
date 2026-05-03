@@ -193,6 +193,7 @@ export function DrivePage() {
         .single()
         .then(({ data }) => {
           if (!data?.id) return;
+          iotSpecialAlertIdRef.current = data.id;
           void supabase.auth.getSession().then(({ data: { session } }) => {
             if (!session) return;
             void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
@@ -236,6 +237,7 @@ export function DrivePage() {
   // ── IoT device ──────────────────────────────────────────────────────────────
   const iotDeviceIdRef = useRef<string | null>(null);
   const iotAlertIdRef = useRef<string | null>(null);
+  const iotSpecialAlertIdRef = useRef<string | null>(null);
 
   // ── Admin runtime (alert config) ────────────────────────────────────────
   const adminRef = useRef({
@@ -510,6 +512,7 @@ export function DrivePage() {
               .single()
               .then(({ data }) => {
                 if (!data?.id) return;
+                iotSpecialAlertIdRef.current = data.id;
                 void supabase.auth.getSession().then(({ data: { session } }) => {
                   if (!session) return;
                   void fetch(`${IOT_API_URL}/v1/iot/buzz`, {
@@ -963,7 +966,27 @@ export function DrivePage() {
             <h3 className="text-2xl font-bold text-tertiary mb-2">{specialAlertTitle}</h3>
             <p className="text-on-surface-variant mb-6">{specialAlertMessage}</p>
             <button
-              onClick={() => setSpecialAlertOpen(false)}
+              onClick={() => {
+                setSpecialAlertOpen(false);
+                if (iotSpecialAlertIdRef.current && iotDeviceIdRef.current) {
+                  const id = iotSpecialAlertIdRef.current;
+                  const dev = iotDeviceIdRef.current;
+                  iotSpecialAlertIdRef.current = null;
+                  void supabase.from("iot_alerts").update({
+                    status: "dismissed", dismissed_by: "driver", dismissed_at: new Date().toISOString(),
+                  }).eq("id", id);
+                  if (IOT_API_URL) {
+                    void supabase.auth.getSession().then(({ data: { session } }) => {
+                      if (!session) return;
+                      void fetch(`${IOT_API_URL}/v1/iot/dismiss`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+                        body: JSON.stringify({ device_id: dev, alert_id: id }),
+                      });
+                    });
+                  }
+                }
+              }}
               className="px-6 py-3 bg-primary text-on-primary rounded-xl font-bold"
             >
               OK
