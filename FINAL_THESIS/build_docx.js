@@ -91,6 +91,14 @@ function makeBody(text, bold = false) {
   });
 }
 
+function makeReference(text) {
+  return new Paragraph({
+    children: buildRuns(text),
+    indent: { left: convertInchesToTwip(0.5), hanging: convertInchesToTwip(0.5) },
+    spacing: { after: 240 },
+  });
+}
+
 function makeCode(text) {
   return new Paragraph({
     children: [
@@ -387,6 +395,7 @@ function makeIPODiagram() {
 const docChildren = [];
 
 let i = 0;
+let inReferences = false;
 let inTable = false;
 let tableBuffer = [];
 let inCode = false;
@@ -458,6 +467,8 @@ while (i < lines.length) {
   const h4 = line.match(/^#### (.+)/);
 
   if (h1) {
+    if (h1[1].trim() === "References") inReferences = true;
+    else inReferences = false;
     docChildren.push(makeHeading(h1[1], 1));
   } else if (h2) {
     docChildren.push(makeHeading(h2[1], 2));
@@ -486,7 +497,11 @@ while (i < lines.length) {
   }
   // Normal paragraph / bold paragraph
   else {
-    docChildren.push(makeBody(trimmed));
+    if (inReferences && trimmed !== "") {
+      docChildren.push(makeReference(trimmed));
+    } else {
+      docChildren.push(makeBody(trimmed));
+    }
   }
 
   i++;

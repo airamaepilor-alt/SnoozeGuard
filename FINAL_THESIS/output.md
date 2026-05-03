@@ -85,6 +85,7 @@ Driver drowsiness remains one of the leading contributors to road traffic fatali
 
 **Chapter I: The Problem and Its Background**
 - Introduction
+- Background of the Study
 - Theoretical Framework
 - Framework Summary
 - Statement of the Problem
@@ -94,6 +95,7 @@ Driver drowsiness remains one of the leading contributors to road traffic fatali
 - Definition of Terms
 
 **Chapter II: Review of Related Literature**
+- Introduction
 - Related Literature
 - Related Studies
 - Synthesis
@@ -119,6 +121,10 @@ Driver drowsiness remains one of the leading contributors to road traffic fatali
   - Database Schema
 - Testing and Evaluation
 - Participants of the Study
+- Research Instrument
+- Data Collection Procedure
+- Data Analysis
+- Ethical Considerations
 - Implementation Plan
 
 **Chapter IV: Results and Discussion**
@@ -147,7 +153,7 @@ Driver drowsiness remains one of the leading contributors to road traffic fatali
 - Conclusions
 - Recommendations
 
-**Bibliography**
+**References**
 
 **Appendices**
 - Appendix A: Survey Instrument
@@ -227,6 +233,14 @@ The physiological signs of drowsiness are, however, objectively measurable throu
 Contemporary Driver Monitoring Systems (DMS) embedded in premium vehicles leverage near-infrared cameras and eye-tracking algorithms to detect eye closure (PERCLOS—Percentage of Eye Closure) and gaze deviation. While effective, these systems are prohibitively expensive for mass-market adoption and are absent from the vehicle fleet that constitutes the majority of road transport in developing economies. Smartphone-based approaches, leveraging the high-quality front-facing cameras available on modern mobile devices, offer an accessible and deployable alternative that requires no vehicle modification.
 
 SnoozeGuard is a multi-platform, AI-driven drowsiness monitoring and alert system that transforms a driver's existing smartphone into a continuous fatigue detection station. By integrating Google's MediaPipe Face Landmarker—a state-of-the-art on-device machine learning model processing 478 facial landmarks and 52 blend shape coefficients—with a configurable 10-level drowsiness scoring engine and a multi-modal alert escalation pipeline, SnoozeGuard delivers real-time, actionable drowsiness warnings without requiring any vehicle-level hardware modification. At elevated drowsiness levels, the system optionally communicates with a purpose-built ESP32-based IoT alert device—capable of playing calibrated audio tracks, triggering vibration patterns, and illuminating LED indicators—and automatically notifies a designated emergency contact via push notification and SMS when the driver's state reaches a critical threshold.
+
+## Background of the Study
+
+Road traffic accidents attributable to driver fatigue represent a persistent and growing public health crisis. In the Philippines, the Land Transportation Office (LTO) and the Metropolitan Manila Development Authority (MMDA) have consistently cited driver inattentiveness and fatigue among the leading behavioral causes of road incidents in annual traffic safety reports. Yet, unlike alcohol-impaired driving — which benefits from roadside sobriety testing and established legal thresholds — drowsiness impairment carries no objective, easily measurable legal standard, and drivers commonly fail to self-recognize their own level of fatigue until a near-miss or collision event has already occurred.
+
+The global burden is significant. The World Health Organization estimates that road traffic injuries are the eighth leading cause of death worldwide (WHO, 2023), with driver fatigue contributing to approximately 20% of all road fatalities on high-speed road networks in developed nations (Horne & Reyner, 1995). In the United States alone, the National Highway Traffic Safety Administration reported 91,000 drowsy-driving crashes in 2017, resulting in 50,000 injuries and approximately 800 fatalities — widely acknowledged as a substantial undercount given the difficulty of post-incident fatigue attribution. The problem is compounded in developing economies, where long-haul and provincial driving, high rates of informal public transport employment, and minimal enforcement of rest regulations increase exposure to fatigue-impaired driving risk.
+
+Existing technological countermeasures — factory-integrated Driver Monitoring Systems (DMS) in premium vehicle models and aftermarket hardware camera-and-sensor rigs — are either economically prohibitive for individual ownership or impractical for the aging, mixed-vintage vehicle fleets characteristic of developing-country road networks. This gap motivates the development of SnoozeGuard: a smartphone-native, AI-driven drowsiness monitoring system that requires no vehicle modification, no additional hardware purchase beyond the driver's existing mobile device, and delivers real-time multi-modal alerts with integrated emergency contact notification to address drowsy driving fatigue at the point of individual driver use.
 
 ## Theoretical Framework
 
@@ -347,6 +361,8 @@ To design, develop, and evaluate SnoozeGuard—a multi-platform AI-driven real-t
 ---
 
 # CHAPTER II: Review of Related Literature
+
+This chapter reviews the existing body of literature and studies relevant to the development and evaluation of SnoozeGuard. The review is organized into three sections: related literature, which examines foundational research on driver drowsiness, physiological detection signals, machine learning approaches to facial analysis, driver monitoring system architectures, IoT-augmented safety applications, and emergency notification infrastructure; related studies, which examines prior implemented systems and their key findings; and synthesis, which identifies the convergent design principles and research gaps that the present study addresses.
 
 ## Related Literature
 
@@ -722,6 +738,38 @@ A total of thirty (30) respondents participated in the evaluation, of whom twent
 | Basis for selection | Active driving experience; availability for system demonstration |
 | Evaluation context | Physical driving simulator; live system demonstration |
 | Instrument | 66-item ISO/IEC 25010 Likert-scale questionnaire |
+
+## Research Instrument
+
+The primary data collection instrument of this study was a structured 66-item Likert-scale questionnaire developed in alignment with the ISO/IEC 25010 software product quality model. The questionnaire was organized into eight sections corresponding to the eight quality characteristics of the standard: Functional Suitability (13 items), Performance Efficiency (7 items), Compatibility (5 items), Usability (12 items), Reliability (9 items), Security (6 items), Maintainability (6 items), and Portability (6 items). Two additional items assessed overall user satisfaction, bringing the total to 66 evaluation items.
+
+Each item was presented as a declarative statement evaluated on a five-point Likert scale, where 1 indicated Strongly Disagree and 5 indicated Strongly Agree. The instrument was validated by the research advisers prior to administration to ensure content validity — confirming that each item accurately reflected its assigned ISO/IEC 25010 sub-characteristic and was phrased in language accessible to respondents with varying levels of technical background. The complete questionnaire is presented in Appendix A.
+
+## Data Collection Procedure
+
+Data collection was conducted through structured evaluation sessions administered at the research team's laboratory facility at Divine Word College of Calapan. Each respondent session followed a standardized four-stage protocol.
+
+In the first stage, respondents were given a brief orientation to the SnoozeGuard system, its purpose, and the components they would interact with — the mobile application, the web dashboard, and the ESP32 IoT alert device — ensuring that all respondents had equivalent baseline familiarity with the system prior to evaluation.
+
+In the second stage, respondents were seated at the physical driving simulator prototype — comprising an actual automobile seat mounted on a wooden frame, a gaming steering wheel and pedals, and a front-facing smartphone mount — and given a live demonstration of the drowsiness detection and alert features by a research team member. Respondents then operated the system themselves, initiating a drive session, observing the drowsiness level display, and experiencing the alert modal and IoT device response.
+
+In the third stage, respondents completed the 66-item ISO/IEC 25010 evaluation questionnaire independently, referencing their direct experience with the system during the preceding demonstration session. No researcher prompting was provided during questionnaire completion to preserve response independence.
+
+In the fourth stage, questionnaire responses were collected and encoded into the data analysis spreadsheet. Respondents were thanked for their participation and reminded of the confidentiality of their individual responses.
+
+## Data Analysis
+
+The quantitative data collected through the ISO/IEC 25010 evaluation questionnaire were analyzed using weighted mean computation. For each survey item, the weighted mean was calculated by multiplying the frequency of each response by its corresponding scale value (1 through 5), summing the products, and dividing by the total number of valid respondents. The resulting weighted mean was then interpreted using the five-level verbal interpretation scale shown in Table 8 of Chapter IV.
+
+The characteristic-level weighted mean was computed as the arithmetic mean of all item-level weighted means within each ISO/IEC 25010 characteristic. The Grand Mean was computed as the arithmetic mean of the eight characteristic-level weighted means, yielding an overall software quality index for the system. No inferential statistics were applied, as the study objective was to measure the level of software quality compliance as perceived by the respondent population rather than to test a hypothesis.
+
+## Ethical Considerations
+
+This study was conducted in accordance with the ethical principles governing research involving human participants at Divine Word College of Calapan. Prior to participation, all respondents were provided with a verbal and written explanation of the study's purpose, the nature of their participation, and their rights as research participants. Participation was strictly voluntary; respondents were informed that they were free to withdraw at any point without consequence.
+
+Informed consent was obtained from all respondents prior to their interaction with the SnoozeGuard system and completion of the evaluation questionnaire. Individual responses were treated as confidential and used exclusively for academic research purposes. No individual response was attributed to a named respondent in the thesis document; only aggregated group means are reported. Respondent profile data — including age, occupation, and experience level — collected through the questionnaire header were used solely for descriptive characterization of the sample and were not linked to individual item responses in any reported analysis. No sensitive personal data beyond these profile attributes was collected.
+
+The physical driving simulator evaluation did not involve actual road driving or any risk of physical harm to participants, as all interactions were conducted in a stationary laboratory setting.
 
 ---
 
@@ -1144,7 +1192,7 @@ Based on the findings of this study, the following recommendations are made for 
 
 ---
 
-# Bibliography
+# References
 
 Alioua, N., Amine, A., Rziza, M., & Aboutajdine, D. (2012). Driver head pose estimation using efficient descriptor fusion. *IET Computer Vision*, 6(3), 228–237. https://doi.org/10.1049/iet-cvi.2011.0163
 
