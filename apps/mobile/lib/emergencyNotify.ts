@@ -99,11 +99,12 @@ export async function addEmergencyContact(
   const status: "pending" | "accepted" = contactUserId ? "pending" : "accepted";
 
   // If no contacts exist yet, make this one active
-  const { count } = await supabase
+  const { count: activeCount } = await supabase
     .from("emergency_contacts")
     .select("id", { count: "exact", head: true })
-    .eq("user_id", userId);
-  const isFirst = (count ?? 0) === 0;
+    .eq("user_id", userId)
+    .eq("is_active", true);
+  const shouldAutoActivate = (activeCount ?? 0) < 3;
 
   const { data, error } = await supabase
     .from("emergency_contacts")
@@ -114,7 +115,7 @@ export async function addEmergencyContact(
       contact_email: contact.contact_email || null,
       contact_user_id: contactUserId,
       status,
-      is_active: isFirst,
+      is_active: shouldAutoActivate,
     })
     .select("id")
     .single();
@@ -199,26 +200,48 @@ export async function removeEmergencyContactById(
   return { error: null };
 }
 
-/** Sets one contact as the active guardian, deactivating all others for this driver. */
-export async function setActiveEmergencyContact(
+/** Toggles a contact's active state. Max 3 active guardians per driver. */
+export async function toggleActiveEmergencyContact(
   supabase: SupabaseClient,
   userId: string,
   contactId: string,
-): Promise<{ error: string | null }> {
-  const { error: e1 } = await supabase
+): Promise<{ error: string | null; nowActive: boolean }> {
+  const { data: current } = await supabase
     .from("emergency_contacts")
-    .update({ is_active: false })
-    .eq("user_id", userId);
-  if (e1) return { error: e1.message };
+    .select("is_active")
+    .eq("id", contactId)
+    .eq("user_id", userId)
+    .maybeSingle();
 
-  const { error: e2 } = await supabase
+  const isCurrentlyActive = Boolean((current as { is_active?: boolean } | null)?.is_active);
+
+  if (isCurrentlyActive) {
+    const { error } = await supabase
+      .from("emergency_contacts")
+      .update({ is_active: false })
+      .eq("id", contactId)
+      .eq("user_id", userId);
+    if (error) return { error: error.message, nowActive: true };
+    return { error: null, nowActive: false };
+  }
+
+  const { count } = await supabase
+    .from("emergency_contacts")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("is_active", true);
+
+  if ((count ?? 0) >= 3) {
+    return { error: "Maximum of 3 active guardians allowed. Deactivate one first.", nowActive: false };
+  }
+
+  const { error } = await supabase
     .from("emergency_contacts")
     .update({ is_active: true })
     .eq("id", contactId)
     .eq("user_id", userId);
-  if (e2) return { error: e2.message };
-
-  return { error: null };
+  if (error) return { error: error.message, nowActive: false };
+  return { error: null, nowActive: true };
 }
 
 /**
@@ -405,11 +428,27 @@ export async function triggerEmergencyAlert(
 
   const alertId = data?.id ?? null;
 
-  // Only notify the active emergency contact
-  const ec = await getEmergencyContact(supabase, userId);
-  console.log("[Alert] EC found:", ec ? `${ec.contact_name} status=${ec.status} phone=${ec.contact_phone ? "yes" : "no"} userId=${ec.contact_user_id ? "yes" : "no"}` : "null");
-  if (!ec || ec.status !== "accepted") {
-    console.log("[Alert] Skipping notifications — EC missing or not accepted");
+  // Notify all active accepted emergency contacts (up to 3)
+  const { data: activeRows } = await supabase
+    .from("emergency_contacts")
+    .select("id, contact_name, contact_phone, contact_email, contact_user_id, status")
+    .eq("user_id", userId)
+    .eq("is_active", true);
+
+  const activeContacts: EmergencyContact[] = ((activeRows ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    id: row.id as string,
+    contact_name: row.contact_name as string,
+    contact_phone: row.contact_phone as string | null,
+    contact_email: row.contact_email as string | null,
+    contact_user_id: row.contact_user_id as string | null,
+    status: (row.status as string) === "pending" ? "pending" : "accepted",
+  }));
+
+  const acceptedContacts = activeContacts.filter((ec) => ec.status === "accepted");
+  console.log("[Alert] Active ECs:", activeContacts.length, "accepted:", acceptedContacts.length);
+
+  if (acceptedContacts.length === 0) {
+    console.log("[Alert] Skipping notifications — no accepted active contacts");
     return { alertId, location };
   }
 
@@ -417,36 +456,36 @@ export async function triggerEmergencyAlert(
     ? `${driverName} needs a check-in. Location: ${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`
     : `${driverName} triggered a drowsiness alert — please check in.`;
 
-  console.log("[Alert] Push check — contact_user_id:", ec.contact_user_id ? "yes" : "no (not a SnoozeGuard user)");
-  if (ec.contact_user_id) {
-    const { data: tokenRow } = await supabase
-      .from("push_tokens")
-      .select("expo_push_token")
-      .eq("user_id", ec.contact_user_id)
-      .maybeSingle();
-    console.log("[Alert] Push token found:", tokenRow?.expo_push_token ? "yes" : "no");
+  for (const ec of acceptedContacts) {
+    console.log("[Alert] Notifying:", ec.contact_name, "userId:", ec.contact_user_id ? "yes" : "no");
 
-    if (tokenRow?.expo_push_token) {
-      await fetch("https://exp.host/--/api/v2/push/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: tokenRow.expo_push_token,
-          title: "Check in on a driver",
-          body: pushBody,
-          data: { alertId, userId, lat: location?.lat, lng: location?.lng },
-          sound: "default",
-          priority: "high",
-        }),
-      }).catch(() => { /* non-fatal */ });
+    if (ec.contact_user_id) {
+      const { data: tokenRow } = await supabase
+        .from("push_tokens")
+        .select("expo_push_token")
+        .eq("user_id", ec.contact_user_id)
+        .maybeSingle();
+
+      if (tokenRow?.expo_push_token) {
+        await fetch("https://exp.host/--/api/v2/push/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: tokenRow.expo_push_token,
+            title: "Check in on a driver",
+            body: pushBody,
+            data: { alertId, userId, lat: location?.lat, lng: location?.lng },
+            sound: "default",
+            priority: "high",
+          }),
+        }).catch(() => { /* non-fatal */ });
+      }
     }
-  }
 
-  console.log("[Alert] SMS check — smsEnabled:", smsEnabled, "contact_phone:", ec.contact_phone ? "yes" : "no");
-  if (smsEnabled && ec.contact_phone) {
-    await sendAutoSms(supabase, ec.contact_phone, driverName, location);
-  } else {
-    console.log("[Alert] SMS skipped —", !smsEnabled ? "smsEnabled is false (toggle off in admin)" : "no contact phone");
+    console.log("[Alert] SMS check — smsEnabled:", smsEnabled, "phone:", ec.contact_phone ? "yes" : "no");
+    if (smsEnabled && ec.contact_phone) {
+      await sendAutoSms(supabase, ec.contact_phone, driverName, location);
+    }
   }
 
   return { alertId, location };

@@ -54,6 +54,8 @@
 
 #include "secrets.h"
 #include "root_ca.h"
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 
 // ── Pin / config defaults (override in secrets.h) ─────────────────────────────
 // Device ID is generated at runtime — see initDeviceId() below.
@@ -66,10 +68,10 @@ static char gDeviceId[32];
 #define MQTT_PORT          8883
 #endif
 #ifndef DFPLAYER_RX_PIN
-#define DFPLAYER_RX_PIN    16
+#define DFPLAYER_RX_PIN    18
 #endif
 #ifndef DFPLAYER_TX_PIN
-#define DFPLAYER_TX_PIN    17
+#define DFPLAYER_TX_PIN    19
 #endif
 #ifndef IOT_BUTTON_PIN
 #define IOT_BUTTON_PIN     25
@@ -86,6 +88,9 @@ static char gDeviceId[32];
 #ifndef IOT_BLE_LED_PIN
 #define IOT_BLE_LED_PIN    33
 #endif
+#ifndef IOT_VIBRATION_PIN
+#define IOT_VIBRATION_PIN  13
+#endif
 #ifndef BUTTON_DEBOUNCE_MS
 #define BUTTON_DEBOUNCE_MS 200
 #endif
@@ -101,19 +106,15 @@ static char gDeviceId[32];
 #define SG_CMD_CHAR_UUID   "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 #define SG_EVENT_CHAR_UUID "beb5483f-36e1-4688-b7f5-ea07361b26a8"
 
-// ── LED pulse patterns for levels 6–8 ────────────────────────────────────────
-struct VibPattern { uint8_t pulses; uint16_t onMs; uint16_t offMs; };
-static const VibPattern kVib[] = {
-  { 0,   0,   0 }, // 0 — unused
-  { 0,   0,   0 }, // 1
-  { 0,   0,   0 }, // 2
-  { 0,   0,   0 }, // 3
-  { 0,   0,   0 }, // 4
-  { 0,   0,   0 }, // 5
-  { 3, 200, 150 }, // 6 — three short pulses
-  { 3, 400, 150 }, // 7 — three medium pulses
-  { 3, 600, 150 }, // 8 — three long pulses
+// ── LED blink patterns for levels 6–8 (level 12 borrows level-7 pattern) ─────
+struct LedPulse { uint8_t pulses; uint16_t onMs; uint16_t offMs; };
+static const LedPulse kLed[] = {
+  { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 },
+  { 1, 300, 200 }, // 6 — 1 blink
+  { 3, 300, 200 }, // 7 — 3 blinks
+  { 5, 300, 200 }, // 8 — 5 blinks
 };
+
 
 // ── Buzzer beep patterns per level ────────────────────────────────────────────
 // Each BuzzStep = one ON phase + one OFF phase that follows it.
@@ -156,16 +157,17 @@ static uint32_t lastPing           = 0;
 static uint32_t lastSend           = 0;
 static uint32_t lastButton         = 0;
 
-// Vibration pulse state machine (levels 6–8)
-static uint8_t  vibLeft            = 0;
-static bool     vibOn              = false;
-static uint32_t vibTimer           = 0;
+// LED blink state machine (levels 6–8, 12: N blinks then off)
+static uint8_t  ledLeft            = 0;
+static bool     ledOn              = false;
+static uint32_t ledTimer           = 0;
 
-// LED flash state (level 10 only)
+// LED flash state (levels 10, 11)
 static bool     ledFlash           = false;
 static uint32_t ledFlashTimer      = 0;
 
-// Buzzer pattern state machine (all levels 6–10)
+
+// Buzzer pattern state machine (all levels 6–12)
 static uint8_t  buzzStep           = 0;
 static bool     buzzOn             = false;
 static uint32_t buzzTimer          = 0;
@@ -185,8 +187,8 @@ static void stopAllOutputs() {
   digitalWrite(IOT_LED2_PIN,      LOW);
   digitalWrite(IOT_BLE_LED_PIN,   LOW);
   if (dfPlayer) dfPlayer->stop();
-  vibLeft  = 0;
-  vibOn    = false;
+  ledLeft  = 0;
+  ledOn    = false;
   ledFlash = false;
   buzzStep = 0;
   buzzOn   = false;
@@ -209,47 +211,45 @@ static void triggerAlert(int level, const char *alertId) {
   strncpy(currentAlertId, alertId, sizeof(currentAlertId) - 1);
   currentAlertId[sizeof(currentAlertId) - 1] = '\0';
 
-  // Voice track selection
-  if (level == 11) {                         // sudden_brake → track 4 (level-9 voice)
-    if (dfPlayer) dfPlayer->play(4);
-  } else if (level == 12) {                  // head_tilted  → track 2 (level-7 voice)
-    if (dfPlayer) dfPlayer->play(2);
-  } else {                                   // drowsiness 6-10: track = level - 5
-    if (dfPlayer) dfPlayer->play(level - 5);
+  // Voice: playMp3Folder plays /mp3/000N.mp3 by filename — reliable on all SD cards
+  int track = (level == 11) ? 4 : (level == 12) ? 2 : (level - 5);
+  if (dfPlayer) {
+    dfPlayer->playMp3Folder(track);
+    Serial.printf("[DFPlayer] playMp3Folder(%d)\n", track);
+  } else {
+    Serial.println("WARNING: DFPlayer not initialized");
   }
-  if (!dfPlayer) Serial.println("WARNING: DFPlayer not initialized");
 
-  // Start buzzer pattern state machine
+  // Buzzer pattern state machine
   buzzStep  = 0;
   buzzOn    = true;
   buzzTimer = millis();
   digitalWrite(IOT_BUZZER_PIN, HIGH);
 
-  // LED behaviour
-  if (level == 11) {                         // sudden_brake: flash like level 10
+  if (level == 11) {        // sudden_brake: flash LED
     digitalWrite(IOT_LED_PIN,  HIGH);
     digitalWrite(IOT_LED2_PIN, HIGH);
     ledFlash      = true;
     ledFlashTimer = millis();
-  } else if (level == 12) {                  // head_tilted: slow pulse (borrow level-7 vib)
-    const VibPattern &p = kVib[7];
-    vibLeft  = p.pulses;
-    vibOn    = true;
-    vibTimer = millis();
+  } else if (level == 12) { // head_tilted: 3 LED blinks
+    const LedPulse &lp = kLed[7];
+    ledLeft  = lp.pulses;
+    ledOn    = true;
+    ledTimer = millis();
     digitalWrite(IOT_LED_PIN,  HIGH);
     digitalWrite(IOT_LED2_PIN, HIGH);
-  } else if (level >= 9) {                   // drowsiness 9-10: LEDs on; 10 also flashes
+  } else if (level >= 9) {  // drowsiness 9-10: solid LED (10 flashes)
     digitalWrite(IOT_LED_PIN,  HIGH);
     digitalWrite(IOT_LED2_PIN, HIGH);
     if (level == 10) {
       ledFlash      = true;
       ledFlashTimer = millis();
     }
-  } else {                                   // drowsiness 6-8: LED pulse pattern
-    const VibPattern &p = kVib[level];
-    vibLeft  = p.pulses;
-    vibOn    = true;
-    vibTimer = millis();
+  } else {                  // drowsiness 6-8: N LED blinks
+    const LedPulse &lp = kLed[level];
+    ledLeft  = lp.pulses;
+    ledOn    = true;
+    ledTimer = millis();
     digitalWrite(IOT_LED_PIN,  HIGH);
     digitalWrite(IOT_LED2_PIN, HIGH);
   }
@@ -259,27 +259,29 @@ static void triggerAlert(int level, const char *alertId) {
 
 // ── Non-blocking loop effects ─────────────────────────────────────────────────
 
-static void handleVibPulse(uint32_t now) {
-  // Only levels 6-8 and head_tilted (12) use vib pulse; 9-11 use continuous LED
-  if ((currentLevel >= 9 && currentLevel != 12) || vibLeft == 0) return;
-  const VibPattern &p = kVib[currentLevel];
-  if (vibOn) {
-    if (now - vibTimer >= p.onMs) {
-      vibOn = false;
-      vibTimer = now;
-      vibLeft--;
-      digitalWrite(IOT_LED_PIN, LOW);
+// LED N-blink state machine — levels 6–8 and 12 (9–11 use solid/flash, handled elsewhere)
+static void handleLedPulse(uint32_t now) {
+  if ((currentLevel >= 9 && currentLevel != 12) || ledLeft == 0) return;
+  int patLevel     = (currentLevel == 12) ? 7 : currentLevel;
+  const LedPulse &p = kLed[patLevel];
+  if (ledOn) {
+    if (now - ledTimer >= p.onMs) {
+      ledOn    = false;
+      ledTimer = now;
+      ledLeft--;
+      digitalWrite(IOT_LED_PIN,  LOW);
       digitalWrite(IOT_LED2_PIN, LOW);
     }
-  } else if (vibLeft > 0) {
-    if (now - vibTimer >= p.offMs) {
-      vibOn = true;
-      vibTimer = now;
-      digitalWrite(IOT_LED_PIN, HIGH);
+  } else if (ledLeft > 0) {
+    if (now - ledTimer >= p.offMs) {
+      ledOn    = true;
+      ledTimer = now;
+      digitalWrite(IOT_LED_PIN,  HIGH);
       digitalWrite(IOT_LED2_PIN, HIGH);
     }
   }
 }
+
 
 static void handleLedFlash(uint32_t now) {
   // Level 10 (critical) and level 11 (sudden_brake) both flash
@@ -650,12 +652,11 @@ static const char PROV_STYLE[] =
   "<label>Password</label>"
   "<input name='pass' type='password' placeholder='Your network password'>"
   "<label>Device ID</label>"
-  "<input name='device_id' type='text' value='";
+  "<input name='device_id' type='text' disabled value='";
 
 // Appended after gDeviceId is inserted as input value
 static const char PROV_STYLE_POST[] =
-  "' maxlength='31' required>"
-  "<p class='hint'>Auto-generated from chip MAC. Change to a friendly name if you like.</p>"
+  "' maxlength='31'>"
   "<button type='submit'>Save &amp; Restart</button>"
   "</form></body></html>";
 
@@ -795,30 +796,36 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
+  // Suppress brownout resets caused by simultaneous high-current loads
+  // (buzzer + DFPlayer speaker + vibration motor at alert trigger).
+  // Real fix: use a 5V 2A adapter + 470µF cap across VIN-GND.
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
   // Resolve device ID first — everything else (BLE name, MQTT client ID,
   // MQTT topics) depends on it.
   initDeviceId();
 
   // GPIO
-  pinMode(IOT_BUZZER_PIN,    OUTPUT);
-  pinMode(IOT_LED_PIN,       OUTPUT);
-  pinMode(IOT_LED2_PIN,      OUTPUT);
-  pinMode(IOT_BLE_LED_PIN,   OUTPUT);
-  pinMode(IOT_BUTTON_PIN,    INPUT_PULLUP);
+  pinMode(IOT_BUZZER_PIN,     OUTPUT);
+  pinMode(IOT_LED_PIN,        OUTPUT);
+  pinMode(IOT_LED2_PIN,       OUTPUT);
+  pinMode(IOT_BLE_LED_PIN,    OUTPUT);
+  pinMode(IOT_BUTTON_PIN,     INPUT_PULLUP);
   stopAllOutputs();
   digitalWrite(IOT_BLE_LED_PIN, LOW);
 
-  // DFPlayer Mini (UART2)
+  // DFPlayer Mini (UART2) — 3 s boot delay so SD card fully mounts before init
   dfSerial.begin(9600, SERIAL_8N1, DFPLAYER_RX_PIN, DFPLAYER_TX_PIN);
-  delay(1000); // DFPlayer needs time to boot
+  delay(3000);
   dfPlayer = new DFRobotDFPlayerMini();
-  if (!dfPlayer->begin(dfSerial, /*isACK=*/true, /*doReset=*/true)) {
-    Serial.println("DFPlayer init failed — check SD card and wiring");
+  if (!dfPlayer->begin(dfSerial, /*isACK=*/false, /*doReset=*/true)) {
+    Serial.println("DFPlayer init FAILED — check: RX/TX wired? SD card seated? /mp3 folder?");
     delete dfPlayer;
-    dfPlayer = nullptr;  // Prevent dangling pointer
+    dfPlayer = nullptr;
   } else {
     dfPlayer->volume(DFPLAYER_VOLUME);
-    Serial.printf("DFPlayer ready (volume=%d)\n", DFPLAYER_VOLUME);
+    dfPlayer->EQ(DFPLAYER_EQ_NORMAL);
+    Serial.println("DFPlayer ready");
   }
 
   // WiFi — hold button at boot for 3 s to clear saved credentials and re-provision
@@ -897,24 +904,35 @@ void loop() {
     postPing();
   }
 
+  // DFPlayer error drain — prints hardware faults to Serial
+  if (dfPlayer && dfPlayer->available()) {
+    if (dfPlayer->readType() == DFPlayerError)
+      Serial.printf("[DFPlayer] Error: %d\n", dfPlayer->read());
+  }
+
   // Non-blocking alert effects
-  handleVibPulse(now);
+  handleLedPulse(now);
   handleLedFlash(now);
   handleBuzzerPattern(now);
 
-  // Dome button: dismiss active alert
-  if (alertActive && digitalRead(IOT_BUTTON_PIN) == LOW && now - lastButton > BUTTON_DEBOUNCE_MS) {
+  // Dome button — always log press so wiring can be verified without an active alert
+  if (digitalRead(IOT_BUTTON_PIN) == LOW && now - lastButton > BUTTON_DEBOUNCE_MS) {
     lastButton = now;
-    Serial.println("Button — dismiss");
-    // Notify connected BLE client so the app dismisses too
-    if (bleConnected && pEventChar) {
-      String ev = "{\"event\":\"dismiss\"}";
-      pEventChar->setValue(ev.c_str());
-      pEventChar->notify();
+    Serial.printf("[BUTTON] Pressed — alertActive=%s alertId=%s\n",
+                  alertActive ? "YES" : "NO", currentAlertId[0] ? currentAlertId : "(none)");
+    if (alertActive) {
+      // Notify connected BLE client
+      if (bleConnected && pEventChar) {
+        String ev = "{\"event\":\"dismiss\"}";
+        pEventChar->setValue(ev.c_str());
+        pEventChar->notify();
+        Serial.println("[BUTTON] BLE notify sent");
+      }
+      // Publish dismiss to MQTT → backend propagates to app
+      postDismiss(currentAlertId);
+      clearAlert();
+      Serial.println("[BUTTON] Alert cleared");
     }
-    // Tell API so Supabase Realtime propagates dismiss to web + mobile
-    postDismiss(currentAlertId);
-    clearAlert();
   }
 
   delay(20);

@@ -252,15 +252,16 @@ function AddEditDialog({
 // ─── Guardian Card ────────────────────────────────────────────────────────────
 
 function GuardianCard({
-  contact, settingActive,
-  onView, onEdit, onRemove, onSetActive,
+  contact, toggling, canActivate,
+  onView, onEdit, onRemove, onToggleActive,
 }: {
   contact: ContactEntry;
-  settingActive: boolean;
+  toggling: boolean;
+  canActivate: boolean;
   onView: () => void;
   onEdit: () => void;
   onRemove: () => void;
-  onSetActive: () => void;
+  onToggleActive: () => void;
 }) {
   const isActive = contact.is_active;
   const ecStatus: ContactStatus = contact.status === "pending" ? "pending" : "accepted";
@@ -293,19 +294,18 @@ function GuardianCard({
           <span className="material-symbols-outlined text-sm">visibility</span>
           View
         </button>
-        {!isActive ? (
-          <button onClick={onSetActive} disabled={settingActive}
-            className="flex-1 py-3 text-xs font-bold text-primary hover:bg-primary/5 active:scale-95 transition-all flex items-center justify-center gap-1.5 border-r border-outline-variant/10 disabled:opacity-50">
-            <span className="material-symbols-outlined text-sm">radio_button_checked</span>
-            {settingActive ? "Setting…" : "Set Active"}
-          </button>
-        ) : (
-          <button onClick={onEdit}
-            className="flex-1 py-3 text-xs font-bold text-primary hover:bg-primary/5 active:scale-95 transition-all flex items-center justify-center gap-1.5 border-r border-primary/15">
-            <span className="material-symbols-outlined text-sm">edit</span>
-            Edit
-          </button>
-        )}
+        <button onClick={onEdit}
+          className={`flex-1 py-3 text-xs font-bold text-primary hover:bg-primary/5 active:scale-95 transition-all flex items-center justify-center gap-1.5 border-r ${isActive ? "border-primary/15" : "border-outline-variant/10"}`}>
+          <span className="material-symbols-outlined text-sm">edit</span>
+          Edit
+        </button>
+        <button onClick={onToggleActive} disabled={toggling || (!isActive && !canActivate)}
+          className={`flex-1 py-3 text-xs font-bold active:scale-95 transition-all flex items-center justify-center gap-1.5 border-r disabled:opacity-40 ${isActive ? "border-primary/15 text-on-surface-variant hover:bg-surface-container" : "border-outline-variant/10 text-primary hover:bg-primary/5"}`}>
+          <span className="material-symbols-outlined text-sm">
+            {isActive ? "radio_button_unchecked" : "radio_button_checked"}
+          </span>
+          {toggling ? "…" : isActive ? "Deactivate" : "Activate"}
+        </button>
         <button onClick={onRemove}
           className="flex-1 py-3 text-xs font-bold text-tertiary hover:bg-tertiary/5 active:scale-95 transition-all flex items-center justify-center gap-1.5">
           <span className="material-symbols-outlined text-sm">person_remove</span>
@@ -330,7 +330,7 @@ function MyGuardianTab() {
   const [viewOpen, setViewOpen] = useState<ContactEntry | null>(null);
   const [removeOpen, setRemoveOpen] = useState<ContactEntry | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
-  const [settingActiveId, setSettingActiveId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [formSaving, setFormSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -358,14 +358,22 @@ function MyGuardianTab() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const handleSetActive = async (contactId: string) => {
+  const handleToggleActive = async (contactId: string) => {
     if (!user?.id) return;
-    setSettingActiveId(contactId);
-    // Optimistic update
-    setContacts((prev) => prev.map((c) => ({ ...c, is_active: c.id === contactId })));
-    await supabase.from("emergency_contacts").update({ is_active: false }).eq("user_id", user.id);
-    await supabase.from("emergency_contacts").update({ is_active: true }).eq("id", contactId);
-    setSettingActiveId(null);
+    const contact = contacts.find((c) => c.id === contactId);
+    if (!contact) return;
+    const activeCount = contacts.filter((c) => c.is_active).length;
+    if (!contact.is_active && activeCount >= 3) {
+      setError("Maximum of 3 active guardians allowed. Deactivate one first.");
+      return;
+    }
+    setTogglingId(contactId);
+    setContacts((prev) => prev.map((c) => c.id === contactId ? { ...c, is_active: !c.is_active } : c));
+    await supabase.from("emergency_contacts")
+      .update({ is_active: !contact.is_active })
+      .eq("id", contactId)
+      .eq("user_id", user.id);
+    setTogglingId(null);
     void load();
   };
 
@@ -377,13 +385,18 @@ function MyGuardianTab() {
       if (addEditOpen === "add") {
      
         // const isFirst = (count ?? 0) === 0;
+        const { count: activeCount } = await supabase
+          .from("emergency_contacts")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("is_active", true);
         const { error: e } = await supabase.from("emergency_contacts").insert({
           user_id: user.id,
           contact_name: data.name,
           contact_phone: data.phone || null,
           contact_email: data.email || null,
           status: "pending",
-          is_active: false,
+          is_active: (activeCount ?? 0) < 3,
         });
         if (e) { setFormError(e.message); return; }
       } else if (addEditOpen) {
@@ -436,10 +449,17 @@ function MyGuardianTab() {
 
   return (
     <div className="space-y-5">
-      <p className="text-xs text-on-surface-variant leading-relaxed">
-        Your guardians are notified when a critical drowsiness alert goes unacknowledged.
-        Only the <span className="font-bold text-primary">Active</span> guardian receives alerts — switch anytime.
-      </p>
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-xs text-on-surface-variant leading-relaxed">
+          Your guardians are notified when a critical drowsiness alert goes unacknowledged.
+          Up to <span className="font-bold text-primary">3</span> active guardians receive alerts — toggle anytime.
+        </p>
+        {contacts.length > 0 && (
+          <span className="shrink-0 text-[10px] font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-full whitespace-nowrap">
+            {contacts.filter((c) => c.is_active).length}/3 active
+          </span>
+        )}
+      </div>
 
       {error && (
         <div className="flex items-center gap-2.5 bg-tertiary/10 text-tertiary rounded-2xl px-4 py-3 text-sm font-medium border border-tertiary/20">
@@ -471,11 +491,12 @@ function MyGuardianTab() {
             <GuardianCard
               key={c.id}
               contact={c}
-              settingActive={settingActiveId === c.id}
+              toggling={togglingId === c.id}
+              canActivate={contacts.filter((cx) => cx.is_active).length < 3}
               onView={() => setViewOpen(c)}
               onEdit={() => { setFormError(null); setAddEditOpen(c); }}
               onRemove={() => setRemoveOpen(c)}
-              onSetActive={() => void handleSetActive(c.id)}
+              onToggleActive={() => void handleToggleActive(c.id)}
             />
           ))}
           <button onClick={() => { setFormError(null); setAddEditOpen("add"); }}

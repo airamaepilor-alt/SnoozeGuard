@@ -207,10 +207,26 @@ export function deleteLocalEC(id: string): void {
   } catch { /* ignore */ }
 }
 
-export function setActiveLocalEC(userId: string, id: string): void {
+export function toggleActiveLocalEC(userId: string, id: string): { error: string | null; nowActive: boolean } {
   try {
     const database = getDatabase();
-    database.runSync("UPDATE emergency_contacts_local SET is_active = 0 WHERE user_id = ?", userId);
+    const current = database.getFirstSync<{ is_active: number }>(
+      "SELECT is_active FROM emergency_contacts_local WHERE id = ?", id,
+    );
+    const isCurrentlyActive = (current?.is_active ?? 0) === 1;
+    if (isCurrentlyActive) {
+      database.runSync("UPDATE emergency_contacts_local SET is_active = 0 WHERE id = ?", id);
+      return { error: null, nowActive: false };
+    }
+    const countRow = database.getFirstSync<{ cnt: number }>(
+      "SELECT COUNT(*) as cnt FROM emergency_contacts_local WHERE user_id = ? AND is_active = 1", userId,
+    );
+    if ((countRow?.cnt ?? 0) >= 3) {
+      return { error: "Maximum of 3 active guardians allowed. Deactivate one first.", nowActive: false };
+    }
     database.runSync("UPDATE emergency_contacts_local SET is_active = 1 WHERE id = ?", id);
-  } catch { /* ignore */ }
+    return { error: null, nowActive: true };
+  } catch (e) {
+    return { error: String(e), nowActive: false };
+  }
 }

@@ -20,14 +20,14 @@ import {
   addEmergencyContact,
   updateEmergencyContact,
   removeEmergencyContactById,
-  setActiveEmergencyContact,
+  toggleActiveEmergencyContact,
   type EmergencyContactEntry,
 } from "../lib/emergencyNotify";
 import {
   getLocalECList,
   upsertLocalEC,
   deleteLocalEC,
-  setActiveLocalEC,
+  toggleActiveLocalEC,
   type LocalEC,
 } from "../db/database";
 import { isOnline } from "../sync/flush";
@@ -307,12 +307,13 @@ function AddEditModal({
 // ─── Guardian Card ────────────────────────────────────────────────────────────
 
 function GuardianCard({
-  contact, settingActive, onView, onSetActive, onEdit, onRemove,
+  contact, toggling, canActivate, onView, onToggleActive, onEdit, onRemove,
 }: {
   contact: LocalEC;
-  settingActive: boolean;
+  toggling: boolean;
+  canActivate: boolean;
   onView: () => void;
-  onSetActive: () => void;
+  onToggleActive: () => void;
   onEdit: () => void;
   onRemove: () => void;
 }) {
@@ -357,22 +358,20 @@ function GuardianCard({
           <Text style={[s.cardBtnText, { color: t.primary }]}>View</Text>
         </TouchableOpacity>
         <View style={[s.cardBtnDivider, { backgroundColor: isActive ? `${t.primary}15` : `${t.outlineVariant}30` }]} />
-        {isActive ? (
-          <TouchableOpacity
-            style={[s.cardBtn, { backgroundColor: `${t.primary}10` }]}
-            onPress={onEdit}>
-            <Text style={[s.cardBtnText, { color: t.primary }]}>Edit</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={[s.cardBtn, { backgroundColor: `${t.primary}10` }]}
-            onPress={onSetActive}
-            disabled={settingActive}>
-            <Text style={[s.cardBtnText, { color: t.primary, opacity: settingActive ? 0.5 : 1 }]}>
-              {settingActive ? "Setting…" : "Set Active"}
-            </Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={[s.cardBtn, { backgroundColor: `${t.primary}10` }]}
+          onPress={onEdit}>
+          <Text style={[s.cardBtnText, { color: t.primary }]}>Edit</Text>
+        </TouchableOpacity>
+        <View style={[s.cardBtnDivider, { backgroundColor: isActive ? `${t.primary}15` : `${t.outlineVariant}30` }]} />
+        <TouchableOpacity
+          style={[s.cardBtn, { backgroundColor: isActive ? `${t.onSurfaceVariant}08` : `${t.primary}10` }]}
+          onPress={onToggleActive}
+          disabled={toggling || (!isActive && !canActivate)}>
+          <Text style={[s.cardBtnText, { color: isActive ? t.onSurfaceVariant : t.primary, opacity: (toggling || (!isActive && !canActivate)) ? 0.4 : 1 }]}>
+            {toggling ? "…" : isActive ? "Deactivate" : "Activate"}
+          </Text>
+        </TouchableOpacity>
         <View style={[s.cardBtnDivider, { backgroundColor: isActive ? `${t.primary}15` : `${t.outlineVariant}30` }]} />
         <TouchableOpacity
           style={[s.cardBtn, { backgroundColor: `${t.tertiary}10` }]}
@@ -416,7 +415,7 @@ function EmergencyContactTab() {
   const [removeBusy, setRemoveBusy] = useState(false);
   const [formSaving, setFormSaving] = useState(false);
   const [formError, setFormError] = useState("");
-  const [settingActiveId, setSettingActiveId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -497,27 +496,23 @@ function EmergencyContactTab() {
     return unsub;
   }, [load]);
 
-  const handleSetActive = async (contactId: string) => {
-    console.log("[EC] Setting active contact:", contactId);
-    // Immediate local update
-    setActiveLocalEC(user.id, contactId);
-    const updated = getLocalECList(user.id);
-    console.log("[EC] Updated contacts after setActive:", updated);
-    setContacts(updated);
-    setSettingActiveId(contactId);
-
-    if (await isOnline()) {
-      const { error: e } = await setActiveEmergencyContact(supabase, user.id, contactId);
-      if (e) {
-        console.error("[EC] Failed to set active on Supabase:", e);
-        setError(e);
-      } else {
-        console.log("[EC] Successfully set active on Supabase");
-      }
-    } else {
-      console.log("[EC] Offline, set active only local");
+  const handleToggleActive = async (contactId: string) => {
+    const contact = contacts.find((c) => c.id === contactId);
+    if (!contact) return;
+    const activeCount = contacts.filter((c) => c.is_active === 1).length;
+    if (contact.is_active !== 1 && activeCount >= 3) {
+      setError("Maximum of 3 active guardians allowed. Deactivate one first.");
+      return;
     }
-    setSettingActiveId(null);
+    setTogglingId(contactId);
+    const result = toggleActiveLocalEC(user.id, contactId);
+    if (result.error) { setError(result.error); setTogglingId(null); return; }
+    setContacts(getLocalECList(user.id));
+    if (await isOnline()) {
+      const { error: e } = await toggleActiveEmergencyContact(supabase, user.id, contactId);
+      if (e) setError(e);
+    }
+    setTogglingId(null);
   };
 
   const handleSave = async (data: { name: string; phone: string; email: string }) => {
@@ -546,7 +541,7 @@ function EmergencyContactTab() {
             contact_phone: data.phone,
             contact_email: data.email,
             my_phone: myPhone,
-            is_active: contacts.length === 0 ? 1 : 0,
+            is_active: contacts.filter((c) => c.is_active === 1).length < 3 ? 1 : 0,
             status: res.status || "pending",
             pending_sync: 0,
             updated_at: new Date().toISOString(),
@@ -616,10 +611,19 @@ function EmergencyContactTab() {
     <ScrollView style={{ flex: 1 }} contentContainerStyle={s.tabContent} showsVerticalScrollIndicator={false}>
       {offline && <OfflineBanner t={t} s={s} />}
 
-      <Text style={[s.tabDesc, { color: t.onSurfaceVariant }]}>
-        Your guardians are notified when a drowsiness alert goes unacknowledged.
-        Only the <Text style={{ fontWeight: "800", color: t.primary }}>Active</Text> guardian receives alerts — switch anytime.
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", marginBottom: 16, gap: 8 }}>
+        <Text style={[s.tabDesc, { color: t.onSurfaceVariant, flex: 1, marginBottom: 0 }]}>
+          Your guardians are notified when a drowsiness alert goes unacknowledged.{" "}
+          Up to <Text style={{ fontWeight: "800", color: t.primary }}>3</Text> active guardians receive alerts — toggle anytime.
+        </Text>
+        {contacts.length > 0 && (
+          <View style={[s.activeCountBadge, { backgroundColor: `${t.primary}10` }]}>
+            <Text style={[s.activeCountText, { color: t.primary }]}>
+              {contacts.filter((cx) => cx.is_active === 1).length}/3 active
+            </Text>
+          </View>
+        )}
+      </View>
 
       {!!error && (
         <View style={[s.errorBanner, { backgroundColor: `${t.tertiary}15`, borderColor: `${t.tertiary}40` }]}>
@@ -647,9 +651,10 @@ function EmergencyContactTab() {
             <GuardianCard
               key={c.id}
               contact={c}
-              settingActive={settingActiveId === c.id}
+              toggling={togglingId === c.id}
+              canActivate={contacts.filter((cx) => cx.is_active === 1).length < 3}
               onView={() => setViewContact(c)}
-              onSetActive={() => void handleSetActive(c.id)}
+              onToggleActive={() => void handleToggleActive(c.id)}
               onEdit={() => { setFormError(""); setAddEditModal(c); }}
               onRemove={() => setRemoveContact(c)}
             />
@@ -973,6 +978,10 @@ const makeStyles = (t: Theme) =>
     emptyIcon: { width: 72, height: 72, borderRadius: 22, alignItems: "center", justifyContent: "center", marginBottom: 4 },
     emptyTitle: { fontSize: 17, fontWeight: "800", textAlign: "center" },
     emptyBody: { fontSize: 13, textAlign: "center", lineHeight: 20, maxWidth: 260 },
+
+    // Active count badge
+    activeCountBadge: { borderRadius: 99, paddingHorizontal: 10, paddingVertical: 5, alignSelf: "flex-start" },
+    activeCountText: { fontSize: 10, fontWeight: "800" },
 
     // Online indicator
     onlineDot: { width: 7, height: 7, borderRadius: 99 },

@@ -268,4 +268,11 @@
  C:/Users/Aira\ Mae\ Pilor/.platformio/packages/framework-arduinoespressif32/libraries/BLE/src/BLEUtils.h \
  C:/Users/Aira\ Mae\ Pilor/.platformio/packages/framework-arduinoespressif32/libraries/BLE/src/BLE2902.h \
  .pio/libdeps/sg_alert/DFRobotDFPlayerMini/DFRobotDFPlayerMini.h \
- include/secrets.h include/root_ca.h
+ C:/Users/Aira\ Mae\ Pilor/.platformio/packages/framework-arduinoespressif32/libraries/Preferences/src/Preferences.h \
+ C:/Users/Aira\ Mae\ Pilor/.platformio/packages/framework-arduinoespressif32/libraries/WebServer/src/WebServer.h \
+ C:/Users/Aira\ Mae\ Pilor/.platformio/packages/framework-arduinoespressif32/libraries/WebServer/src/HTTP_Method.h \
+ C:/Users/Aira\ Mae\ Pilor/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/nghttp/port/include/http_parser.h \
+ C:/Users/Aira\ Mae\ Pilor/.platformio/packages/framework-arduinoespressif32/libraries/WebServer/src/Uri.h \
+ C:/Users/Aira\ Mae\ Pilor/.platformio/packages/framework-arduinoespressif32/libraries/WebServer/src/detail/RequestHandler.h \
+ include/secrets.h include/root_ca.h \
+ C:/Users/Aira\ Mae\ Pilor/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/soc/esp32/include/soc/rtc_cntl_reg.h
