@@ -16,6 +16,7 @@ import {
   shouldAlertForLevel,
 } from "@snoozeguard/shared";
 import { playWebAlert, stopWebAlert } from "../lib/alerts/playWebAlert";
+import { getEmergencyContact, triggerEmergencyAlert, acknowledgeEmergencyAlert, type EmergencyContact } from "../lib/emergencyNotify";
 import { useAuth } from "../context/AuthContext";
 import { offlineDb } from "../lib/offline/db";
 import { supabase } from "../lib/supabase";
@@ -85,32 +86,80 @@ function SimDrowsinessAlert({
   level,
   title,
   onDismiss,
+  emergencyContact,
+  ecCountdown,
+  ecSent,
+  onNotifyNow,
 }: {
   open: boolean;
   level: number;
   title: string;
   onDismiss: () => void;
+  emergencyContact: EmergencyContact | null;
+  ecCountdown: number | null;
+  ecSent: boolean;
+  onNotifyNow: () => void;
 }) {
   if (!open) return null;
-  
+
   const levelColor =
     level <= 4 ? "text-sky-400" : level <= 6 ? "text-amber-400" : "text-red-400";
   const levelBg =
     level <= 4 ? "bg-sky-500/10 border-sky-500/30" : level <= 6 ? "bg-amber-500/10 border-amber-500/30" : "bg-red-500/10 border-red-500/30";
-  
+
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto">
-      <div className={`rounded-2xl p-6 max-w-sm text-center border ${levelBg}`}>
+      <div className={`rounded-2xl p-6 w-full max-w-sm text-center border ${levelBg}`}>
         <p className={`text-xs font-bold uppercase tracking-widest mb-2 ${levelColor}`}>
           Alert Level {level}
         </p>
-        <h2 className="text-2xl font-bold text-white mb-4">{title}</h2>
-        <p className="text-white/70 text-sm mb-6">
+        <h2 className="text-2xl font-bold text-white mb-3">{title}</h2>
+        <p className="text-white/70 text-sm mb-4">
           Drowsiness detected during simulation. Stay alert and focused on the road.
         </p>
+
+        {/* Emergency contact section — only for level 9+ */}
+        {level >= 9 && (
+          <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-left">
+            {ecCountdown !== null ? (
+              <p className="text-red-400 font-bold text-xs text-center mb-3">
+                Auto-notifying emergency contact in {ecCountdown}s
+              </p>
+            ) : ecSent ? (
+              <p className="text-emerald-400 font-bold text-xs text-center mb-3">
+                Emergency contact has been notified.
+              </p>
+            ) : null}
+            <div className="flex gap-2 flex-wrap">
+              {emergencyContact?.contact_phone && (
+                <a
+                  href={`tel:${emergencyContact.contact_phone}`}
+                  className="flex-1 py-2 px-2 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold text-center"
+                >
+                  📞 Call {emergencyContact.contact_name.split(" ")[0]}
+                </a>
+              )}
+              {emergencyContact?.contact_phone && (
+                <a
+                  href={`sms:${emergencyContact.contact_phone}?body=${encodeURIComponent("URGENT: I triggered a drowsiness alert on SnoozeGuard. Please check on me.")}`}
+                  className="flex-1 py-2 px-2 rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/30 text-xs font-bold text-center"
+                >
+                  💬 SMS
+                </a>
+              )}
+              <button
+                onClick={onNotifyNow}
+                className="flex-1 py-2 px-2 rounded-lg bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-bold"
+              >
+                🚨 Notify Now
+              </button>
+            </div>
+          </div>
+        )}
+
         <button
           onClick={onDismiss}
-          className={`px-6 py-2 rounded-lg font-bold text-white transition-colors ${
+          className={`w-full px-6 py-2.5 rounded-lg font-bold text-white transition-colors ${
             level <= 4
               ? "bg-sky-500/20 hover:bg-sky-500/30"
               : level <= 6
@@ -118,7 +167,7 @@ function SimDrowsinessAlert({
                 : "bg-red-500/20 hover:bg-red-500/30"
           }`}
         >
-          Dismiss
+          I'm alert — dismiss
         </button>
       </div>
     </div>
@@ -530,6 +579,65 @@ function PedalBar({ label, value, color }: { label: string; value: number; color
   );
 }
 
+// ── Pre-session last-alert reminder ──────────────────────────────────────────
+
+function PreSessionReminderModal({
+  reminder,
+  onReady,
+  onNotYet,
+}: {
+  reminder: { level: number } | null;
+  onReady: () => void;
+  onNotYet: () => void;
+}) {
+  if (!reminder) return null;
+  const lvl = reminder.level;
+  const accentText = lvl >= 10 ? "text-red-400" : lvl >= 8 ? "text-orange-400" : "text-amber-400";
+  const border     = lvl >= 10 ? "border-red-500/40"    : lvl >= 8 ? "border-orange-500/40"    : "border-amber-500/40";
+  const readyBtn   = lvl >= 10
+    ? "bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
+    : lvl >= 8
+    ? "bg-orange-500/20 text-orange-400 border-orange-500/30 hover:bg-orange-500/30"
+    : "bg-amber-500/20 text-amber-400 border-amber-500/30 hover:bg-amber-500/30";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm pointer-events-auto">
+      <div className={`rounded-2xl p-8 max-w-sm w-full mx-4 text-center border ${border} bg-black/90 shadow-2xl`}>
+        <div className="text-4xl mb-3">
+          {lvl >= 10 ? "🚨" : lvl >= 8 ? "⚠️" : "😴"}
+        </div>
+        <p className={`text-xs font-bold uppercase tracking-widest mb-2 ${accentText}`}>
+          Previous Session Alert
+        </p>
+        <h2 className="text-2xl font-bold text-white mb-3">
+          {lvl >= 10 ? "Last Drive: Critical Alert!" : lvl >= 8 ? "Last Drive: High Drowsiness" : "Last Drive: Drowsiness Detected"}
+        </h2>
+        <p className="text-white/70 text-sm mb-6 leading-relaxed">
+          {lvl >= 10
+            ? `Your last session hit Level ${lvl} — a Critical alert! Please only drive if you feel completely rested.`
+            : lvl >= 8
+            ? `Your last session triggered a Level ${lvl} drowsiness alert. Make sure you got enough sleep before starting.`
+            : `Your last session triggered a Level ${lvl} drowsiness alert. Make sure you're feeling fully awake before starting.`}
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={onNotYet}
+            className="flex-1 py-2.5 rounded-lg font-bold text-white/70 border border-white/10 hover:bg-white/5 transition-colors"
+          >
+            Not Yet
+          </button>
+          <button
+            onClick={onReady}
+            className={`flex-1 py-2.5 rounded-lg font-bold border transition-colors ${readyBtn}`}
+          >
+            I'm Ready
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── SimulationPage ────────────────────────────────────────────────────────────
 
 export function SimulationPage() {
@@ -546,6 +654,7 @@ export function SimulationPage() {
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [sessionDuration, setSessionDuration] = useState(0);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
+  const [preSessionReminder, setPreSessionReminder] = useState<{ level: number } | null>(null);
   const sessionTelemetryRef = useRef<any[]>([]);
 
   const [tick, setTick] = useState<SimTickState>({
@@ -587,6 +696,14 @@ export function SimulationPage() {
 
   // ── Face detection state ───────────────────────────────────────────────────
   const [faceDetected, setFaceDetected] = useState(false);
+
+  // ── Emergency contact ────────────────────────────────────────────────────────
+  const [emergencyContact, setEmergencyContact] = useState<EmergencyContact | null>(null);
+  const [ecCountdown, setEcCountdown] = useState<number | null>(null);
+  const [ecSent, setEcSent] = useState(false);
+  const ecTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ecAutoFiredRef = useRef(false);
+  const activeAlertIdRef = useRef<string | null>(null);
 
   // ── IoT device ─────────────────────────────────────────────────────────────
   const iotDeviceIdRef = useRef<string | null>(null);
@@ -661,6 +778,10 @@ export function SimulationPage() {
     }
   }));
 
+  // ── Manual level simulation (no camera needed) ─────────────────────────────
+  const manualLevelRef = useRef(0); // 0 = off, 6-10 = simulated level
+  const [manualLevelDisplay, setManualLevelDisplay] = useState(0);
+
   // ── Alert refs ─────────────────────────────────────────────────────────────
   const lastAlertRef = useRef<{ level: number; at: number } | null>(null);
   const dismissedLevelsRef = useRef<Set<number>>(new Set());
@@ -670,7 +791,57 @@ export function SimulationPage() {
 
   useEffect(() => {
     void loadAdminConfig();
-  }, [loadAdminConfig]);
+    if (user) void getEmergencyContact(supabase, user.id).then(setEmergencyContact);
+  }, [loadAdminConfig, user]);
+
+  const cycleSimLevel = useCallback(() => {
+    const steps = [0, 6, 7, 8, 9, 10];
+    const next = steps[(steps.indexOf(manualLevelRef.current) + 1) % steps.length];
+    manualLevelRef.current = next;
+    setManualLevelDisplay(next);
+  }, []);
+
+  const stopEcTimer = useCallback(() => {
+    if (ecTimerRef.current) clearInterval(ecTimerRef.current);
+    ecTimerRef.current = null;
+    setEcCountdown(null);
+  }, []);
+
+  const fireEmergencyContact = useCallback(async () => {
+    stopEcTimer();
+    if (!user) return;
+    console.log("[Sim] fireEmergencyContact called — smsEnabled:", adminRef.current.smsEnabled, "sessionId:", sessionId);
+    const driverName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? "Driver";
+    const { alertId } = await triggerEmergencyAlert(supabase, user.id, driverName, sessionId, adminRef.current.smsEnabled);
+    console.log("[Sim] fireEmergencyContact done — alertId:", alertId);
+    activeAlertIdRef.current = alertId;
+    setEcSent(true);
+  }, [user, sessionId, stopEcTimer]);
+
+  const startEcCountdown = useCallback(() => {
+    if (ecTimerRef.current) return;
+    ecAutoFiredRef.current = false;
+    setEcCountdown(120);
+    ecTimerRef.current = setInterval(() => {
+      setEcCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          if (!ecAutoFiredRef.current) {
+            ecAutoFiredRef.current = true;
+            void fireEmergencyContact();
+          }
+          if (ecTimerRef.current) clearInterval(ecTimerRef.current);
+          ecTimerRef.current = null;
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [fireEmergencyContact]);
+
+  useEffect(() => {
+    if (alertOpen && alertLevel >= 9) { setEcSent(false); startEcCountdown(); }
+    else stopEcTimer();
+  }, [alertOpen, alertLevel, startEcCountdown, stopEcTimer]);
 
   useEffect(() => {
     alertOpenRef.current = alertOpen;
@@ -870,7 +1041,9 @@ export function SimulationPage() {
       headTiltLastTickRef.current = headTiltAccRef.current;
       suddenBrakeLastTickRef.current = suddenBrakeAccRef.current;
 
-      const level = computeLevelFromAlertMap(yawnAccRef.current, headAccRef.current, false, ar.map);
+      const level = manualLevelRef.current > 0
+        ? manualLevelRef.current
+        : computeLevelFromAlertMap(yawnAccRef.current, headAccRef.current, false, ar.map);
 
       setLiveLevel(level);
       setLiveYawns(yawnAccRef.current);
@@ -954,9 +1127,15 @@ export function SimulationPage() {
   const dismissAlert = useCallback(() => {
     dismissedLevelsRef.current.add(alertLevelRef.current);
     stopWebAlert();
+    stopEcTimer();
+    if (activeAlertIdRef.current) {
+      void acknowledgeEmergencyAlert(supabase, activeAlertIdRef.current);
+      activeAlertIdRef.current = null;
+    }
+    setEcSent(false);
     setAlertOpen(false);
     if (iotAlertIdRef.current && iotDeviceIdRef.current && IOT_API_URL) {
-      const alertId = iotAlertIdRef.current;
+      const iotId = iotAlertIdRef.current;
       const deviceId = iotDeviceIdRef.current;
       iotAlertIdRef.current = null;
       void supabase.auth.getSession().then(({ data: { session } }) => {
@@ -967,11 +1146,11 @@ export function SimulationPage() {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ device_id: deviceId, alert_id: alertId }),
+          body: JSON.stringify({ device_id: deviceId, alert_id: iotId }),
         });
       });
     }
-  }, []);
+  }, [stopEcTimer]);
 
   // ── Session start / end handlers ───────────────────────────────────────────
 
@@ -992,6 +1171,8 @@ export function SimulationPage() {
         deviceType: "web",
         endedSynced: 0,
       });
+      // Create the remote row immediately so emergency_alert_events FK is satisfied
+      await ensureRemoteSession(supabase, user.id, newSessionId);
       setSessionId(newSessionId);
       setSessionStartTime(now);
       setSessionDuration(0);
@@ -1048,6 +1229,35 @@ export function SimulationPage() {
       setShowEndConfirm(false);
     }
   }, [sessionId, sessionStartTime, liveLevel, user, navigate]);
+
+  const checkAndPromptStart = useCallback(async () => {
+    if (!user) { void startSimulationSession(); return; }
+    try {
+      const { data: lastSession } = await supabase
+        .from("driving_sessions")
+        .select("id")
+        .eq("user_id", user.id)
+        .not("ended_at", "is", null)
+        .order("ended_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (lastSession?.id) {
+        const { data: peakTel } = await supabase
+          .from("session_telemetry")
+          .select("drowsiness_level")
+          .eq("session_id", lastSession.id)
+          .order("drowsiness_level", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const peak = Number(peakTel?.drowsiness_level ?? 0);
+        if (peak >= 6) {
+          setPreSessionReminder({ level: peak });
+          return;
+        }
+      }
+    } catch { /* ignore, just start */ }
+    void startSimulationSession();
+  }, [user, startSimulationSession]);
 
   // ── Session duration timer ─────────────────────────────────────────────────
 
@@ -1280,15 +1490,28 @@ export function SimulationPage() {
 
                 {/* Session buttons */}
                 {sessionId ? (
-                  <button
-                    onClick={() => setShowEndConfirm(true)}
-                    className="w-full mt-2 pt-2 border-t border-white/10 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded font-bold text-[10px] uppercase tracking-wider transition-colors pointer-events-auto"
-                  >
-                    End Session
-                  </button>
+                  <>
+                    <button
+                      onClick={() => setShowEndConfirm(true)}
+                      className="w-full mt-2 pt-2 border-t border-white/10 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded font-bold text-[10px] uppercase tracking-wider transition-colors pointer-events-auto"
+                    >
+                      End Session
+                    </button>
+                    <button
+                      onClick={cycleSimLevel}
+                      className={`w-full py-1.5 rounded font-bold text-[10px] uppercase tracking-wider transition-colors pointer-events-auto flex items-center justify-center gap-1 ${
+                        manualLevelDisplay > 0
+                          ? "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
+                          : "bg-white/5 text-white/40 hover:bg-white/10"
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[12px] leading-none">science</span>
+                      {manualLevelDisplay === 0 ? "Sim Level: Off" : `Sim Lvl ${manualLevelDisplay} — advance`}
+                    </button>
+                  </>
                 ) : (
                   <button
-                    onClick={() => void startSimulationSession()}
+                    onClick={() => void checkAndPromptStart()}
                     className="w-full mt-2 pt-2 border-t border-white/10 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 rounded font-bold text-[10px] uppercase tracking-wider transition-colors pointer-events-auto"
                   >
                     Start Session
@@ -1400,6 +1623,17 @@ export function SimulationPage() {
         level={alertLevel}
         title={alertTitle}
         onDismiss={dismissAlert}
+        emergencyContact={emergencyContact}
+        ecCountdown={ecCountdown}
+        ecSent={ecSent}
+        onNotifyNow={() => void fireEmergencyContact()}
+      />
+
+      {/* ── Pre-session reminder ─────────────────────────────────────────────── */}
+      <PreSessionReminderModal
+        reminder={preSessionReminder}
+        onReady={() => { setPreSessionReminder(null); void startSimulationSession(); }}
+        onNotYet={() => setPreSessionReminder(null)}
       />
 
       {/* ── End session confirmation modal ─────────────────────────────────── */}

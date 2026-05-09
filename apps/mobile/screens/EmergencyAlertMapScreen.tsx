@@ -412,82 +412,103 @@ export function EmergencyAlertMapScreen({ onActionDone }: { onActionDone?: () =>
           )}
 
           {selected && (
-            <View style={styles.card}>
-              <View style={[styles.badge, styles.badgeActive]}>
-                <Text style={[styles.badgeText, { color: selected.status === "active" ? theme.tertiary : theme.onSurfaceVariant }]}>
-                  {selected.status === "active" ? "🚨  DROWSINESS ALERT" : selected.status === "alerted" ? "🔔  ALERTED" : "✓  RESOLVED"}
-                </Text>
+            selected.status === "dismissed" ? (
+              /* ── Compact resolved card (grayed out, no actions) ── */
+              <View style={[styles.card, styles.resolvedCard]}>
+                <View style={styles.resolvedRow}>
+                  <View style={styles.resolvedAvatar}>
+                    <Text style={styles.resolvedAvatarText}>
+                      {(selected.driver_name ?? "D").charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.resolvedName}>{selected.driver_name ?? "Driver"}</Text>
+                    <Text style={styles.resolvedTime}>
+                      {new Date(selected.created_at).toLocaleString()}
+                    </Text>
+                  </View>
+                  <Text style={styles.resolvedLabel}>RESOLVED</Text>
+                </View>
               </View>
-
-              <Text style={styles.driverName}>{selected.driver_name ?? "Driver"}</Text>
-              <Text style={styles.alertMessage}>
-                Critical drowsiness detected — pull over and rest immediately.
-              </Text>
-              <Text style={styles.timeText}>
-                Triggered at {new Date(selected.created_at).toLocaleString()}
-              </Text>
-
-              {/* Call + SMS side by side */}
-              {selected.driver_phone ? (
-                <View style={styles.contactRow}>
-                  <Pressable
-                    style={styles.callBtn}
-                    onPress={() => void Linking.openURL(`tel:${selected.driver_phone}`)}
-                  >
-                    <Text style={styles.callBtnText}>📞  Call</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.smsBtn}
-                    onPress={() =>
-                      void Linking.openURL(
-                        `sms:${selected.driver_phone}?body=Got your SnoozeGuard alert — are you okay?`,
-                      )
-                    }
-                  >
-                    <Text style={styles.smsBtnText}>💬  SMS</Text>
-                  </Pressable>
-                </View>
-              ) : (
-                <View style={styles.noPhoneNote}>
-                  <Text style={styles.noPhoneText}>No phone number on file for this driver</Text>
-                </View>
-              )}
-
-              {selected.location_lat && selected.location_lng ? (
-                <View style={styles.locationBlock}>
-                  <Text style={styles.locationLabel}>LAST KNOWN LOCATION</Text>
-                  <Text style={styles.coords}>
-                    {selected.location_lat.toFixed(6)}, {selected.location_lng.toFixed(6)}
+            ) : (
+              /* ── Full active / alerted card ── */
+              <View style={styles.card}>
+                <View style={[styles.badge, styles.badgeActive]}>
+                  <Text style={[styles.badgeText, { color: selected.status === "active" ? theme.tertiary : theme.onSurfaceVariant }]}>
+                    {selected.status === "active" ? "🚨  DROWSINESS ALERT" : "🔔  ALERTED"}
                   </Text>
-                  <Pressable
-                    style={styles.mapsBtn}
-                    onPress={() =>
-                      void Linking.openURL(
-                        `https://maps.google.com/?q=${selected.location_lat},${selected.location_lng}`,
-                      )
-                    }
-                  >
-                    <Text style={styles.mapsBtnText}>🗺  Open in Google Maps</Text>
-                  </Pressable>
                 </View>
-              ) : (
-                <View style={styles.locationBlock}>
-                  <Text style={styles.locationLabel}>LOCATION</Text>
-                  <Text style={styles.noLocationText}>Not captured for this alert</Text>
-                </View>
-              )}
 
-              <Pressable
-                style={styles.resolveBtn}
-                onPress={async () => {
-                  await dismissEmergencyAlert(supabase, selected.id);
-                  void load();
-                  onActionDone?.();
-                }}
-              >
-                <Text style={styles.resolveText}>Mark as resolved</Text>
-              </Pressable>
-            </View>
+                <Text style={styles.driverName}>{selected.driver_name ?? "Driver"}</Text>
+                <Text style={styles.alertMessage}>
+                  Critical drowsiness detected — pull over and rest immediately.
+                </Text>
+                <Text style={styles.timeText}>
+                  Triggered at {new Date(selected.created_at).toLocaleString()}
+                </Text>
+
+                {/* Call + SMS */}
+                {selected.driver_phone ? (
+                  <View style={styles.contactRow}>
+                    <Pressable
+                      style={styles.callBtn}
+                      onPress={() => void Linking.openURL(`tel:${selected.driver_phone}`)}
+                    >
+                      <Text style={styles.callBtnText}>📞  Call</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.smsBtn}
+                      onPress={() =>
+                        void Linking.openURL(
+                          `sms:${selected.driver_phone}?body=Got your SnoozeGuard alert — are you okay?`,
+                        )
+                      }
+                    >
+                      <Text style={styles.smsBtnText}>💬  SMS</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View style={styles.noPhoneNote}>
+                    <Text style={styles.noPhoneText}>No phone number on file for this driver</Text>
+                  </View>
+                )}
+
+                {selected.location_lat && selected.location_lng ? (
+                  <View style={styles.locationBlock}>
+                    <Text style={styles.locationLabel}>LAST KNOWN LOCATION</Text>
+                    <Text style={styles.coords}>
+                      {selected.location_lat.toFixed(6)}, {selected.location_lng.toFixed(6)}
+                    </Text>
+                    <Pressable
+                      style={styles.mapsBtn}
+                      onPress={() =>
+                        void Linking.openURL(
+                          `https://maps.google.com/?q=${selected.location_lat},${selected.location_lng}`,
+                        )
+                      }
+                    >
+                      <Text style={styles.mapsBtnText}>🗺  Open in Google Maps</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View style={styles.locationBlock}>
+                    <Text style={styles.locationLabel}>LOCATION</Text>
+                    <Text style={styles.noLocationText}>Not captured for this alert</Text>
+                  </View>
+                )}
+
+                <Pressable
+                  style={styles.resolveBtn}
+                  onPress={async () => {
+                    await dismissEmergencyAlert(supabase, selected.id);
+                    void load();
+                    onActionDone?.();
+                  }}
+                >
+                  <Text style={styles.resolveText}>Mark as resolved</Text>
+                </Pressable>
+              </View>
+            )
           )}
         </View>
       )}
@@ -571,4 +592,16 @@ const makeStyles = (t: Theme) => StyleSheet.create({
 
   resolveBtn: { alignItems: "center", paddingVertical: 10 },
   resolveText: { color: t.tertiary, fontSize: 13, textDecorationLine: "underline" },
+
+  resolvedCard: { opacity: 0.55, backgroundColor: `${t.surfaceContainerHigh}99` },
+  resolvedRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  resolvedAvatar: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: `${t.outlineVariant}55`,
+    alignItems: "center", justifyContent: "center",
+  },
+  resolvedAvatarText: { color: t.onSurfaceVariant, fontWeight: "700", fontSize: 16 },
+  resolvedName: { color: t.onSurfaceVariant, fontWeight: "700", fontSize: 15 },
+  resolvedTime: { color: t.onSurfaceVariant, fontSize: 11, marginTop: 2, opacity: 0.7 },
+  resolvedLabel: { color: t.primary, fontSize: 10, fontWeight: "800", letterSpacing: 0.8 },
 });

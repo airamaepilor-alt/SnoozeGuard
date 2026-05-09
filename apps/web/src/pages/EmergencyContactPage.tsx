@@ -264,7 +264,8 @@ function GuardianCard({
   onToggleActive: () => void;
 }) {
   const isActive = contact.is_active;
-  const ecStatus: ContactStatus = contact.status === "pending" ? "pending" : "accepted";
+  const isPending = contact.status === "pending";
+  const ecStatus: ContactStatus = isPending ? "pending" : "accepted";
 
   return (
     <div className={`rounded-3xl overflow-hidden border transition-all ${
@@ -299,12 +300,12 @@ function GuardianCard({
           <span className="material-symbols-outlined text-sm">edit</span>
           Edit
         </button>
-        <button onClick={onToggleActive} disabled={toggling || (!isActive && !canActivate)}
-          className={`flex-1 py-3 text-xs font-bold active:scale-95 transition-all flex items-center justify-center gap-1.5 border-r disabled:opacity-40 ${isActive ? "border-primary/15 text-on-surface-variant hover:bg-surface-container" : "border-outline-variant/10 text-primary hover:bg-primary/5"}`}>
+        <button onClick={onToggleActive} disabled={toggling || (!isActive && !canActivate) || (!isActive && isPending)}
+          className={`flex-1 py-3 text-xs font-bold active:scale-95 transition-all flex items-center justify-center gap-1.5 border-r disabled:opacity-40 ${isActive ? "border-primary/15 text-on-surface-variant hover:bg-surface-container" : isPending ? "border-outline-variant/10 text-on-surface-variant" : "border-outline-variant/10 text-primary hover:bg-primary/5"}`}>
           <span className="material-symbols-outlined text-sm">
-            {isActive ? "radio_button_unchecked" : "radio_button_checked"}
+            {isActive ? "radio_button_unchecked" : isPending ? "hourglass_empty" : "radio_button_checked"}
           </span>
-          {toggling ? "…" : isActive ? "Deactivate" : "Activate"}
+          {toggling ? "…" : isActive ? "Deactivate" : isPending ? "Pending" : "Activate"}
         </button>
         <button onClick={onRemove}
           className="flex-1 py-3 text-xs font-bold text-tertiary hover:bg-tertiary/5 active:scale-95 transition-all flex items-center justify-center gap-1.5">
@@ -362,6 +363,10 @@ function MyGuardianTab() {
     if (!user?.id) return;
     const contact = contacts.find((c) => c.id === contactId);
     if (!contact) return;
+    if (!contact.is_active && contact.status === "pending") {
+      setError("Guardian has not accepted the request yet. Wait for their confirmation.");
+      return;
+    }
     const activeCount = contacts.filter((c) => c.is_active).length;
     if (!contact.is_active && activeCount >= 3) {
       setError("Maximum of 3 active guardians allowed. Deactivate one first.");
@@ -383,22 +388,52 @@ function MyGuardianTab() {
     setFormError(null);
     try {
       if (addEditOpen === "add") {
-     
-        // const isFirst = (count ?? 0) === 0;
-        const { count: activeCount } = await supabase
+        const { data: newRow, error: e } = await supabase
           .from("emergency_contacts")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id)
-          .eq("is_active", true);
-        const { error: e } = await supabase.from("emergency_contacts").insert({
-          user_id: user.id,
-          contact_name: data.name,
-          contact_phone: data.phone || null,
-          contact_email: data.email || null,
-          status: "pending",
-          is_active: (activeCount ?? 0) < 3,
-        });
+          .insert({
+            user_id: user.id,
+            contact_name: data.name,
+            contact_phone: data.phone || null,
+            contact_email: data.email || null,
+            status: "pending",
+            // Pending contacts must accept first — never auto-activate them.
+            is_active: false,
+          })
+          .select("id, accept_token")
+          .single();
+
         if (e) { setFormError(e.message); return; }
+
+        // Send email + SMS invitation via Edge Function (non-fatal)
+        const row = newRow as { id: string; accept_token: string } | null;
+        if (row?.accept_token && (data.email || data.phone)) {
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("full_name")
+            .eq("id", user.id)
+            .maybeSingle();
+          const driverName = (profile as { full_name?: string } | null)?.full_name ?? "A SnoozeGuard user";
+          const fnUrl = `${supabaseUrl}/functions/v1/notify-guardian`;
+          console.log("[notify-guardian] Calling:", fnUrl, "token:", row.accept_token);
+          fetch(fnUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY as string}`,
+              "x-snoozeguard-secret": import.meta.env.VITE_SMS_FUNCTION_SECRET as string,
+            },
+            body: JSON.stringify({
+              driverName,
+              contactEmail: data.email || null,
+              contactPhone: data.phone || null,
+              token: row.accept_token,
+            }),
+          }).then(async (r) => {
+            const txt = await r.text();
+            console.log("[notify-guardian] HTTP", r.status, txt);
+          }).catch((err) => console.error("[notify-guardian] Fetch error:", err));
+        }
       } else if (addEditOpen) {
         const { error: e } = await supabase.from("emergency_contacts")
           .update({ contact_name: data.name, contact_phone: data.phone || null, contact_email: data.email || null })
@@ -492,7 +527,7 @@ function MyGuardianTab() {
               key={c.id}
               contact={c}
               toggling={togglingId === c.id}
-              canActivate={contacts.filter((cx) => cx.is_active).length < 3}
+              canActivate={contacts.filter((cx) => cx.is_active).length < 3 && c.status !== "pending"}
               onView={() => setViewOpen(c)}
               onEdit={() => { setFormError(null); setAddEditOpen(c); }}
               onRemove={() => setRemoveOpen(c)}

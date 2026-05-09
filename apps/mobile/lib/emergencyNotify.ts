@@ -87,7 +87,9 @@ export async function listEmergencyContacts(
   }));
 }
 
-/** Adds a new emergency contact. Automatically activates it if it's the first one. */
+/** Adds a new emergency contact. Automatically activates it if under the 3-limit.
+ *  Status is always "pending" when an email or phone is provided — the contact
+ *  must accept via email/SMS magic link before alerts fire for them. */
 export async function addEmergencyContact(
   supabase: SupabaseClient,
   userId: string,
@@ -96,15 +98,27 @@ export async function addEmergencyContact(
   const contactUserId = contact.contact_email
     ? await lookupUserByEmail(supabase, contact.contact_email)
     : null;
-  const status: "pending" | "accepted" = contactUserId ? "pending" : "accepted";
 
-  // If no contacts exist yet, make this one active
+  // Always "pending" when an email or phone is provided so the guardian must
+  // accept via the magic link before they receive alerts.
+  const status: "pending" | "accepted" =
+    contact.contact_email || contact.contact_phone ? "pending" : "accepted";
+
+  // Fetch driver name upfront — used for both push and email/SMS notifications.
+  const { data: driverProfile } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", userId)
+    .maybeSingle();
+  const driverName = (driverProfile as { full_name?: string } | null)?.full_name ?? "A SnoozeGuard user";
+
   const { count: activeCount } = await supabase
     .from("emergency_contacts")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
     .eq("is_active", true);
-  const shouldAutoActivate = (activeCount ?? 0) < 3;
+  // Only auto-activate accepted contacts — pending ones must accept the invitation first.
+  const shouldAutoActivate = status === "accepted" && (activeCount ?? 0) < 3;
 
   const { data, error } = await supabase
     .from("emergency_contacts")
@@ -117,22 +131,17 @@ export async function addEmergencyContact(
       status,
       is_active: shouldAutoActivate,
     })
-    .select("id")
+    .select("id, accept_token")
     .single();
 
   if (error) return { error: error.message, id: null, status };
 
-  const newId = (data as { id: string } | null)?.id ?? null;
+  const row = data as { id: string; accept_token: string } | null;
+  const newId = row?.id ?? null;
+  const acceptToken = row?.accept_token ?? null;
 
-  // Notify the contact via push if they're registered
-  if (contactUserId && status === "pending") {
-    const { data: driverProfile } = await supabase
-      .from("profiles")
-      .select("full_name")
-      .eq("id", userId)
-      .maybeSingle();
-    const driverName = (driverProfile as { full_name?: string } | null)?.full_name ?? "A SnoozeGuard user";
-
+  // ── Push notification for existing SnoozeGuard users ──────────────────────
+  if (contactUserId) {
     const { data: tokenRow } = await supabase
       .from("push_tokens")
       .select("expo_push_token")
@@ -151,6 +160,35 @@ export async function addEmergencyContact(
           priority: "default",
         }),
       }).catch(() => { /* non-fatal */ });
+    }
+  }
+
+  // ── Email + SMS magic link via Edge Function ───────────────────────────────
+  if (acceptToken && (contact.contact_email || contact.contact_phone)) {
+    const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
+    const fnUrl = `${supabaseUrl}/functions/v1/notify-guardian`;
+    console.log("[notify-guardian] Calling edge function:", fnUrl);
+    console.log("[notify-guardian] token:", acceptToken, "email:", contact.contact_email || null, "phone:", contact.contact_phone || null);
+    try {
+      const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "";
+      const res = await fetch(fnUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${anonKey}`,
+          "x-snoozeguard-secret": SMS_FUNCTION_SECRET,
+        },
+        body: JSON.stringify({
+          driverName,
+          contactEmail: contact.contact_email || null,
+          contactPhone: contact.contact_phone || null,
+          token: acceptToken,
+        }),
+      });
+      const body = await res.text();
+      console.log("[notify-guardian] HTTP", res.status, body);
+    } catch (err) {
+      console.error("[notify-guardian] Fetch error:", err);
     }
   }
 
@@ -320,7 +358,7 @@ export async function acceptContactRequest(
 ): Promise<void> {
   await supabase
     .from("emergency_contacts")
-    .update({ status: "accepted" })
+    .update({ status: "accepted", is_active: true })
     .eq("id", requestId);
 }
 
@@ -330,7 +368,7 @@ export async function declineContactRequest(
 ): Promise<void> {
   await supabase
     .from("emergency_contacts")
-    .delete()
+    .update({ status: "rejected" })
     .eq("id", requestId);
 }
 
@@ -369,35 +407,41 @@ export async function captureLocation(): Promise<LocationSnapshot | null> {
 
 const SMS_FUNCTION_SECRET = "sg-sms-2026";
 
-async function sendAutoSms(
-  supabase: SupabaseClient,
-  phone: string,
-  driverName: string,
-  location: LocationSnapshot | null,
-): Promise<void> {
-  if (!phone?.trim()) {
-    console.log("[SMS] Skipped — phone is empty");
-    return;
-  }
-  console.log("[SMS] Invoking dynamic-worker for phone:", phone.trim().slice(0, 6) + "***");
+async function sendAlertNotification(opts: {
+  phone?: string | null;
+  contactEmail?: string | null;
+  alertId?: string | null;
+  driverName: string;
+  location: LocationSnapshot | null;
+}): Promise<void> {
+  const { phone, contactEmail, alertId, driverName, location } = opts;
+  if (!phone?.trim() && !contactEmail) return;
+
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
+  const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  const fnUrl = `${supabaseUrl}/functions/v1/dynamic-worker`;
+  console.log("[Alert] Notifying — phone:", phone ? phone.slice(0, 6) + "***" : "none", "email:", contactEmail ? "yes" : "no");
   try {
-    const res = await fetch("https://cjxxdqyhqscfklktxohq.supabase.co/functions/v1/dynamic-worker", {
+    const res = await fetch(fnUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Authorization": `Bearer ${anonKey}`,
         "x-snoozeguard-secret": SMS_FUNCTION_SECRET,
       },
       body: JSON.stringify({
-        phone: phone.trim(),
+        phone: phone?.trim() || null,
+        contactEmail: contactEmail || null,
+        alertId: alertId || null,
         driverName,
         lat: location?.lat ?? null,
         lng: location?.lng ?? null,
       }),
     });
     const text = await res.text();
-    console.log("[SMS] Status:", res.status, "Response:", text.slice(0, 200));
+    console.log("[Alert] Notification HTTP", res.status, text.slice(0, 300));
   } catch (e) {
-    console.log("[SMS] Exception:", String(e));
+    console.log("[Alert] Notification exception:", String(e));
   }
 }
 
@@ -410,11 +454,13 @@ export async function triggerEmergencyAlert(
   sessionId: string | null,
   smsEnabled?: boolean,
 ): Promise<{ alertId: string | null; location: LocationSnapshot | null }> {
-  console.log("[Alert] triggerEmergencyAlert — smsEnabled:", smsEnabled, "userId:", userId);
-  const location = await captureLocation();
-  console.log("[Alert] Location captured:", location ? `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}` : "null");
+  console.log("[Alert] ===== triggerEmergencyAlert START =====");
+  console.log("[Alert] userId:", userId, "driverName:", driverName, "smsEnabled:", smsEnabled, "sessionId:", sessionId);
 
-  const { data } = await supabase
+  const location = await captureLocation();
+  console.log("[Alert] Location:", location ? `${location.lat.toFixed(5)},${location.lng.toFixed(5)} acc=${location.accuracy}` : "null");
+
+  const { data: insertData, error: insertError } = await supabase
     .from("emergency_alert_events")
     .insert({
       user_id: userId,
@@ -426,14 +472,25 @@ export async function triggerEmergencyAlert(
     .select("id")
     .single();
 
-  const alertId = data?.id ?? null;
+  const alertId = (insertData as { id?: string } | null)?.id ?? null;
+  console.log("[Alert] Insert alert event — alertId:", alertId, "insertError:", insertError?.message ?? "none");
+
+  // Fetch ALL contacts for this user (no is_active filter) so we can log the full picture
+  const { data: allRows, error: allErr } = await supabase
+    .from("emergency_contacts")
+    .select("id, contact_name, contact_phone, contact_email, contact_user_id, status, is_active")
+    .eq("user_id", userId);
+
+  console.log("[Alert] All EC rows for user:", JSON.stringify(allRows ?? []), "error:", allErr?.message ?? "none");
 
   // Notify all active accepted emergency contacts (up to 3)
-  const { data: activeRows } = await supabase
+  const { data: activeRows, error: activeErr } = await supabase
     .from("emergency_contacts")
     .select("id, contact_name, contact_phone, contact_email, contact_user_id, status")
     .eq("user_id", userId)
     .eq("is_active", true);
+
+  console.log("[Alert] Active EC rows (is_active=true):", JSON.stringify(activeRows ?? []), "error:", activeErr?.message ?? "none");
 
   const activeContacts: EmergencyContact[] = ((activeRows ?? []) as Array<Record<string, unknown>>).map((row) => ({
     id: row.id as string,
@@ -445,10 +502,10 @@ export async function triggerEmergencyAlert(
   }));
 
   const acceptedContacts = activeContacts.filter((ec) => ec.status === "accepted");
-  console.log("[Alert] Active ECs:", activeContacts.length, "accepted:", acceptedContacts.length);
+  console.log("[Alert] Active:", activeContacts.length, "Accepted+Active:", acceptedContacts.length);
 
   if (acceptedContacts.length === 0) {
-    console.log("[Alert] Skipping notifications — no accepted active contacts");
+    console.log("[Alert] STOPPING — no accepted+active contacts. Check DB rows above.");
     return { alertId, location };
   }
 
@@ -457,7 +514,7 @@ export async function triggerEmergencyAlert(
     : `${driverName} triggered a drowsiness alert — please check in.`;
 
   for (const ec of acceptedContacts) {
-    console.log("[Alert] Notifying:", ec.contact_name, "userId:", ec.contact_user_id ? "yes" : "no");
+    console.log("[Alert] Processing contact:", ec.contact_name, "phone:", ec.contact_phone ? "yes" : "no", "email:", ec.contact_email ? "yes" : "no", "contact_user_id:", ec.contact_user_id ?? "none");
 
     if (ec.contact_user_id) {
       const { data: tokenRow } = await supabase
@@ -466,28 +523,44 @@ export async function triggerEmergencyAlert(
         .eq("user_id", ec.contact_user_id)
         .maybeSingle();
 
-      if (tokenRow?.expo_push_token) {
-        await fetch("https://exp.host/--/api/v2/push/send", {
+      const token = (tokenRow as { expo_push_token?: string } | null)?.expo_push_token;
+      console.log("[Alert] Push token for contact:", token ? token.slice(0, 20) + "..." : "none");
+
+      if (token) {
+        const pushRes = await fetch("https://exp.host/--/api/v2/push/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            to: tokenRow.expo_push_token,
+            to: token,
             title: "Check in on a driver",
             body: pushBody,
             data: { alertId, userId, lat: location?.lat, lng: location?.lng },
             sound: "default",
             priority: "high",
           }),
-        }).catch(() => { /* non-fatal */ });
+        }).catch((e) => { console.log("[Alert] Push fetch error:", String(e)); return null; });
+        console.log("[Alert] Push HTTP:", pushRes?.status ?? "failed");
       }
     }
 
-    console.log("[Alert] SMS check — smsEnabled:", smsEnabled, "phone:", ec.contact_phone ? "yes" : "no");
-    if (smsEnabled && ec.contact_phone) {
-      await sendAutoSms(supabase, ec.contact_phone, driverName, location);
+    const willSendSms = Boolean(smsEnabled && ec.contact_phone);
+    const willSendEmail = Boolean(ec.contact_email);
+    console.log("[Alert] Will send SMS:", willSendSms, "Will send email:", willSendEmail);
+
+    if (willSendSms || willSendEmail) {
+      await sendAlertNotification({
+        phone: willSendSms ? ec.contact_phone : null,
+        contactEmail: willSendEmail ? ec.contact_email : null,
+        alertId,
+        driverName,
+        location,
+      });
+    } else {
+      console.log("[Alert] Skipping dynamic-worker — no phone (or SMS disabled) and no email for this contact");
     }
   }
 
+  console.log("[Alert] ===== triggerEmergencyAlert END =====");
   return { alertId, location };
 }
 
@@ -497,7 +570,7 @@ export async function acknowledgeEmergencyAlert(
 ): Promise<void> {
   await supabase
     .from("emergency_alert_events")
-    .update({ status: "alerted", acknowledged_at: new Date().toISOString() })
+    .update({ status: "dismissed", dismissed_at: new Date().toISOString() })
     .eq("id", alertId);
 }
 

@@ -320,7 +320,8 @@ function GuardianCard({
   const t = useTheme();
   const s = useMemo(() => makeStyles(t), [t]);
   const isActive = contact.is_active === 1;
-  const ecStatus: ContactStatus = contact.status === "pending" ? "pending" : "accepted";
+  const isPending = contact.status === "pending";
+  const ecStatus: ContactStatus = isPending ? "pending" : "accepted";
   const { label, variant } = statusDisplay(ecStatus);
   const badgeColor = variant === "primary" ? t.primary : variant === "secondary" ? t.secondary : t.tertiary;
 
@@ -367,9 +368,9 @@ function GuardianCard({
         <TouchableOpacity
           style={[s.cardBtn, { backgroundColor: isActive ? `${t.onSurfaceVariant}08` : `${t.primary}10` }]}
           onPress={onToggleActive}
-          disabled={toggling || (!isActive && !canActivate)}>
-          <Text style={[s.cardBtnText, { color: isActive ? t.onSurfaceVariant : t.primary, opacity: (toggling || (!isActive && !canActivate)) ? 0.4 : 1 }]}>
-            {toggling ? "…" : isActive ? "Deactivate" : "Activate"}
+          disabled={toggling || (!isActive && !canActivate) || (!isActive && isPending)}>
+          <Text style={[s.cardBtnText, { color: isActive ? t.onSurfaceVariant : isPending ? t.onSurfaceVariant : t.primary, opacity: (toggling || (!isActive && !canActivate) || (!isActive && isPending)) ? 0.4 : 1 }]}>
+            {toggling ? "…" : isActive ? "Deactivate" : isPending ? "Pending" : "Activate"}
           </Text>
         </TouchableOpacity>
         <View style={[s.cardBtnDivider, { backgroundColor: isActive ? `${t.primary}15` : `${t.outlineVariant}30` }]} />
@@ -499,6 +500,10 @@ function EmergencyContactTab() {
   const handleToggleActive = async (contactId: string) => {
     const contact = contacts.find((c) => c.id === contactId);
     if (!contact) return;
+    if (contact.is_active !== 1 && contact.status === "pending") {
+      setError("Guardian has not accepted the request yet. Wait for their confirmation.");
+      return;
+    }
     const activeCount = contacts.filter((c) => c.is_active === 1).length;
     if (contact.is_active !== 1 && activeCount >= 3) {
       setError("Maximum of 3 active guardians allowed. Deactivate one first.");
@@ -652,7 +657,7 @@ function EmergencyContactTab() {
               key={c.id}
               contact={c}
               toggling={togglingId === c.id}
-              canActivate={contacts.filter((cx) => cx.is_active === 1).length < 3}
+              canActivate={contacts.filter((cx) => cx.is_active === 1).length < 3 && c.status !== "pending"}
               onView={() => setViewContact(c)}
               onToggleActive={() => void handleToggleActive(c.id)}
               onEdit={() => { setFormError(""); setAddEditModal(c); }}

@@ -237,34 +237,32 @@ export function DrowsinessAlertOverlay({
                 Emergency contact has been notified.
               </p>
             ) : null}
-            {emergencyContact && (
-              <div className="flex gap-2 flex-wrap">
-                {emergencyContact.contact_phone && (
+            <div className="flex gap-2 flex-wrap">
+              {emergencyContact && emergencyContact.contact_phone && (
+                <>
                   <a
                     href={`tel:${emergencyContact.contact_phone}`}
                     className="flex-1 text-center py-2 bg-green-500/20 border border-green-500/40 rounded-xl text-xs font-bold text-on-surface min-w-0"
                   >
                     📞 Call {emergencyContact.contact_name}
                   </a>
-                )}
-                {emergencyContact.contact_phone && (
                   <a
                     href={`sms:${emergencyContact.contact_phone}?body=URGENT: I triggered a drowsiness alert on SnoozeGuard. Please check on me or call me immediately.`}
                     className="flex-1 text-center py-2 bg-primary/20 border border-primary/40 rounded-xl text-xs font-bold text-on-surface min-w-0"
                   >
                     💬 SMS
                   </a>
-                )}
-                {onNotifyNow && (
-                  <button
-                    onClick={onNotifyNow}
-                    className="flex-1 py-2 bg-tertiary/20 border border-tertiary/40 rounded-xl text-xs font-bold text-on-surface min-w-0"
-                  >
-                    🚨 Notify Now
-                  </button>
-                )}
-              </div>
-            )}
+                </>
+              )}
+              {onNotifyNow && (
+                <button
+                  onClick={onNotifyNow}
+                  className="flex-1 py-2 bg-tertiary/20 border border-tertiary/40 rounded-xl text-xs font-bold text-on-surface min-w-0"
+                >
+                  🚨 Notify Now
+                </button>
+              )}
+            </div>
           </div>
         )}
 

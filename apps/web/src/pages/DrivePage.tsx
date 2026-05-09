@@ -130,8 +130,8 @@ export function DrivePage() {
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
 
-  const useManualOverride = false;
-  const manualLevel = 4;
+  const manualLevelRef = useRef(0); // 0 = off, 6-10 = simulated level
+  const [manualLevelDisplay, setManualLevelDisplay] = useState(0);
 
   // ── Alert state ─────────────────────────────────────────────────────────
   const [alertOpen, setAlertOpen] = useState(false);
@@ -145,6 +145,7 @@ export function DrivePage() {
   const [ecCountdown, setEcCountdown] = useState<number | null>(null);
   const [emergencyContact, setEmergencyContact] = useState<EmergencyContact | null>(null);
   const [ecSent, setEcSent] = useState(false);
+  const [preSessionReminder, setPreSessionReminder] = useState<{ level: number } | null>(null);
 
   // ── Guardian Pulse History (real-time tracking) ──────────────────────────
   const [pulseHistory, setPulseHistory] = useState<number[]>([
@@ -303,6 +304,7 @@ export function DrivePage() {
   }, []);
 
   const fireEmergencyContact = useCallback(async () => {
+    console.log("[Drive] fireEmergencyContact called — smsEnabled:", adminRef.current.smsEnabled);
     stopEcTimer();
     if (!user) return;
     const driverName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? "Driver";
@@ -334,6 +336,13 @@ export function DrivePage() {
   const stopTick = useCallback(() => {
     if (tickRef.current) clearInterval(tickRef.current);
     tickRef.current = null;
+  }, []);
+
+  const cycleSimLevel = useCallback(() => {
+    const steps = [0, 6, 7, 8, 9, 10];
+    const next = steps[(steps.indexOf(manualLevelRef.current) + 1) % steps.length];
+    manualLevelRef.current = next;
+    setManualLevelDisplay(next);
   }, []);
 
   useEffect(() => {
@@ -629,6 +638,43 @@ export function DrivePage() {
     })();
   }, [localSessionId, stopTick, stopAlertAudio, user]);
 
+  const checkAndPromptStart = useCallback(async () => {
+    if (!user) return;
+    if (!online) { void startSession(); return; }
+    setBusy(true);
+    try {
+      // Get the last completed session — same as HistoryPage's session query
+      const { data: lastSession } = await supabase
+        .from("driving_sessions")
+        .select("id")
+        .eq("user_id", user.id)
+        .not("ended_at", "is", null)
+        .order("ended_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lastSession?.id) {
+        // Get peak drowsiness from telemetry — same source HistoryPage uses for maxLevel()
+        const { data: peakTel } = await supabase
+          .from("session_telemetry")
+          .select("drowsiness_level")
+          .eq("session_id", lastSession.id)
+          .order("drowsiness_level", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const peak = Number(peakTel?.drowsiness_level ?? 0);
+        if (peak >= 6) {
+          setBusy(false);
+          setPreSessionReminder({ level: peak });
+          return;
+        }
+      }
+    } catch { /* ignore, just start */ }
+    setBusy(false);
+    void startSession();
+  }, [user, online, startSession]);
+
   // ── Face ML + detectors ─────────────────────────────────────────────────
 
   useEffect(() => {
@@ -696,12 +742,9 @@ export function DrivePage() {
       headTiltLastTickRef.current = headTiltAccRef.current;
       suddenBrakeLastTickRef.current = suddenBrakeAccRef.current;
 
-      let level = 0;
-      if (useManualOverride) {
-        level = manualLevel;
-      } else {
-        level = computeLevelFromAlertMap(yawnAccRef.current, headAccRef.current, false, ar.map);
-      }
+      const level = manualLevelRef.current > 0
+        ? manualLevelRef.current
+        : computeLevelFromAlertMap(yawnAccRef.current, headAccRef.current, false, ar.map);
 
       setLiveLevel(level);
       setLiveYawns(yawnAccRef.current);
@@ -999,6 +1042,66 @@ export function DrivePage() {
       {ecCountdown !== null && (
         <div className="fixed bottom-6 right-6 z-40 bg-tertiary/10 border border-tertiary/50 rounded-full px-6 py-4">
           <p className="text-sm font-bold text-tertiary">Emergency Contact in {ecCountdown}s</p>
+        </div>
+      )}
+
+      {/* Pre-session last-alert reminder */}
+      {preSessionReminder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-surface-container-low rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-outline-variant/20">
+            <div className="flex flex-col items-center text-center gap-5">
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center shrink-0 ${
+                preSessionReminder.level >= 10 ? "bg-error/10 border border-error/30" :
+                preSessionReminder.level >= 8  ? "bg-tertiary/10 border border-tertiary/30" :
+                                                 "bg-secondary/10 border border-secondary/30"
+              }`}>
+                <span
+                  className={`material-symbols-outlined text-3xl ${
+                    preSessionReminder.level >= 10 ? "text-error" :
+                    preSessionReminder.level >= 8  ? "text-tertiary" : "text-secondary"
+                  }`}
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  {preSessionReminder.level >= 10 ? "emergency_home" : preSessionReminder.level >= 8 ? "warning" : "bedtime"}
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className={`text-xl font-headline font-bold ${
+                  preSessionReminder.level >= 10 ? "text-error" :
+                  preSessionReminder.level >= 8  ? "text-tertiary" : "text-secondary"
+                }`}>
+                  {preSessionReminder.level >= 10
+                    ? "Last Drive: Critical Alert!"
+                    : preSessionReminder.level >= 8
+                    ? "Last Drive: High Drowsiness"
+                    : "Last Drive: Drowsiness Detected"}
+                </h3>
+                <p className="text-on-surface-variant text-sm leading-relaxed">
+                  {preSessionReminder.level >= 10
+                    ? `In your last session you hit a Level ${preSessionReminder.level} — that's a Critical drowsiness alert! Please only drive if you feel completely rested. Your safety and others on the road depend on it.`
+                    : preSessionReminder.level >= 8
+                    ? `In your last session you triggered a Level ${preSessionReminder.level} drowsiness alert. That's a high warning. Make sure you got enough sleep before getting behind the wheel. Drive safe!`
+                    : `In your last session you triggered a Level ${preSessionReminder.level} drowsiness alert. Take a moment to make sure you're feeling fully awake before you start. Stay alert and stay safe!`}
+                </p>
+              </div>
+
+              <div className="flex gap-3 w-full pt-1">
+                <button
+                  onClick={() => setPreSessionReminder(null)}
+                  className="flex-1 py-3 bg-surface-container-high text-on-surface-variant rounded-xl font-bold text-sm border border-outline-variant/20 hover:bg-surface-bright transition-all active:scale-95"
+                >
+                  Not Yet
+                </button>
+                <button
+                  onClick={() => { setPreSessionReminder(null); void startSession(); }}
+                  className="flex-1 py-3 bg-primary text-on-primary rounded-xl font-headline font-bold text-sm hover:opacity-90 transition-all active:scale-95"
+                >
+                  I'm Ready
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1302,7 +1405,7 @@ export function DrivePage() {
           {!activeLocal ? (
             <button
               disabled={busy}
-              onClick={() => void startSession()}
+              onClick={() => void checkAndPromptStart()}
               className="w-full py-3.5 bg-gradient-to-br from-primary to-on-primary-container text-on-primary rounded-xl font-headline font-bold text-sm active:scale-95 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
             >
               <span
@@ -1321,6 +1424,23 @@ export function DrivePage() {
             >
               <span className="material-symbols-outlined text-sm">stop_circle</span>
               End Session
+            </button>
+          )}
+
+          {/* Simulation level cycling button */}
+          {activeLocal && (
+            <button
+              onClick={cycleSimLevel}
+              className={`mt-2 w-full py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 flex items-center justify-center gap-1.5 ${
+                manualLevelDisplay > 0
+                  ? "bg-secondary/10 text-secondary border-secondary/30"
+                  : "bg-surface-container-high text-on-surface-variant border-outline-variant/10 hover:bg-surface-bright"
+              }`}
+            >
+              <span className="material-symbols-outlined text-sm">science</span>
+              {manualLevelDisplay === 0
+                ? "Simulate Alert Level (off)"
+                : `Simulating Level ${manualLevelDisplay} — click to advance`}
             </button>
           )}
 

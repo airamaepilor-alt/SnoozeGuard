@@ -16,6 +16,8 @@ import { SessionDetailPage } from "./pages/SessionDetailPage";
 import { LoginPage } from "./pages/LoginPage";
 import { SimulationPage } from "./pages/SimulationPage";
 import { IotDevicesPage } from "./pages/IotDevicesPage";
+import { AcceptGuardianPage } from "./pages/AcceptGuardianPage";
+import { AlertViewPage } from "./pages/AlertViewPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth();
@@ -61,6 +63,9 @@ function AppRoutes() {
           </RequireAuth>
         }
       />
+      {/* Public — no auth required */}
+      <Route path="/accept-guardian" element={<AcceptGuardianPage />} />
+      <Route path="/alert-view" element={<AlertViewPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

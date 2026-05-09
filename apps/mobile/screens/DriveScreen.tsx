@@ -260,6 +260,7 @@ export function DriveScreen() {
   const [busy, setBusy] = useState(false);
   const [netLabel, setNetLabel] = useState("…");
   const [showMountModal, setShowMountModal] = useState(false);
+  const [preSessionReminder, setPreSessionReminder] = useState<{ level: number } | null>(null);
 
   // Empty until downloaded — FaceCamera only mounts when this is set
   const [modelPath, setModelPath] = useState("");
@@ -285,6 +286,7 @@ export function DriveScreen() {
   // Emergency contact
   const [emergencyContact, setEmergencyContact] = useState<EmergencyContact | null>(null);
   const [ecCountdown, setEcCountdown] = useState<number | null>(null);
+  const [ecSent, setEcSent] = useState(false);
   const ecTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ecAutoFiredRef = useRef(false);
   const activeAlertIdRef = useRef<string | null>(null);
@@ -298,6 +300,7 @@ export function DriveScreen() {
   const [iotLastSeen, setIotLastSeen] = useState<string | null>(null);
   const [iotSaving, setIotSaving] = useState(false);
   const iotRealtimeRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const [hourlyRisk, setHourlyRisk] = useState<number[] | null>(null);
 
   // Detectors
   const yawnDetectorRef = useRef(createYawnDetector(() => { yawnAccRef.current += 1; }));
@@ -443,6 +446,18 @@ export function DriveScreen() {
 
   useEffect(() => { void loadAdminConfig(); }, [loadAdminConfig]);
 
+  useEffect(() => {
+    const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    void supabase.rpc("get_analytics_data", { p_since: cutoff }).then(({ data }) => {
+      type RpcResult = { hourly_avg: { block: number; avg: number }[] };
+      const blocks = Array(6).fill(0) as number[];
+      for (const h of ((data as RpcResult | null)?.hourly_avg ?? [])) {
+        if (h.block >= 0 && h.block < 6) blocks[h.block] = Number(h.avg);
+      }
+      setHourlyRisk(blocks);
+    });
+  }, [user.id]);
+
   // Load paired IoT device + subscribe to heartbeat updates
   useEffect(() => {
     void supabase
@@ -495,10 +510,12 @@ export function DriveScreen() {
   }, []);
 
   const fireEmergencyContact = useCallback(async () => {
+    console.log("[Drive] fireEmergencyContact called — smsEnabled:", adminRef.current.smsEnabled);
     stopEcTimer();
     const driverName = user.user_metadata?.full_name ?? user.email ?? "Driver";
     const { alertId } = await triggerEmergencyAlert(supabase, user.id, driverName, localSessionId, adminRef.current.smsEnabled);
     activeAlertIdRef.current = alertId;
+    setEcSent(true);
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     Vibration.vibrate([0, 500, 200, 500, 200, 500]);
   }, [user, localSessionId, stopEcTimer]);
@@ -529,7 +546,7 @@ export function DriveScreen() {
   }, []);
 
   useEffect(() => {
-    if (alertOpen && alertLevel >= 9) startEcCountdown();
+    if (alertOpen && alertLevel >= 9) { setEcSent(false); startEcCountdown(); }
     else stopEcTimer();
   }, [alertOpen, alertLevel, startEcCountdown, stopEcTimer]);
 
@@ -779,6 +796,27 @@ export function DriveScreen() {
     })();
   }, [localSessionId, stopTick, stopAlertAudio, resetDrowsinessScore, user.id]);
 
+  // Check last session's peak drowsiness from SQLite; show reminder if >= 6
+  const checkAndPromptStart = useCallback(() => {
+    const db = getDatabase();
+    const lastSession = db.getFirstSync<{ id: string }>(
+      "SELECT id FROM driving_sessions_local WHERE user_id = ? AND ended_at IS NOT NULL ORDER BY ended_at DESC LIMIT 1",
+      user.id,
+    );
+    if (lastSession?.id) {
+      const row = db.getFirstSync<{ peak: number }>(
+        "SELECT MAX(drowsiness_level) as peak FROM session_telemetry_local WHERE local_session_id = ?",
+        lastSession.id,
+      );
+      const peak = Number(row?.peak ?? 0);
+      if (peak >= 6) {
+        setPreSessionReminder({ level: peak });
+        return;
+      }
+    }
+    setShowMountModal(true);
+  }, [user.id]);
+
   // Expose endSession to App.tsx so the nav-guard alert can call it
   useEffect(() => {
     endSessionFn.current = endSession;
@@ -973,6 +1011,24 @@ export function DriveScreen() {
     };
   }, [localSessionId, stopTick, user.id]);
 
+  const riskBannerData = (() => {
+    if (!hourlyRisk) return null;
+    const nightAvg = (hourlyRisk[0] + hourlyRisk[5]) / 2;
+    const dayAvg = (hourlyRisk[2] + hourlyRisk[3]) / 2;
+    if (nightAvg === 0 && dayAvg === 0) return null;
+    const riskPct =
+      nightAvg > 0 && dayAvg > 0
+        ? Math.round(((nightAvg - dayAvg) / Math.max(0.1, dayAvg)) * 100)
+        : null;
+    const elevated = riskPct !== null && riskPct > 0;
+    return {
+      text: elevated
+        ? `${riskPct}% higher drowsiness detected during night shifts (22:00–04:00). Consider scheduling breaks.`
+        : "No significant circadian risk pattern detected. Alertness levels appear stable.",
+      elevated,
+    };
+  })();
+
   if (!hasPermission) {
     return (
       <View style={styles.center}>
@@ -994,6 +1050,40 @@ export function DriveScreen() {
 
   return (
     <View style={styles.root}>
+      {/* ── Pre-session last-alert reminder ── */}
+      <Modal visible={preSessionReminder !== null} animationType="slide" transparent onRequestClose={() => setPreSessionReminder(null)}>
+        <View style={styles.mountOverlay}>
+          <View style={styles.mountSheet}>
+            <Text style={styles.mountIcon}>
+              {(preSessionReminder?.level ?? 0) >= 10 ? "🚨" : (preSessionReminder?.level ?? 0) >= 8 ? "⚠️" : "😴"}
+            </Text>
+            <Text style={[styles.mountTitle, { color: (preSessionReminder?.level ?? 0) >= 10 ? t.tertiary : (preSessionReminder?.level ?? 0) >= 8 ? t.secondary : t.primary }]}>
+              {(preSessionReminder?.level ?? 0) >= 10
+                ? "Last Drive: Critical Alert!"
+                : (preSessionReminder?.level ?? 0) >= 8
+                ? "Last Drive: High Drowsiness"
+                : "Last Drive: Drowsiness Detected"}
+            </Text>
+            <Text style={styles.mountBody}>
+              {(preSessionReminder?.level ?? 0) >= 10
+                ? `Your last session hit Level ${preSessionReminder?.level} — a Critical alert! Please only drive if you feel completely rested. Your safety and others on the road depend on it.`
+                : (preSessionReminder?.level ?? 0) >= 8
+                ? `Your last session triggered a Level ${preSessionReminder?.level} drowsiness alert. That's a high warning. Make sure you got enough sleep before getting behind the wheel.`
+                : `Your last session triggered a Level ${preSessionReminder?.level} drowsiness alert. Make sure you're feeling fully awake before you start. Stay alert and stay safe!`}
+            </Text>
+            <Pressable
+              style={[styles.mountConfirmBtn, (preSessionReminder?.level ?? 0) >= 10 && { backgroundColor: t.tertiary, shadowColor: t.tertiary }]}
+              onPress={() => { setPreSessionReminder(null); setShowMountModal(true); }}
+            >
+              <Text style={styles.btnTextPrimary}>I'm Ready — Continue</Text>
+            </Pressable>
+            <Pressable style={styles.mountCancelBtn} onPress={() => setPreSessionReminder(null)}>
+              <Text style={styles.mountCancelText}>Not Yet</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Device mount confirmation modal ── */}
       <Modal visible={showMountModal} animationType="slide" transparent onRequestClose={() => setShowMountModal(false)}>
         <View style={styles.mountOverlay}>
@@ -1069,29 +1159,31 @@ export function DriveScreen() {
               <View style={styles.ecSection}>
                 {ecCountdown !== null ? (
                   <Text style={styles.ecCountdown}>Auto-notifying emergency contact in {ecCountdown}s</Text>
-                ) : (
+                ) : ecSent ? (
                   <Text style={styles.ecSent}>Emergency contact has been notified.</Text>
-                )}
-                {emergencyContact && (
-                  <View style={styles.ecBtnRow}>
-                    <Pressable style={styles.ecBtnCall} onPress={() => {
-                      if (emergencyContact.contact_phone)
-                        void Linking.openURL(`tel:${emergencyContact.contact_phone}`);
-                    }}>
-                      <Text style={styles.ecBtnText}>📞 Call {emergencyContact.contact_name}</Text>
-                    </Pressable>
-                    {emergencyContact.contact_phone && (
-                      <Pressable style={styles.ecBtnSms} onPress={() =>
-                        void Linking.openURL(`sms:${emergencyContact.contact_phone}?body=URGENT: I triggered a drowsiness alert on SnoozeGuard. Please check on me or call me immediately.`)
-                      }>
-                        <Text style={styles.ecBtnText}>💬 SMS</Text>
+                ) : null}
+                <View style={styles.ecBtnRow}>
+                  {emergencyContact && (
+                    <>
+                      <Pressable style={styles.ecBtnCall} onPress={() => {
+                        if (emergencyContact.contact_phone)
+                          void Linking.openURL(`tel:${emergencyContact.contact_phone}`);
+                      }}>
+                        <Text style={styles.ecBtnText}>📞 Call {emergencyContact.contact_name}</Text>
                       </Pressable>
-                    )}
-                    <Pressable style={styles.ecBtnNotify} onPress={() => void fireEmergencyContact()}>
-                      <Text style={styles.ecBtnText}>🚨 Notify Now</Text>
-                    </Pressable>
-                  </View>
-                )}
+                      {emergencyContact.contact_phone && (
+                        <Pressable style={styles.ecBtnSms} onPress={() =>
+                          void Linking.openURL(`sms:${emergencyContact.contact_phone}?body=URGENT: I triggered a drowsiness alert on SnoozeGuard. Please check on me or call me immediately.`)
+                        }>
+                          <Text style={styles.ecBtnText}>💬 SMS</Text>
+                        </Pressable>
+                      )}
+                    </>
+                  )}
+                  <Pressable style={styles.ecBtnNotify} onPress={() => void fireEmergencyContact()}>
+                    <Text style={styles.ecBtnText}>🚨 Notify Now</Text>
+                  </Pressable>
+                </View>
               </View>
             )}
 
@@ -1182,7 +1274,20 @@ export function DriveScreen() {
             </View>
           </>
         ) : (
-          <Text style={styles.meta}>Face detection is monitoring for drowsiness signs.</Text>
+          <>
+            <Text style={styles.meta}>Face detection is monitoring for drowsiness signs.</Text>
+            {riskBannerData && (
+              <View style={[styles.riskBanner, riskBannerData.elevated && styles.riskBannerElevated]}>
+                <Text style={styles.riskBannerIcon}>🧠</Text>
+                <View style={styles.riskBannerBody}>
+                  <Text style={[styles.riskBannerTitle, riskBannerData.elevated && styles.riskBannerTitleElevated]}>
+                    Predictive Risk Assessment
+                  </Text>
+                  <Text style={styles.riskBannerText}>{riskBannerData.text}</Text>
+                </View>
+              </View>
+            )}
+          </>
         )}
 
         <Text style={styles.metaSmall}>Network: {netLabel}</Text>
@@ -1297,7 +1402,7 @@ export function DriveScreen() {
             <Pressable
               style={[styles.btn, styles.go, !modelPath && styles.btnDisabled]}
               disabled={busy || !modelPath}
-              onPress={() => setShowMountModal(true)}
+              onPress={() => checkAndPromptStart()}
             >
               {busy ? <ActivityIndicator color={t.onPrimary} /> : <Text style={styles.btnTextPrimary}>Start driving</Text>}
             </Pressable>
@@ -1416,6 +1521,18 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     borderRadius: 10, borderWidth: 1, borderColor: `${t.primary}44`, justifyContent: "center",
   },
   iotLinkText: { color: t.primary, fontSize: 12, fontWeight: "700" },
+
+  riskBanner: {
+    flexDirection: "row", alignItems: "flex-start", gap: 8,
+    backgroundColor: `${t.primary}11`, borderWidth: 1, borderColor: `${t.primary}33`,
+    borderRadius: 12, padding: 10, marginTop: 4,
+  },
+  riskBannerElevated: { backgroundColor: `${t.secondary}11`, borderColor: `${t.secondary}33` },
+  riskBannerIcon: { fontSize: 18, lineHeight: 22 },
+  riskBannerBody: { flex: 1 },
+  riskBannerTitle: { fontSize: 9, fontWeight: "800", color: t.primary, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 3 },
+  riskBannerTitleElevated: { color: t.secondary },
+  riskBannerText: { fontSize: 11, color: t.onSurfaceVariant, lineHeight: 16 },
 
   bleBtnRow: {
     flexDirection: "row", alignItems: "center", gap: 8,

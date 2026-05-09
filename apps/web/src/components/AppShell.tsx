@@ -91,6 +91,19 @@ function TopNavLink({ to, label, end }: { to: string; label: string; end?: boole
   );
 }
 
+// ─── Sidebar section label ────────────────────────────────────────────────────
+
+function NavSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-1">
+      <p className="px-6 pt-4 pb-1 text-[9px] font-black uppercase tracking-widest text-slate-600 select-none">
+        {title}
+      </p>
+      {children}
+    </div>
+  );
+}
+
 // ─── Sidebar content ──────────────────────────────────────────────────────────
 
 function SidebarContent({
@@ -118,36 +131,40 @@ function SidebarContent({
         <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-0.5">Vigilant System</p>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden">
-        <SideNavItem to="/" icon="dashboard" label="Dashboard" end onNavigate={onNavigate} />
-        <SideNavItem to="/analytics" icon="bar_chart" label="Driver Analytics" onNavigate={onNavigate} />
-        <SideNavItem to="/history" icon="history" label="Fatigue Logs" onNavigate={onNavigate} />
-        <SideNavItem to="/account" icon="manage_accounts" label="Account" onNavigate={onNavigate} />
-        <SideNavItem to="/guardians" icon="shield" label="Emergency Contact" onNavigate={onNavigate} />
-        <SideNavItem to="/iot-devices" icon="devices_other" label="IoT Devices" onNavigate={onNavigate} badge={pendingIotCount > 0} />
-        <SideNavItem to="/about" icon="info" label="About" onNavigate={onNavigate} />
-        <SideNavItem to="/terms" icon="policy" label="Terms & Privacy" onNavigate={onNavigate} />
-        <SideNavItem to="/safety-protocol" icon="security" label="Safety Protocol" onNavigate={onNavigate} />
-        <SideNavItem to="/simulation" icon="directions_car" label="Drive Simulation" onNavigate={onNavigate} />
+      {/* Navigation — grouped */}
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden pb-2">
+        <NavSection title="Overview">
+          <SideNavItem to="/" icon="dashboard" label="Dashboard" end onNavigate={onNavigate} />
+          <SideNavItem to="/analytics" icon="bar_chart" label="Analytics" onNavigate={onNavigate} />
+          <SideNavItem to="/history" icon="history" label="Fatigue Logs" onNavigate={onNavigate} />
+        </NavSection>
+
+        <NavSection title="Drive">
+          <SideNavItem to="/drive" icon="directions_car" label="Start Driving" onNavigate={onNavigate} />
+          <SideNavItem to="/simulation" icon="science" label="Drive Simulation" onNavigate={onNavigate} />
+          <SideNavItem to="/safety-protocol" icon="security" label="Safety Protocol" onNavigate={onNavigate} />
+        </NavSection>
+
+        <NavSection title="Safety">
+          <SideNavItem to="/guardians" icon="shield" label="Emergency Contact" onNavigate={onNavigate} />
+          <SideNavItem to="/iot-devices" icon="devices_other" label="IoT Devices" onNavigate={onNavigate} badge={pendingIotCount > 0} />
+        </NavSection>
+
+        <NavSection title="Account">
+          <SideNavItem to="/account" icon="manage_accounts" label="Account" onNavigate={onNavigate} />
+          <SideNavItem to="/about" icon="info" label="About" onNavigate={onNavigate} />
+          <SideNavItem to="/terms" icon="policy" label="Terms & Privacy" onNavigate={onNavigate} />
+        </NavSection>
+
         {isAdmin && (
-          <SideNavItem to="/admin" icon="admin_panel_settings" label="Admin Console" onNavigate={onNavigate} />
+          <NavSection title="System">
+            <SideNavItem to="/admin" icon="admin_panel_settings" label="Admin Console" onNavigate={onNavigate} />
+          </NavSection>
         )}
       </nav>
 
       {/* Bottom section */}
-      <div className="px-4 mt-6 space-y-3 shrink-0">
-        <Link
-          to="/drive"
-          onClick={onNavigate}
-          className="w-full bg-secondary text-on-primary py-3 rounded-xl font-headline font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity text-sm"
-        >
-          <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>
-            warning
-          </span>
-          <span>SOS Monitor</span>
-        </Link>
-
+      <div className="px-4 mt-4 space-y-3 shrink-0">
         <div className="border-t border-outline-variant/20 pt-3 space-y-0.5">
           {/* User row */}
           <div className="mx-2 px-4 py-2 flex items-center gap-3">

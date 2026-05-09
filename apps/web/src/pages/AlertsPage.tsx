@@ -478,7 +478,7 @@ export function AlertsPage() {
           .from("emergency_contacts")
           .select("user_id")
           .ilike("contact_email", user.email ?? "__no_email__")
-          .neq("status", "pending"),
+          .eq("status", "accepted"),
         supabase
           .from("emergency_contacts")
           .select("id, user_id, created_at")
@@ -651,7 +651,7 @@ export function AlertsPage() {
 
   const handleDecline = async (id: string) => {
     setDecliningId(id);
-    await supabase.from("emergency_contacts").delete().eq("id", id);
+    await supabase.rpc("decline_guardian_request", { p_contact_id: id });
     setPendingRequests((prev) => prev.filter((r) => r.id !== id));
     setDecliningId(null);
   };

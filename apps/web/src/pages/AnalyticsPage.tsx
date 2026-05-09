@@ -4,6 +4,38 @@ import { useAuth } from "../context/AuthContext";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { supabase } from "../lib/supabase";
 
+// ─── Tooltip ─────────────────────────────────────────────────────────────────
+
+function Tooltip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative inline-flex items-center">
+      <span
+        className="material-symbols-outlined text-on-surface-variant text-sm cursor-pointer select-none"
+        onClick={() => setOpen((o) => !o)}
+      >
+        info
+      </span>
+      {open && (
+        <div className="absolute z-50 left-7 top-1/2 -translate-y-1/2 w-64 bg-surface-container-high text-on-surface text-xs leading-relaxed rounded-2xl p-4 shadow-2xl border border-outline/20">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Filter = 7 | 30 | 90;
@@ -103,12 +135,7 @@ function AreaChart({ data, filter }: { data: DailyAvg[]; filter: Filter; loading
         <div>
           <div className="flex items-center gap-2 mb-1">
             <h3 className="text-xl font-headline font-bold text-on-surface">Drowsiness Fluctuations</h3>
-            <span
-              className="material-symbols-outlined text-on-surface-variant text-sm cursor-default"
-              title="Average drowsiness level (0-10) expressed as a percentage, per day"
-            >
-              info
-            </span>
+            <Tooltip text="This line shows how sleepy you were each day. The higher the line goes, the drowsier you were. 0% = wide awake, 100% = very sleepy!" />
           </div>
           <p className="text-on-surface-variant text-sm font-medium">Avg Drowsiness % per day</p>
         </div>
@@ -256,12 +283,7 @@ function SessionActivityBar({ counts, loading }: { counts: number[]; loading: bo
         <div>
           <div className="flex items-center gap-2 mb-1">
             <h3 className="text-xl font-headline font-bold text-on-surface">Session Activity</h3>
-            <span
-              className="material-symbols-outlined text-on-surface-variant text-sm cursor-default"
-              title="Number of driving sessions per day of week in the selected period"
-            >
-              info
-            </span>
+            <Tooltip text="This shows how many times you drove on each day of the week. Taller bar = more drives that day. The glowing bar is today!" />
           </div>
           <p className="text-on-surface-variant text-sm font-medium">Daily Drive Counts</p>
         </div>
@@ -311,12 +333,7 @@ function HourlyDistribution({ hourly, loading }: { hourly: number[]; loading: bo
       <div>
         <div className="flex items-center gap-2 mb-1">
           <h3 className="text-xl font-headline font-bold text-on-surface">Hourly Drowsiness Distribution</h3>
-          <span
-            className="material-symbols-outlined text-on-surface-variant text-sm cursor-default"
-            title="Average drowsiness level across circadian time blocks"
-          >
-            info
-          </span>
+          <Tooltip text="This shows what time of day you tend to feel most sleepy while driving. Longer bar = more drowsy during that time block. Short bar = you were alert!" />
         </div>
         <p className="text-on-surface-variant text-sm font-medium">Circadian Alertness Levels</p>
       </div>
@@ -397,12 +414,7 @@ function DonutChart({
       <div>
         <div className="flex items-center gap-2 mb-1">
           <h3 className="text-xl font-headline font-bold text-on-surface">Detection Breakdown</h3>
-          <span
-            className="material-symbols-outlined text-on-surface-variant text-sm cursor-default"
-            title="Composition of drowsiness trigger events over the selected period"
-          >
-            info
-          </span>
+          <Tooltip text="This pie-like chart shows WHAT made you drowsy — yawning, head nodding, head tilting, or sudden braking. Bigger slice = happened more often!" />
         </div>
         <p className="text-on-surface-variant text-sm font-medium">Primary Trigger Classification</p>
       </div>
@@ -558,7 +570,7 @@ export function AnalyticsPage() {
       };
       const { data: rpcRaw } = await supabase
         .rpc("get_analytics_data", { p_since: cutoff })
-        .returns<RpcResult>();
+        .overrideTypes<RpcResult>();
 
       if (cancelled) return;
 

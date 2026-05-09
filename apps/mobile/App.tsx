@@ -29,9 +29,10 @@ import { AdminScreen } from "./screens/AdminScreen";
 import { AnalyticsScreen } from "./screens/AnalyticsScreen";
 import { EmergencyAlertMapScreen } from "./screens/EmergencyAlertMapScreen";
 import { EmergencyContactSetupModal } from "./screens/EmergencyContactSetupModal";
+import { AcceptGuardianModal } from "./screens/AcceptGuardianModal";
 import { getEmergencyContact, registerPushToken } from "./lib/emergencyNotify";
 import { getDatabase, upsertLocalEC, getPref, setPref } from "./db/database";
-import { flushEndedSessions, flushPendingTelemetry, rehydrateSessions, recoverDeletedRemoteSessions } from "./sync/flush";
+import { flushEndedSessions, flushPendingTelemetry, rehydrateSessions, recoverDeletedRemoteSessions, isOnline } from "./sync/flush";
 import { setPresenceIds } from "./lib/presenceStore";
 import { theme } from "./theme";
 
@@ -219,13 +220,30 @@ function AppDrawer({ visible, onClose, session, superAdmin, onSignOut, onGuard }
   const initial = displayName.charAt(0).toUpperCase();
 
   type NavItem = { name: keyof MainTabParamList; icon: string; label: string };
-  const navItems: NavItem[] = [
-    { name: "EmergencyContact", icon: "emergency", label: "Emergency Contact" },
-    { name: "Account", icon: "manage-accounts", label: "Account" },
-    { name: "IotDevices", icon: "devices-other", label: "IoT Devices" },
-    { name: "About", icon: "info-outline", label: "About SnoozeGuard" },
-    { name: "Terms", icon: "gavel", label: "Terms & Privacy" },
-    ...(superAdmin ? [{ name: "Admin" as keyof MainTabParamList, icon: "admin-panel-settings", label: "Admin Config" }] : []),
+  type NavSection = { heading: string; items: NavItem[] };
+
+  const navSections: NavSection[] = [
+    {
+      heading: "My Profile",
+      items: [
+        { name: "Account", icon: "manage-accounts", label: "Account" },
+      ],
+    },
+    {
+      heading: "Safety Network",
+      items: [
+        { name: "EmergencyContact", icon: "emergency", label: "Emergency Contact" },
+        { name: "IotDevices", icon: "devices-other", label: "IoT Devices" },
+      ],
+    },
+    {
+      heading: "More",
+      items: [
+        { name: "About", icon: "info-outline", label: "About SnoozeGuard" },
+        { name: "Terms", icon: "gavel", label: "Terms & Privacy" },
+        ...(superAdmin ? [{ name: "Admin" as keyof MainTabParamList, icon: "admin-panel-settings", label: "Admin Config" }] : []),
+      ],
+    },
   ];
 
   return (
@@ -280,19 +298,24 @@ function AppDrawer({ visible, onClose, session, superAdmin, onSignOut, onGuard }
                 ? syncProgress !== null && syncProgress > 0
                   ? `Syncing… ${syncProgress}%`
                   : "Syncing…"
-                : online === null ? "Checking…" : online ? "Online — tap to sync" : "Offline"}
+                : online === null ? "Checking…" : online ? "Online · auto-syncing" : "Offline"}
             </Text>
           </Pressable>
 
           <View style={styles.divider} />
 
-          {/* Navigation links */}
+          {/* Navigation links — grouped */}
           <ScrollView style={styles.navList} showsVerticalScrollIndicator={false}>
-            {navItems.map((item) => (
-              <Pressable key={item.name} style={styles.navItem} onPress={() => guardedNav(item.name)}>
-                <MaterialIcons name={item.icon as React.ComponentProps<typeof MaterialIcons>["name"]} size={22} color={t.onSurface} />
-                <Text style={styles.navItemText}>{item.label}</Text>
-              </Pressable>
+            {navSections.map((section) => (
+              <View key={section.heading}>
+                <Text style={styles.navSectionLabel}>{section.heading}</Text>
+                {section.items.map((item) => (
+                  <Pressable key={item.name} style={styles.navItem} onPress={() => guardedNav(item.name)}>
+                    <MaterialIcons name={item.icon as React.ComponentProps<typeof MaterialIcons>["name"]} size={22} color={t.onSurface} />
+                    <Text style={styles.navItemText}>{item.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
             ))}
             <View style={styles.navSectionDivider} />
             <Pressable style={styles.navItem} onPress={() => {
@@ -381,7 +404,18 @@ const makeDrawerStyles = (t: Theme) => StyleSheet.create({
   syncLabelWarn: { color: t.onSurfaceVariant, fontSize: 12, fontWeight: "600", flex: 1 },
   divider: { height: 1, backgroundColor: `${t.outlineVariant}44`, marginHorizontal: 12, marginVertical: 4 },
   navList: { flex: 1, paddingVertical: 4 },
-  navItem: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 14, paddingHorizontal: 20 },
+  navSectionLabel: {
+    color: t.onSurfaceVariant,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 4,
+    opacity: 0.55,
+  },
+  navItem: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 13, paddingHorizontal: 20 },
   navItemText: { color: t.onSurface, fontSize: 15, fontWeight: "600" },
   navItemSub: { color: t.onSurfaceVariant, fontSize: 10, marginTop: 1 },
   navSectionDivider: { height: 1, backgroundColor: `${t.outlineVariant}44`, marginHorizontal: 20, marginVertical: 6 },
@@ -407,6 +441,7 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
   const [alertBadge, setAlertBadge] = useState<string | number | undefined>(undefined);
   const [guardVisible, setGuardVisible] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [guardianAcceptToken, setGuardianAcceptToken] = useState<string | null>(null);
   const guardActionRef = useRef<(() => void) | null>(null);
   const insets = useSafeAreaInsets();
 
@@ -414,6 +449,31 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
   useEffect(() => {
     openDrawerRef.current = () => setDrawerOpen(true);
     return () => { openDrawerRef.current = null; };
+  }, []);
+
+  // Handle snoozeguard://accept-guardian?token=xxx deep links
+  useEffect(() => {
+    function extractToken(url: string): string | null {
+      if (!url.includes("accept-guardian")) return null;
+      try {
+        const qs = url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
+        const token = new URLSearchParams(qs).get("token");
+        return token ?? null;
+      } catch { return null; }
+    }
+
+    Linking.getInitialURL().then((url) => {
+      if (url) {
+        const t = extractToken(url);
+        if (t) setGuardianAcceptToken(t);
+      }
+    }).catch(() => {});
+
+    const sub = Linking.addEventListener("url", ({ url }) => {
+      const t = extractToken(url);
+      if (t) setGuardianAcceptToken(t);
+    });
+    return () => sub.remove();
   }, []);
 
   const showSessionGuard = useCallback((navFn: () => void) => {
@@ -445,7 +505,7 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
         .from("emergency_contacts")
         .select("user_id")
         .ilike("contact_email", userEmail)
-        .neq("status", "pending"),
+        .eq("status", "accepted"),
       supabase
         .from("emergency_contacts")
         .select("id", { count: "exact", head: true })
@@ -548,12 +608,37 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
     return () => { void supabase.removeChannel(ch); };
   }, [session.user.id]);
 
-  // Auto-sync EC from Supabase when connectivity is restored
+  // ── Auto-sync: upload pending data + download missing sessions ──────────────
+  // rehydrateSessions is expensive on first run (up to 200 sessions × telemetry),
+  // so throttle it to once every 5 minutes; flush functions are cheap every tick.
+  const lastRehydrateRef = useRef(0);
+
+  const runAutoSync = useCallback(async () => {
+    try {
+      if (!(await isOnline())) return;
+      await flushEndedSessions(supabase, session.user.id);
+      await flushPendingTelemetry(supabase, session.user.id);
+      if (Date.now() - lastRehydrateRef.current > 5 * 60_000) {
+        await rehydrateSessions(supabase, session.user.id);
+        lastRehydrateRef.current = Date.now();
+      }
+    } catch { /* silent — will retry next tick */ }
+  }, [session.user.id]);
+
+  // Run once immediately on mount, then every 60 seconds
+  useEffect(() => {
+    void runAutoSync();
+    const interval = setInterval(() => void runAutoSync(), 60_000);
+    return () => clearInterval(interval);
+  }, [runAutoSync]);
+
+  // Auto-sync EC + session data when connectivity is restored after being offline
   useEffect(() => {
     let wasOnline: boolean | null = null;
     const unsub = NetInfo.addEventListener((state) => {
       const isNowOnline = Boolean(state.isConnected && state.isInternetReachable !== false);
       if (isNowOnline && wasOnline === false) {
+        // EC sync
         void (async () => {
           try {
             const ec = await getEmergencyContact(supabase, session.user.id);
@@ -573,11 +658,13 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
             }
           } catch { /* silent */ }
         })();
+        // Full data sync — uploads pending local data + pulls any new remote sessions
+        void runAutoSync();
       }
       wasOnline = isNowOnline;
     });
     return () => unsub();
-  }, [session.user.id]);
+  }, [session.user.id, runAutoSync]);
 
   const navTheme = useMemo(() => ({
     ...NAV_DARK_THEME,
@@ -673,6 +760,12 @@ function MainApp({ session, onSignOut }: { session: Session; onSignOut: () => vo
         userId={session.user.id}
         onDone={() => { setShowEcSetup(false); setHasEmergencyContact(true); }}
         onSkip={() => setShowEcSetup(false)}
+      />
+
+      {/* Deep-link handler: snoozeguard://accept-guardian?token=xxx */}
+      <AcceptGuardianModal
+        token={guardianAcceptToken}
+        onClose={() => { setGuardianAcceptToken(null); void refreshAlertBadge(); }}
       />
 
       <NavigationContainer ref={navigationRef} theme={navTheme as typeof NAV_DARK_THEME}>
